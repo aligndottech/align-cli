@@ -37,28 +37,31 @@ export async function runAgentUi(opts: AgentUiOptions): Promise<number> {
   let pending: { kind: 'gate' | 'command'; resolve: (a: HumanAnswer) => void } | undefined;
   let finish: (code: number) => void = () => {};
 
+  // The turn in progress, if any. Each submit gets a new id, so a late end for an older turn
+  // (the turn-end event, then prompt()'s own finally) cannot end the one after it.
+  let turn: { id: number; startedAt: number; seed: number } | undefined;
+  let turnIds = 0;
+  // Tools running now, by call id: parallel calls each keep their own words, and the newest shows.
+  const running = new Map<string, string | undefined>();
+
   // The status line: on for the whole turn, off while a question card waits for the person.
+  // The spinner's own frame tick redraws it, and the message is computed at draw time, so the
+  // time and the word stay current with no second timer and no extra render.
   const status = new Container();
   let loader: Loader | undefined;
-  let ticker: ReturnType<typeof setInterval> | undefined;
-  let turnStartedAt = 0;
-  let seed = 0;
-  let activity: string | undefined;
-  const refreshStatus = (): void => {
-    const elapsedMs = Date.now() - turnStartedAt;
-    loader?.setMessage(statusMessage({ word: activity ?? wordAt(seed, elapsedMs), elapsedMs }));
+  const currentStatus = (): string => {
+    const elapsedMs = turn ? Date.now() - turn.startedAt : 0;
+    const activity = [...running.values()].reverse().find((a) => a !== undefined);
+    return statusMessage({ word: activity ?? wordAt(turn?.seed ?? 0, elapsedMs), elapsedMs });
   };
   const showStatus = (): void => {
-    if (loader) return;
-    loader = new Loader(tui, theme.brand, theme.dim, '', { frames: SPINNER_FRAMES, intervalMs: SPINNER_INTERVAL_MS });
+    if (loader || !turn) return;
+    loader = new Loader(tui, theme.brand, () => theme.dim(currentStatus()), '', { frames: SPINNER_FRAMES, intervalMs: SPINNER_INTERVAL_MS });
     status.addChild(loader);
-    refreshStatus();
-    ticker = setInterval(refreshStatus, 1000);
   };
   const hideStatus = (): void => {
     if (!loader) return;
     loader.stop();
-    clearInterval(ticker);
     status.clear();
     loader = undefined;
     tui.requestRender();
@@ -69,7 +72,23 @@ export async function runAgentUi(opts: AgentUiOptions): Promise<number> {
     for (const l of lines) transcript.addChild(new Text(l, 1, 0));
     tui.requestRender();
   };
-  const endTurn = (): void => { hideStatus(); activity = undefined; controller.turnEnded(); editor.disableSubmit = false; tui.requestRender(); };
+  const endTurn = (id: number | undefined): void => {
+    if (!turn || turn.id !== id) return;
+    turn = undefined;
+    running.clear();
+    hideStatus();
+    // A card left open when its turn ended (an engine error, an abort) is answered no, so the
+    // tool call behind it is refused and the next key goes to the editor again.
+    if (pending) {
+      const { resolve } = pending;
+      pending = undefined;
+      controller.endAsk();
+      resolve('stop');
+    }
+    controller.turnEnded();
+    editor.disableSubmit = false;
+    tui.requestRender();
+  };
 
   const askHuman = (q: HumanQuestion): Promise<HumanAnswer> => {
     hideStatus();
@@ -108,10 +127,11 @@ export async function runAgentUi(opts: AgentUiOptions): Promise<number> {
     editor.setText('');
     editor.disableSubmit = true;
     addLines(['', `${theme.brand('>')} ${line}`]);
-    turnStartedAt = Date.now();
-    seed = Math.floor(Math.random() * 1000);
+    turnIds += 1;
+    const id = turnIds;
+    turn = { id, startedAt: Date.now(), seed: Math.floor(Math.random() * 1000) };
     showStatus();
-    engine.prompt(line).catch((e: unknown) => addLines([theme.error(e instanceof Error ? e.message : String(e))])).finally(endTurn);
+    engine.prompt(line).catch((e: unknown) => addLines([theme.error(e instanceof Error ? e.message : String(e))])).finally(() => endTurn(id));
   };
 
   tui.addChild(new Text(headerLine({ label: engine.label, decisionCount: opts.decisionCount }), 1, 0));
@@ -141,15 +161,17 @@ export async function runAgentUi(opts: AgentUiOptions): Promise<number> {
       } else if (e.type === 'error') {
         addLines([theme.error(e.message)]);
       } else {
-        if (e.type === 'tool-start') { activity = toolActivity(e.tool); refreshStatus(); }
-        if (e.type === 'tool-end') { activity = undefined; refreshStatus(); }
+        if (e.type === 'tool-start') { running.set(e.id, toolActivity(e.tool)); loader?.invalidate(); }
+        if (e.type === 'tool-end') { running.delete(e.id); loader?.invalidate(); }
         addLines(toolLine(e));
-        if (e.type === 'turn-end') endTurn();
+        if (e.type === 'turn-end') endTurn(turn?.id);
       }
       tui.requestRender();
     }, broker).catch((err: unknown) => { failed = err instanceof Error ? err.message : String(err); });
     if (failed === undefined) {
       const code = await closed;
+      // Stop drawing before the engine closes: a slow close must not leave the spinner going.
+      hideStatus();
       await engine.close();
       return code;
     }
