@@ -7,7 +7,7 @@ import { execFile } from 'node:child_process';
  * repo cannot set these, but a repo that arrived with its `.git` folder can. The user's own global
  * config is theirs to trust, so only the repository's config is read.
  */
-const RISKY_KEYS = String.raw`^(core\.fsmonitor|diff\.external|diff\..*\.(textconv|command)|include\..*|includeif\..*)$`;
+const RISKY_KEYS = String.raw`^(core\.fsmonitor|diff\.external|diff\..*\.(textconv|command)|gpg\.(.*\.)?program|include\..*|includeif\..*)$`;
 
 export type GitConfigRunner = (args: string[]) => Promise<{ code: number; stdout: string }>;
 

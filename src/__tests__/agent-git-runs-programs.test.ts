@@ -33,6 +33,14 @@ describe('gitConfigRunsPrograms against a real repository', () => {
       expect(await gitConfigRunsPrograms(dir)).toBe(false);
       execFileSync('git', ['config', '--local', 'core.fsmonitor', './hook'], { cwd: dir });
       expect(await gitConfigRunsPrograms(dir)).toBe(true);
+      execFileSync('git', ['config', '--local', '--unset', 'core.fsmonitor'], { cwd: dir });
+      expect(await gitConfigRunsPrograms(dir)).toBe(false);
+      // gpg.program runs on --show-signature, and so does a per-format program.
+      for (const key of ['gpg.program', 'gpg.ssh.program']) {
+        execFileSync('git', ['config', '--local', key, './signer'], { cwd: dir });
+        expect(await gitConfigRunsPrograms(dir), key).toBe(true);
+        execFileSync('git', ['config', '--local', '--unset', key], { cwd: dir });
+      }
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 });
