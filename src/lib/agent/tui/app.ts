@@ -1,9 +1,10 @@
-import { Container, Editor, type EditorTheme, Markdown, type MarkdownTheme, matchesKey, ProcessTerminal, Spacer, type Terminal, Text, TuiMainScreen } from '@earendil-works/pi-tui';
+import { Container, Editor, type EditorTheme, Loader, Markdown, type MarkdownTheme, matchesKey, ProcessTerminal, Spacer, type Terminal, Text, TuiMainScreen } from '@earendil-works/pi-tui';
 import chalk from 'chalk';
 import { createBroker, type HumanQuestion } from '../permission-broker.js';
 import type { AgentEngine, GateOutcome, HumanAnswer, ToolAsk } from '../types.js';
 import { commandCard, gateCard, gateNote, headerLine, toolLine } from './cards.js';
 import { answerForKey, createController } from './controller.js';
+import { SPINNER_FRAMES, SPINNER_INTERVAL_MS, statusMessage, toolActivity, wordAt } from './status.js';
 import { theme } from './theme.js';
 
 /** The only file that names pi-tui, so a breaking change there stays in one place. */
@@ -36,14 +37,42 @@ export async function runAgentUi(opts: AgentUiOptions): Promise<number> {
   let pending: { kind: 'gate' | 'command'; resolve: (a: HumanAnswer) => void } | undefined;
   let finish: (code: number) => void = () => {};
 
+  // The status line: on for the whole turn, off while a question card waits for the person.
+  const status = new Container();
+  let loader: Loader | undefined;
+  let ticker: ReturnType<typeof setInterval> | undefined;
+  let turnStartedAt = 0;
+  let seed = 0;
+  let activity: string | undefined;
+  const refreshStatus = (): void => {
+    const elapsedMs = Date.now() - turnStartedAt;
+    loader?.setMessage(statusMessage({ word: activity ?? wordAt(seed, elapsedMs), elapsedMs }));
+  };
+  const showStatus = (): void => {
+    if (loader) return;
+    loader = new Loader(tui, theme.brand, theme.dim, '', { frames: SPINNER_FRAMES, intervalMs: SPINNER_INTERVAL_MS });
+    status.addChild(loader);
+    refreshStatus();
+    ticker = setInterval(refreshStatus, 1000);
+  };
+  const hideStatus = (): void => {
+    if (!loader) return;
+    loader.stop();
+    clearInterval(ticker);
+    status.clear();
+    loader = undefined;
+    tui.requestRender();
+  };
+
   const addLines = (lines: string[]): void => {
     streaming = undefined;
     for (const l of lines) transcript.addChild(new Text(l, 1, 0));
     tui.requestRender();
   };
-  const endTurn = (): void => { controller.turnEnded(); editor.disableSubmit = false; tui.requestRender(); };
+  const endTurn = (): void => { hideStatus(); activity = undefined; controller.turnEnded(); editor.disableSubmit = false; tui.requestRender(); };
 
   const askHuman = (q: HumanQuestion): Promise<HumanAnswer> => {
+    hideStatus();
     addLines(['', ...(q.kind === 'gate' ? gateCard(q) : commandCard(q)), '']);
     controller.beginAsk();
     return new Promise((resolve) => { pending = { kind: q.kind, resolve }; });
@@ -64,6 +93,7 @@ export async function runAgentUi(opts: AgentUiOptions): Promise<number> {
         const { resolve } = pending;
         pending = undefined;
         controller.endAsk();
+        showStatus();
         resolve(answer);
       }
       return { consume: true };
@@ -78,12 +108,16 @@ export async function runAgentUi(opts: AgentUiOptions): Promise<number> {
     editor.setText('');
     editor.disableSubmit = true;
     addLines(['', `${theme.brand('>')} ${line}`]);
+    turnStartedAt = Date.now();
+    seed = Math.floor(Math.random() * 1000);
+    showStatus();
     engine.prompt(line).catch((e: unknown) => addLines([theme.error(e instanceof Error ? e.message : String(e))])).finally(endTurn);
   };
 
   tui.addChild(new Text(headerLine({ label: engine.label, decisionCount: opts.decisionCount }), 1, 0));
   tui.addChild(new Spacer(1));
   tui.addChild(transcript);
+  tui.addChild(status);
   tui.addChild(editor);
   tui.setFocus(editor);
   tui.addInputListener(onKey);
@@ -107,6 +141,8 @@ export async function runAgentUi(opts: AgentUiOptions): Promise<number> {
       } else if (e.type === 'error') {
         addLines([theme.error(e.message)]);
       } else {
+        if (e.type === 'tool-start') { activity = toolActivity(e.tool); refreshStatus(); }
+        if (e.type === 'tool-end') { activity = undefined; refreshStatus(); }
         addLines(toolLine(e));
         if (e.type === 'turn-end') endTurn();
       }
@@ -118,6 +154,7 @@ export async function runAgentUi(opts: AgentUiOptions): Promise<number> {
       return code;
     }
   } finally {
+    hideStatus();
     tui.stop();
   }
   process.stderr.write(`${failed}\n`);

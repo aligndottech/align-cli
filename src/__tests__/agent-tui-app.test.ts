@@ -17,7 +17,7 @@ function fakeTerminal() {
     moveBy: () => {}, hideCursor: () => {}, showCursor: () => {}, clearLine: () => {}, clearFromCursor: () => {},
     clearScreen: () => {}, setTitle: () => {}, setProgress: () => {}, setProgramStatus: () => {},
   };
-  return { term, press: (d: string) => onInput(d), screen: () => plain(out.join('')) };
+  return { term, press: (d: string) => onInput(d), screen: () => plain(out.join('')), mark: () => out.length, since: (i: number) => plain(out.slice(i).join('')) };
 }
 
 function fakeEngine() {
@@ -137,6 +137,64 @@ describe('agent screen', () => {
     t.press('\x04');
     expect(await done).toBe(0);
     expect(engine.close).toHaveBeenCalledOnce();
+  });
+});
+
+// Something is always moving while the model works: a spinner, a word, the seconds so far.
+describe('the status line while a turn runs', () => {
+  const submit = async (t: ReturnType<typeof fakeTerminal>) => { for (const k of ['h', 'i', '\r']) t.press(k); await tick(); };
+
+  it('appears when a line is sent, with the time and how to stop', async () => {
+    const { t } = await launch();
+    expect(t.screen()).not.toContain('esc to interrupt');
+    await submit(t);
+    expect(t.screen()).toMatch(/… \(0s · esc to interrupt\)/);
+  });
+
+  it('keeps moving: the spinner redraws on its own, with no event from the engine', async () => {
+    const { t } = await launch();
+    await submit(t);
+    const m = t.mark();
+    await tick(400);
+    expect(t.since(m)).toMatch(/[·✢✳✶✻✽]/);
+  });
+
+  it('says what a running tool is doing, then goes back to a word when it ends', async () => {
+    const { t, engine } = await launch();
+    await submit(t);
+    engine.onEvent({ type: 'tool-start', id: 't1', tool: 'mcp__align__align_ask', summary: 'webhooks' });
+    await tick();
+    expect(t.screen()).toContain('Asking the decision graph… (');
+    const m = t.mark();
+    engine.onEvent({ type: 'tool-end', id: 't1', ok: true });
+    await tick(1100);
+    expect(t.since(m)).not.toContain('Asking the decision graph…');
+    expect(t.since(m)).toContain('esc to interrupt');
+  });
+
+  it('stops while a question card waits for the person, and comes back after the answer', async () => {
+    const { t, engine } = await launch(async () => askOutcome);
+    await submit(t);
+    const verdict = engine.broker(editAsk);
+    await tick();
+    const m = t.mark();
+    await tick(1300);
+    expect(t.since(m)).not.toContain('esc to interrupt');
+    t.press('a');
+    await verdict;
+    await tick();
+    expect(t.since(m)).toContain('esc to interrupt');
+  });
+
+  it('is gone when the turn ends, and nothing redraws it afterwards', async () => {
+    const { t, engine } = await launch();
+    await submit(t);
+    engine.release();
+    engine.onEvent({ type: 'turn-end' });
+    await tick();
+    const m = t.mark();
+    await tick(1300);
+    expect(t.since(m)).not.toContain('esc to interrupt');
   });
 });
 
