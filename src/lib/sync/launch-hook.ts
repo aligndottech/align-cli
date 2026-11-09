@@ -12,6 +12,7 @@
  * launch-path-imports.test.ts walks them. Nothing here throws into the launcher: a failure to
  * decide or to start means no refresh this time, and the agent opens exactly as it would have.
  */
+import fs from 'node:fs';
 import path from 'node:path';
 import { alignStateDirPath, type BackfillStatus, liveBackfills, pidAlive } from '../backfill-state.js';
 import { inCi } from '../telemetry-ci.js';
@@ -152,4 +153,17 @@ export function applyBackgroundPlan(plan: BackgroundPlan, h: BackgroundSyncHost)
 export function failedReadLines(summary: SyncSummary | undefined): string[] {
   const failed = (summary?.sources ?? []).filter((s) => s.status === 'error').map((s) => s.id);
   return failed.length === 0 ? [] : [`The last read of ${failed.join(', ')} failed. See: align sync --status`];
+}
+
+/**
+ * Take the per-source claim for a child started outside the launch hook (setup's first read), so a refresh planned right
+ * after it treats those sources as busy instead of starting a second child. A claim that cannot be written is skipped.
+ */
+export function claimSources(sources: readonly string[], h: { env: Record<string, string | undefined>; home: string; platform: string }): void {
+  const stateDir = alignStateDirPath(h.env, h.home, h.platform);
+  // A first run has no state folder yet, which is exactly when setup starts its child.
+  try { fs.mkdirSync(stateDir, { recursive: true, mode: 0o700 }); } catch { return; }
+  for (const s of sources) {
+    try { takeClaim(stateDir, s, Date.now(), SYNC_MIN_INTERVAL_MS); } catch { /* no claim: at worst the refresh starts one more child, which the sync lock serialises */ }
+  }
 }

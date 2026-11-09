@@ -1,3 +1,4 @@
+import os from 'node:os';
 import { resolveEnv } from '../lib/resolve-env.js';
 import { type Command, Option } from 'commander';
 import * as p from '@clack/prompts';
@@ -26,7 +27,9 @@ import { GIT_DEFAULT_LIMIT, GIT_KEEP_CAP, SYNC_CEILINGS, SYNC_WINDOW_DEFAULT_DAY
 import { type FetchExtras, fetchWindow, parseSince, type SyncWindow, windowExtras, windowLabel } from '../lib/since.js';
 import { initLocalMode } from '../lib/local-mode.js';
 import { afterSourceConnected } from '../lib/sync/after-connect.js';
-import { connectScopeCtx, decideConnectScope, fetchUnderScope, type ScopeFlags } from '../lib/scope-connect.js';
+import { proveToken } from '../lib/scope-choices.js';
+import { connectScopeCtx, decideConnectScope, fetchUnderScope, fetchWithDecision, type ScopeDecision, type ScopeFlags } from '../lib/scope-connect.js';
+import { claimSources } from '../lib/sync/launch-hook.js';
 import { startSyncChild } from '../lib/sync/spawn-background.js';
 import { loginInteractive } from '../lib/login-flow.js';
 import { resolveAppUrl } from '../lib/env-resolver.js';
@@ -1061,20 +1064,34 @@ export async function connectLocalSources(o: ConnectLocalSourcesOptions): Promis
   // Setup: answer each source's scope question now (consent), save its token and scope, and hand it to one
   // background child. The child reads exactly as the foreground would: the same saved token, scope and window.
   let foreground = localReady;
+  // Scopes already asked about here: a foreground read after a failed start reuses them rather than asking again.
+  const decided = new Map<string, ScopeDecision>();
   if (o.background) {
     const later = localReady.filter((r) => !FOREGROUND_ONLY.has(r.source.id));
     const saved: typeof later = [];
     for (const r of later) {
+      // A token is saved for the background read only once the vendor has not refused it (the foreground saves after its fetch).
+      if (await proveToken(r.source.id, r.tokens, fetch) === 'refused') {
+        p.log.info(`Skipped ${r.source.label} - its token was refused. Paste a fresh one: align connect ${r.source.id}`);
+        results.push({ id: r.source.id, label: r.source.label, found: 0, imported: 0, error: 'its token was refused' });
+        foreground = foreground.filter((x) => x !== r);
+        continue;
+      }
       const decision = await decideConnectScope(r.source.id, r.tokens, scopeCtx);
+      decided.set(r.source.id, decision);
       config.saveConnectorFields('local', r.source.id, r.tokens);
       decision.commit();
       afterSourceConnected(localEnv.localDbPath, r.source.id, (id) => Boolean(config.getConnectorFields('local', id)?.['token']));
       saved.push(r);
     }
-    const started = saved.length > 0 ? await (o.startSync ?? startSyncChild)(saved.map((r) => r.source.id), { delaySeconds: 0, caller: 'launcher' }) : { ok: true };
+    const startChild = o.startSync ?? ((ids: readonly string[], opts: { delaySeconds: number; caller: 'launcher' }) => {
+      claimSources(ids, { env: process.env, home: os.homedir(), platform: process.platform });
+      return startSyncChild(ids, opts);
+    });
+    const started = saved.length > 0 ? await startChild(saved.map((r) => r.source.id), { delaySeconds: 0, caller: 'launcher' }) : { ok: true };
     if (started.ok) {
       for (const r of saved) results.push({ id: r.source.id, label: r.source.label, found: 0, imported: 0, deferred: true });
-      foreground = localReady.filter((r) => !saved.includes(r));
+      foreground = foreground.filter((r) => !saved.includes(r));
     } else {
       p.log.info('Could not start the background read, so reading now.');
     }
@@ -1088,7 +1105,9 @@ export async function connectLocalSources(o: ConnectLocalSourcesOptions): Promis
     const spinner = quiet ? { start() {}, stop() {} } : p.spinner();
     let sourceCs: CaptureSource | undefined;
     try {
-      const fetched = await fetchUnderScope(source, tokens, window, scopeCtx, () => spinner.start(`Fetching from ${source.label}...`));
+      const startSpinner = () => spinner.start(`Fetching from ${source.label}...`);
+      const prior = decided.get(source.id);
+      const fetched = prior ? await fetchWithDecision(source, tokens, window, prior, startSpinner) : await fetchUnderScope(source, tokens, window, scopeCtx, startSpinner);
       sourceCs = capture.add(toCaptureSource(source, fetched, windowLabel(window.days)));
       const { items } = fetched;
       // Saved only once the fetch it unlocked has succeeded. A token that never worked is not

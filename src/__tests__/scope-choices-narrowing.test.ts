@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkJiraJql, jiraBoardFilterJql, listJiraBoards, listLinearProjects, ScopeLookupError } from '../lib/scope-choices.js';
+import { checkJiraJql, jiraBoardFilterJql, listJiraBoards, listLinearProjects, proveToken, ScopeLookupError } from '../lib/scope-choices.js';
 import { routes } from './helpers/scope-deps.js';
 
 /**
@@ -91,5 +91,23 @@ describe('Linear projects of one team', () => {
     expect(listed.items).toEqual([{ id: 'p-1', name: 'Auth' }, { id: 'p-2', name: 'Billing' }]);
     expect(sent[0]!['variables']).toEqual({ id: 'team-uuid' });
     expect(String(sent[0]!['query'])).not.toContain('team-uuid');
+  });
+});
+
+// Before setup saves a pasted token for a background read, one cheap call: only a clear no is a refusal.
+describe('proving a pasted token', () => {
+  const answer = (status: number, body: unknown = {}) => (async () => new Response(JSON.stringify(body), { status })) as unknown as typeof fetch;
+  it('a 401 from Jira, or Slack saying invalid_auth (with a 200), is refused', async () => {
+    expect(await proveToken('jira', JIRA, answer(401))).toBe('refused');
+    expect(await proveToken('slack', { token: 'xoxp-x' }, answer(200, { ok: false, error: 'invalid_auth' }))).toBe('refused');
+  });
+  it('a 200 from Linear, or Slack saying ok, is ok', async () => {
+    expect(await proveToken('linear', { token: 'lin_api_x' }, answer(200, { data: { viewer: { id: 'u' } } }))).toBe('ok');
+    expect(await proveToken('slack', { token: 'xoxp-x' }, answer(200, { ok: true }))).toBe('ok');
+  });
+  it('a vendor that cannot be reached, or a source with no check, is unknown, never refused', async () => {
+    const offline = (async () => { throw new Error('ENOTFOUND'); }) as unknown as typeof fetch;
+    expect(await proveToken('notion', { token: 'secret_x' }, offline)).toBe('unknown');
+    expect(await proveToken('zoom', { token: 'x' }, answer(401))).toBe('unknown');
   });
 });

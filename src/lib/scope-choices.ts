@@ -301,3 +301,39 @@ export async function listLinearProjects(fields: Record<string, string>, teamId:
   }
   return { items, truncated: asRecord(projects['pageInfo'])['hasNextPage'] === true };
 }
+
+/**
+ * One cheap call that says whether a vendor accepts a pasted token, before it is saved for a background read:
+ * Atlassian /myself, Linear `viewer`, Slack auth.test, Notion /users/me. 'refused' only on a clear no (401/403, or
+ * Slack's invalid_auth); anything that could not be checked is 'unknown', and the read itself will say.
+ */
+export async function proveToken(source: string, fields: Record<string, string>, f: FetchLike): Promise<'ok' | 'refused' | 'unknown'> {
+  try {
+    let res: Response;
+    const init = (headers: Record<string, string>, extra: Init = {}): Init => ({ ...extra, headers, redirect: 'manual', signal: AbortSignal.timeout(TIMEOUT_MS) });
+    switch (source) {
+      case 'jira':
+      case 'confluence':
+        res = await f(`https://${hostOf(source === 'jira' ? 'Jira' : 'Confluence', fields['domain'])}/rest/api/3/myself`, init(atlassianHeaders(fields)));
+        break;
+      case 'linear':
+        res = await f('https://api.linear.app/graphql', init(linearHeaders(fields), { method: 'POST', body: JSON.stringify({ query: 'query { viewer { id } }' }) }));
+        break;
+      case 'slack': {
+        res = await f('https://slack.com/api/auth.test', init({ Authorization: `Bearer ${fields['token'] ?? ''}` }, { method: 'POST' }));
+        if (!res.ok) return res.status === 401 || res.status === 403 ? 'refused' : 'unknown';
+        const body = asRecord(JSON.parse(await readCapped(res, MAX_BODY_BYTES)));
+        return body['ok'] === true ? 'ok' : /invalid_auth|not_authed|token_revoked|account_inactive/.test(String(body['error'])) ? 'refused' : 'unknown';
+      }
+      case 'notion':
+        res = await f('https://api.notion.com/v1/users/me', init({ Authorization: `Bearer ${fields['token'] ?? ''}`, 'Notion-Version': '2022-06-28' }));
+        break;
+      default:
+        return 'unknown';
+    }
+    if (res.status === 401 || res.status === 403) return 'refused';
+    return res.ok ? 'ok' : 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}

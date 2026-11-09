@@ -280,6 +280,17 @@ export async function fetchUnderScope(
 ): Promise<CaptureFetchResult> {
   let decision: ScopeDecision;
   try { decision = await decideConnectScope(source.id, tokens, ctx); } catch (e) { startSpinner(); throw e; }
+  return fetchWithDecision(source, tokens, window, decision, startSpinner);
+}
+
+/** Fetch under a scope already decided (and asked about), then write it. The fetch half of fetchUnderScope. */
+export async function fetchWithDecision(
+  source: { id: string; fetch: (tokens: Record<string, string>, window?: SyncWindow, opts?: FetchExtras) => Promise<CaptureFetchResult> },
+  tokens: Record<string, string>,
+  window: SyncWindow | undefined,
+  decision: ScopeDecision,
+  startSpinner: () => void = () => {},
+): Promise<CaptureFetchResult> {
   startSpinner();
   const fetched = await source.fetch(tokens, window, decision.extras);
   decision.commit();

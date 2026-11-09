@@ -96,6 +96,14 @@ vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => { stdout.push(a
 vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => { stderr.push(a.join(' ')); });
 
 
+// Counted, not replaced. fetchUnderScope asks the scope step again; setup calls it from outside the module, so the count is real.
+const decideSpy = vi.hoisted(() => ({ calls: 0 }));
+vi.mock('../lib/scope-connect.js', async (orig) => {
+  const real = await orig<typeof import('../lib/scope-connect.js')>();
+  return { ...real, fetchUnderScope: (...a: Parameters<typeof real.fetchUnderScope>) => { decideSpy.calls++; return real.fetchUnderScope(...a); } };
+});
+const mockProve = vi.hoisted(() => vi.fn(async () => 'ok' as 'ok' | 'refused' | 'unknown'));
+vi.mock('../lib/scope-choices.js', async (orig) => ({ ...(await orig<object>()), proveToken: mockProve }));
 const { connectLocalSources } = await import('../commands/setup.js');
 const { createConfigStore } = await import('../lib/config.js');
 const p = await import('@clack/prompts');
@@ -116,6 +124,8 @@ describe('setup reads connectors in the background', () => {
     vi.clearAllMocks();
     vi.stubGlobal('fetch', vendorFetch);
     mockGetConnectorFields.mockReturnValue(null);
+    mockProve.mockResolvedValue('ok');
+    decideSpy.calls = 0;
   });
   afterEach(() => { vi.unstubAllGlobals(); });
 
@@ -164,5 +174,29 @@ describe('setup reads connectors in the background', () => {
     const startSync = vi.fn(async () => ({ ok: true, pid: 1 }));
     await connect({ preselected: ['jira'], seedTokens: JIRA, background: true, startSync });
     expect(startSync.mock.calls[0]![1]).toEqual({ delaySeconds: 0, caller: 'launcher' });
+  });
+
+  it('a child that cannot start reads with the scope already decided: the scope step is not asked again', async () => {
+    await connect({ preselected: ['jira'], seedTokens: JIRA, background: true, startSync: vi.fn(async () => ({ ok: false })) });
+    expect(decideSpy.calls).toBe(0);
+    expect(mockFetchJira).toHaveBeenCalledTimes(1);
+  });
+
+  it('a token the vendor refuses is not saved, not deferred, and says how to reconnect', async () => {
+    mockProve.mockResolvedValue('refused');
+    const startSync = vi.fn(async () => ({ ok: true, pid: 1 }));
+    const results = await connect({ preselected: ['jira'], seedTokens: JIRA, background: true, startSync });
+    expect(mockSaveConnectorFields).not.toHaveBeenCalled();
+    expect(startSync).not.toHaveBeenCalled();
+    expect(results).toEqual([expect.objectContaining({ id: 'jira', error: expect.stringContaining('refused') })]);
+    expect(vi.mocked(p.log.info).mock.calls.map((c) => String(c[0]))).toContain('Skipped Jira - its token was refused. Paste a fresh one: align connect jira');
+  });
+
+  it('a vendor that cannot be reached is not a refusal: the token is saved and read in the background', async () => {
+    mockProve.mockResolvedValue('unknown');
+    const startSync = vi.fn(async () => ({ ok: true, pid: 1 }));
+    await connect({ preselected: ['linear'], seedTokens: { token: 'lin_api_x' }, background: true, startSync });
+    expect(mockSaveConnectorFields).toHaveBeenCalledWith('local', 'linear', expect.anything());
+    expect(startSync).toHaveBeenCalledWith(['linear'], expect.anything());
   });
 });
