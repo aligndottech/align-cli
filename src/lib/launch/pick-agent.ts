@@ -30,6 +30,9 @@ export interface PickAgentDeps {
 /** The user cancelled the picker: the wizard stops, like any other cancelled prompt. */
 export const PICK_CANCELLED = 'cancelled' as const;
 
+/** The installed agents, unasked: setup puts the question on the same screen as the files it writes. */
+export interface PickDeferred { deferred: Array<{ name: LaunchAgentId; label: string }> }
+
 export interface AgentConfig {
   getAgent(): string | undefined;
   setAgent(agent: string): void;
@@ -51,9 +54,9 @@ function defaultDeps(): PickAgentDeps {
 
 export async function pickAgent(
   config: AgentConfig,
-  opts: { interactive: boolean; approve?: boolean },
+  opts: { interactive: boolean; approve?: boolean; defer?: boolean },
   overrides: Partial<PickAgentDeps> = {},
-): Promise<LaunchAgentId | null | typeof PICK_CANCELLED> {
+): Promise<LaunchAgentId | null | typeof PICK_CANCELLED | PickDeferred> {
   const d = { ...defaultDeps(), ...overrides };
 
   const isInstalled = (a: LaunchAgent): boolean => resolveAgentBin(a, d.findOnPath, d.env, d.platform) !== null;
@@ -84,6 +87,8 @@ export async function pickAgent(
   } else if (opts.interactive && installed.length === 1) {
     // One installed is the only sensible answer: no question, and the line below says how to switch.
     chosen = installed[0];
+  } else if (opts.interactive && opts.defer && installed.length > 1) {
+    return { deferred: installed.map((a) => ({ name: a.name, label: a.label })) };
   } else if (opts.interactive) {
     chosen = await chooseAgent(d.agents, {
       isInstalled,
@@ -116,9 +121,14 @@ export async function pickAgent(
   }
   if (!chosen) return null;
 
-  const wasOff = config.isLaunchOff?.() === true;
-  config.setAgent(chosen.name);
-  if (wasOff) d.say('Launching is on again: `align use --undo` had turned it off.');
+  storeChosenAgent(config, chosen.name, d.say);
   if (installed.length === 1 || unattended.length === 1) d.say(`Using ${chosen.label}. Switch any time with \`align use\`.`);
   return chosen.name;
+}
+
+/** Stores the agent `align` opens. Shared by the picker and setup's combined screen, so both say the same. */
+export function storeChosenAgent(config: AgentConfig, name: string, say: (line: string) => void): void {
+  const wasOff = config.isLaunchOff?.() === true;
+  config.setAgent(name);
+  if (wasOff) say('Launching is on again: `align use --undo` had turned it off.');
 }

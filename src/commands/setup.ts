@@ -42,7 +42,8 @@ import { agentConnectedLine, agentNotConnectedLine, agentTryLead, orderAgents, p
 import { getHotFile } from '../lib/hot-file.js';
 import { claudeCodeExists } from '../lib/claude-presence.js';
 import { projectForeignNotice } from '../lib/foreign-env.js';
-import { PICK_CANCELLED, pickAgent } from '../lib/launch/pick-agent.js';
+import { PICK_CANCELLED, pickAgent, type PickDeferred } from '../lib/launch/pick-agent.js';
+import { confirmAgentAndWrites } from '../lib/setup/agent-and-writes.js';
 import { offerSavedTokens } from '../lib/saved-token-offer.js';
 import { readOnlyTokenNote } from '../lib/read-only-token-note.js';
 import { runModelAndTypingSteps } from '../lib/model-step.js';
@@ -589,9 +590,11 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
   // only question a solo developer is asked before the graph starts to fill. Same table, PATH
   // scan and config key as the launcher, so this IS the launcher's choice (no `align use`).
   // Before initLocalMode on purpose: cancelling here must leave no half-built graph behind.
-  const picked = await pickAgent(config, { interactive: Boolean(interactive), approve: opts.approve });
+  // With two or more installed the question is deferred to the files screen below, so it is one screen.
+  const picked = await pickAgent(config, { interactive: Boolean(interactive), approve: opts.approve, defer: true });
   if (picked === PICK_CANCELLED) { p.cancel('Cancelled.'); process.exit(0); }
-  const agent = picked;
+  const deferred = typeof picked === 'object' && picked !== null ? picked.deferred : undefined;
+  let agent = deferred ? null : (picked as Exclude<typeof picked, PickDeferred>);
 
   const { dbPath } = await initLocalMode();
   p.log.success('Local graph ready - no account needed, your data stays on this machine.');
@@ -781,7 +784,10 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
     if (!(e instanceof SkipDocs)) localDocsSpinner.stop(`Docs import skipped - ${(e as Error).message}`);
   }
 
-  const { confirmed: writesConfirmed, editors } = await confirmAgentWrites({ interactive: Boolean(interactive), approve: opts.approve });
+  const both = deferred ? await confirmAgentAndWrites(deferred, config) : undefined;
+  if (both === 'cancelled') { p.cancel('Cancelled.'); process.exit(0); }
+  if (both) agent = both.agent as typeof agent;
+  const { confirmed: writesConfirmed, editors } = both ?? await confirmAgentWrites({ interactive: Boolean(interactive), approve: opts.approve });
   if (!writesConfirmed) p.log.info('Left your agent config alone. Run align again when you want it connected.');
   const projectAgents = writesConfirmed ? connectedProjectAgents(projectAgentsFromWritten(writeAgentAlignment('local'))) : [];
 

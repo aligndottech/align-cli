@@ -194,3 +194,32 @@ describe('pickAgent: the picker lists every agent (phase P)', () => {
     expect(spawn).not.toHaveBeenCalled();
   });
 });
+
+// Setup asks for the agent on the same screen as the files when two or more are installed, so the
+// wizard defers the question: the installed agents come back unasked, and nothing is stored yet.
+describe('pickAgent: defer (setup asks later, with the files)', () => {
+  it('two installed on a terminal: returns them unasked and stores nothing', async () => {
+    const h = harness({ onPath: ['claude', 'opencode'] });
+    const r = await pickAgent(h.config, { interactive: true, defer: true }, h.deps);
+    expect(r).toEqual({ deferred: [{ name: 'claude-code', label: CLAUDE.label }, { name: 'opencode', label: OPENCODE.label }] });
+    expect(h.select).not.toHaveBeenCalled();
+    expect(h.setAgent).not.toHaveBeenCalled();
+  });
+  it('one installed is still taken at once, deferred or not', async () => {
+    const h = harness({ onPath: ['opencode'] });
+    expect(await pickAgent(h.config, { interactive: true, defer: true }, h.deps)).toBe('opencode');
+  });
+  it('none installed still opens the picker, which can install one', async () => {
+    const h = harness({ onPath: ['npm'] });
+    await pickAgent(h.config, { interactive: true, defer: true }, h.deps);
+    expect(h.select).toHaveBeenCalledTimes(1);
+  });
+  it('--approve and no terminal give the same answer with or without defer', async () => {
+    for (const opts of [{ interactive: true, approve: true }, { interactive: false }]) {
+      const plain = harness({ onPath: ['claude', 'opencode'] });
+      const deferred = harness({ onPath: ['claude', 'opencode'] });
+      const without = await pickAgent(plain.config, opts, plain.deps);
+      expect(await pickAgent(deferred.config, { ...opts, defer: true }, deferred.deps)).toEqual(without);
+    }
+  });
+});
