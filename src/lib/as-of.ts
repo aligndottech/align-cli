@@ -236,6 +236,8 @@ export async function filterConflictsAsOf(result: ConflictsResult, guard: AsOfGu
       ? { pagination: { has_more: hasMore } }
       : {}),
     conflict_count: links.length,
+    // The local graph's "unconfirmed labels" note travels with whatever links survive the cutoff.
+    ...(result.note && links.length > 0 ? { note: result.note } : {}),
     ...(hasMore
       ? {
           showing: links.length,

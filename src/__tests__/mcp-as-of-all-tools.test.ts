@@ -350,6 +350,22 @@ describe('align_get_conflicts under an as-of cutoff', () => {
     expect(out['conflict_count']).toBe(1);
   });
 
+  it("keeps the local graph's note when links survive the cutoff, and drops it when none do", async () => {
+    const NOTE = 'These conflict labels come from an AI model';
+    const local = (links: unknown[]) => ({ links, conflict_count: links.length, note: NOTE });
+    const kept = fakeClient({ a: BEFORE, b: BEFORE });
+    kept.getConflicts.mockResolvedValue(local([{ id: 'l1', sourceId: 'a', targetId: 'b', relation: 'conflicts_with', confidence: 1, createdAt: '2026-08-02 00:00:00' }]));
+    const out = (await dispatchTool('align_get_conflicts', {}, cast(kept), cloud, CUTOFF)) as Record<string, unknown>;
+    expect(out['conflict_count']).toBe(1);
+    expect(out['note']).toBe(NOTE);
+
+    const none = fakeClient({ a: BEFORE, z: AFTER });
+    none.getConflicts.mockResolvedValue(local([{ id: 'l3', sourceId: 'a', targetId: 'z', relation: 'conflicts_with', confidence: 1, createdAt: '2026-08-02 00:00:00' }]));
+    const empty = (await dispatchTool('align_get_conflicts', {}, cast(none), cloud, CUTOFF)) as Record<string, unknown>;
+    expect(empty['conflict_count']).toBe(0);
+    expect('note' in empty).toBe(false);
+  });
+
   it('drops a local link whose endpoint no longer exists instead of failing the whole call', async () => {
     const c = fakeClient({ a: BEFORE, b: BEFORE });
     c.getDecision.mockImplementation(async (id: string) => {

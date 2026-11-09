@@ -88,7 +88,10 @@ describe('the write: cosine similarity is `relates`, never a conflict', () => {
     expect(found.conflict_count).toBe(1);
     // The agent is told these are unconfirmed model labels, so it does not report them as found.
     expect(found).toHaveProperty('note', LOCAL_CONFLICTS_NOTE);
-    expect(LOCAL_CONFLICTS_NOTE).toContain('no person has confirmed them');
+    expect(LOCAL_CONFLICTS_NOTE).toContain('No person has confirmed them');
+    // The label is stored locally, but the model may be hosted: never claim it ran here.
+    expect(LOCAL_CONFLICTS_NOTE).toContain('stored only in the local graph');
+    expect(LOCAL_CONFLICTS_NOTE).not.toContain('on this machine');
   });
 
   it('still writes a link, and writes it as `relates`', async () => {
