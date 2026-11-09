@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.69.0](https://github.com/aligndottech/align-cli/compare/cli-v0.68.1...cli-v0.69.0) (2026-11-09)
+
+
+### Features
+
+* **agent:** a live status line while it works; answers link every decision ([#530](https://github.com/aligndottech/align-cli/issues/530)) ([80dd536](https://github.com/aligndottech/align-cli/commit/80dd53654a10163dd9678a816c66e70c93b0d9f2))
+* **local:** cross-tool relationships in the free CLI: certain reference links, background typing, no review queue ([#533](https://github.com/aligndottech/align-cli/issues/533)) ([a2667e9](https://github.com/aligndottech/align-cli/commit/a2667e96fffc9354f38f86a76b8975bd40075197))
+
+
+### Bug Fixes
+
+* **local:** call local conflicts possible, never caught ([#532](https://github.com/aligndottech/align-cli/issues/532)) ([b294385](https://github.com/aligndottech/align-cli/commit/b294385a6dbdf2358929ba7c489b2291a73dc468))
+
 ## [0.68.1](https://github.com/aligndottech/align-cli/compare/cli-v0.68.0...cli-v0.68.1) (2026-11-07)
 
 
