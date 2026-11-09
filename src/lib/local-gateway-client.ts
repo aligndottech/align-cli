@@ -16,6 +16,7 @@ import { expandedTerms } from './query-expand.js';
 import { linkPass } from './local-link-pass.js';
 import { redactSecrets } from './share/secret-scan.js';
 import { noteRedacted } from './redaction-notice.js';
+import { LOCAL_CONFLICTS_NOTE } from './local-conflicts-note.js';
 import { EmbeddingMatrix, MATRIX_MAX_ROWS, type Ranker } from './similarity/embedding-matrix.js';
 import { syncImportedCoChangeRule } from './co-change-store.js';
 import { captureFieldsForUrl, type IngestOptions, type IngestResult, type IngestSession, ingestStep, type LocalBatchItem, type LocalBatchOptions } from './local-ingest.js';
@@ -963,7 +964,8 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
         ...db.listLinks({ relation: 'contradicts' }),
       ];
       const judge = await activeJudge();
-      return { links: judge ? annotatePairs(dbPath, judge, links) : links, conflict_count: links.length };
+      // The note keeps an agent from reporting unconfirmed model labels as found conflicts.
+      return { links: judge ? annotatePairs(dbPath, judge, links) : links, conflict_count: links.length, ...(links.length > 0 ? { note: LOCAL_CONFLICTS_NOTE } : {}) };
     },
   };
   return client;

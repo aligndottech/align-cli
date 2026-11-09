@@ -164,9 +164,9 @@ export function localValueRollup(
   const count = (relation: string) => db.listLinks({ relation }).length;
   return {
     decisions: db.getStats().decisions,
-    // Kept counting the real relations even though nothing offline writes one, so the
-    // counter stays provably capable of reporting a conflict. That is what makes a zero
-    // here mean "none found" rather than "the counter is broken".
+    // Written offline only by the person's own AI model (align sync --classify, or a capture
+    // with a key set), never by similarity alone. Unconfirmed labels, so the card calls them
+    // possible conflicts. A zero here means "none labelled", not "the counter is broken".
     conflictsCaught: count('conflicts_with') + count('contradicts'),
     similarDecisions: count('relates'),
     duplicates: count('duplicates'),

@@ -34,6 +34,7 @@ vi.mock('../lib/local-relationship-classifier.js', () => ({
 import { createLocalDb, SCHEMA_VERSION } from '../lib/local-db.js';
 import { cosineSimilarity } from '../lib/local-embeddings.js';
 import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
+import { LOCAL_CONFLICTS_NOTE } from '../lib/local-conflicts-note.js';
 import { localValueRollup, renderValueReadout, type ValueRollup } from '../lib/value-rollup.js';
 
 // ---------------------------------------------------------------- A. the write
@@ -70,7 +71,9 @@ describe('the write: cosine similarity is `relates`, never a conflict', () => {
     await client.captureDecision('We standardised on Postgres 16 for new services', 'cli');
     await client.captureDecision('Postgres 16 is the default datastore going forward', 'cli');
 
-    expect((await client.getConflicts()).conflict_count).toBe(0);
+    const none = await client.getConflicts();
+    expect(none.conflict_count).toBe(0);
+    expect(none).not.toHaveProperty('note');
   });
 
   it('POSITIVE CONTROL: getConflicts can still report a genuine conflict', async () => {
@@ -81,7 +84,11 @@ describe('the write: cosine similarity is `relates`, never a conflict', () => {
     db.insertLink({ sourceId: only.id, targetId: only.id, relation: 'conflicts_with', confidence: 0.9 });
     db.close();
 
-    expect((await client.getConflicts()).conflict_count).toBe(1);
+    const found = await client.getConflicts();
+    expect(found.conflict_count).toBe(1);
+    // The agent is told these are unconfirmed model labels, so it does not report them as found.
+    expect(found).toHaveProperty('note', LOCAL_CONFLICTS_NOTE);
+    expect(LOCAL_CONFLICTS_NOTE).toContain('no person has confirmed them');
   });
 
   it('still writes a link, and writes it as `relates`', async () => {
