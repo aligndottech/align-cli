@@ -1,4 +1,5 @@
 import { commandUsesGit, isReadOnlyCommand } from './read-only-command.js';
+import { changesFiles, SHELL_WRITE_REFUSED } from './shell-writes.js';
 import type { BrokerVerdict, GateDecision, GateOutcome, HumanAnswer, ToolAsk } from './types.js';
 
 /**
@@ -56,6 +57,8 @@ export function createBroker(deps: BrokerDeps): (ask: ToolAsk) => Promise<Broker
       if (!commandUsesGit(ask.command ?? '')) return { allow: true };
       if (deps.gitRunsPrograms && !(await deps.gitRunsPrograms())) return { allow: true };
     }
+    // A file changed from the shell never reaches the gate, so it is refused before anyone is asked.
+    if (ask.kind === 'command' && changesFiles(ask.command ?? '')) return { allow: false, message: SHELL_WRITE_REFUSED };
     // A command, or a tool this code does not know (WebFetch, an MCP tool, a subagent): a person decides.
     // An unknown tool is approved for its input, not its name: a yes to one URL is not a yes to all.
     // The question shows the WHOLE input: approval covers all of it, so none may hide past a cut.
