@@ -125,8 +125,8 @@ align capture <url>           Capture a decision from a URL (Slack/Jira/GitHub/C
 
 # Bring connected sources up to date in your local graph
 
-align sync [sources]          Bring connected sources up to date in your local graph (reads only, no AI calls)
-                              flags: --status --classify --max --yes --background --off --on --delay
+align sync [sources]          Bring connected sources up to date in your local graph (reads only; AI calls only with --classify, or --auto-classify on)
+                              flags: --status --classify --max --yes --background --off --on --auto-classify --delay
 
 # Mark a conflict real or false, a replacement, or not a decision (local)
 

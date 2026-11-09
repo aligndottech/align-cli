@@ -281,7 +281,7 @@ async function classifyFlow(dbPath: string, max: number, opts: SyncCommandOption
 export function registerSyncCommand(program: Command): void {
   program
     .command('sync [sources...]')
-    .description('Bring connected sources up to date in your local graph (reads only, no AI calls)')
+    .description('Bring connected sources up to date in your local graph (reads only; AI calls only with --classify, or --auto-classify on)')
     .option('--status', 'Show what is connected, when it last synced and what is waiting')
     .option('--classify', 'Type the relationships of imported items with your own AI key. Asks first')
     .option('--max <n>', `With --classify: how many items at most (default ${DEFAULT_CLASSIFY_MAX})`)
