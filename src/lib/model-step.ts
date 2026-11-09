@@ -4,7 +4,8 @@ import { createConfigStore } from './config.js';
 import { freeGroqKey, promptForProviderKey } from './ask-key-offer.js';
 import { guardedPrompt } from './prompt-guard.js';
 import { type LlmProviderId, PROVIDER_LABEL } from './llm-providers.js';
-import { hasConfiguredProvider, probeOllama, RECOMMENDED_OLLAMA_PULL, unusedExportedKeys } from './local-llm.js';
+import { hasConfiguredProvider, preferredProvider, probeOllama, RECOMMENDED_OLLAMA_PULL, unusedExportedKeys } from './local-llm.js';
+import { BACKGROUND_CLASSIFY_MAX } from './sync/classify.js';
 
 /**
  * The wizard's model step. Conflict checks classify a pair of decisions with an AI model, and Align runs that in its
@@ -93,4 +94,56 @@ export async function runModelStep(opts: { interactive: boolean }, deps: ModelSt
   const saved = choice === 'groq' ? await deps.freeGroq() : (await deps.pasteKey()) !== null;
   if (saved) return 'configured';
   return warn();
+}
+
+/**
+ * The second half of the model step: with a model set up, ask once whether to type relationships
+ * after each background refresh (which decision replaced which, and possible conflicts). It spends
+ * the person's key, so it is asked, never assumed: only at a terminal, only once, and it names the
+ * provider and the limit. Yes is the default because the question says exactly what it costs.
+ */
+export interface TypingOfferDeps {
+  hasProvider: () => boolean;
+  providerLabel: () => string;
+  answered: () => boolean;
+  confirm: (message: string) => Promise<boolean | null>;
+  save: (on: boolean) => void;
+  log: { info: (m: string) => void };
+}
+
+export function typingOfferQuestion(provider: string): string {
+  return `Work out which decisions replaced which, in the background? It uses your ${provider}: up to ${BACKGROUND_CLASSIFY_MAX} items after each refresh.`;
+}
+
+function realTypingDeps(): TypingOfferDeps {
+  const config = createConfigStore();
+  return {
+    hasProvider: () => hasConfiguredProvider(),
+    providerLabel: () => {
+      const id = preferredProvider();
+      return id ? `${PROVIDER_LABEL[id]} ${id === 'ollama' ? 'model' : 'key'}` : 'AI model';
+    },
+    answered: () => config.getAutoClassify() !== undefined,
+    confirm: async (message) => {
+      const answer = await guardedPrompt('relationship typing', () => p.confirm({ message, initialValue: true }));
+      return answer === null || p.isCancel(answer) ? null : answer === true;
+    },
+    save: (on) => config.setAutoClassify(on),
+    log: { info: (m) => p.log.info(m) },
+  };
+}
+
+export async function offerBackgroundTyping(opts: { interactive: boolean }, deps: TypingOfferDeps = realTypingDeps()): Promise<'on' | 'off' | 'not-asked'> {
+  if (!opts.interactive || !deps.hasProvider() || deps.answered()) return 'not-asked';
+  const yes = await deps.confirm(typingOfferQuestion(deps.providerLabel()));
+  if (yes === null) return 'not-asked'; // Ctrl-C: no answer, so it is asked again next setup
+  deps.save(yes);
+  deps.log.info(yes ? 'Relationship typing is on. Turn it off: align sync --auto-classify off' : 'Left off. Turn it on any time: align sync --auto-classify on');
+  return yes ? 'on' : 'off';
+}
+
+/** The model step, then the typing offer: one call from setup. */
+export async function runModelAndTypingSteps(opts: { interactive: boolean }): Promise<void> {
+  await runModelStep(opts);
+  await offerBackgroundTyping(opts);
 }

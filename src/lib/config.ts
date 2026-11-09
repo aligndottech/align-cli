@@ -151,6 +151,8 @@ export function createConfigStore() {
     detector?: string;
     launchOff?: boolean;
     backgroundSyncOff?: boolean;
+    /** Type relationships with the person's own model after each background refresh. Unset: never asked, so off. */
+    autoClassify?: boolean;
     backgroundSyncNoticeShownAt?: string;
     reauthLineShownAt?: string;
     refusedWrites?: string[];
@@ -483,6 +485,14 @@ export function createConfigStore() {
     setBackgroundSyncOff(off: boolean) {
       if (off) store.set('backgroundSyncOff', true);
       else store.delete('backgroundSyncOff');
+    },
+    // `align sync --auto-classify on|off`, or the question at the end of setup. undefined: never answered (off).
+    getAutoClassify(): boolean | undefined {
+      const v = store.get('autoClassify');
+      return typeof v === 'boolean' ? v : undefined;
+    },
+    setAutoClassify(on: boolean) {
+      store.set('autoClassify', on);
     },
     // L6: the one-time disclosure line before the first background refresh. Its presence is the "shown" flag.
     backgroundSyncNoticeShown(): boolean {

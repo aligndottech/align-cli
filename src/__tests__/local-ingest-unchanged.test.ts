@@ -102,16 +102,27 @@ describe('ingestBatch unchanged-skip', () => {
   // A citation link is not a similarity link. Today a citer that arrives AFTER its target is
   // linked only when the target is ingested again (resolveRefs runs on the target's ingest),
   // so the skip must keep that cheap step or a re-sync stops healing the gap.
-  it('an unchanged re-ingest still resolves a citation that arrived after the target', async () => {
+  // A citation that arrives AFTER its target links on arrival (local-ref-links.ts, both
+  // directions). This used to read 0 until the target was re-ingested: the old one-way gap.
+  it('a citation that arrived after the target links at once, and an unchanged re-ingest keeps exactly one link', async () => {
     vi.mocked(cosineSimilarity).mockReturnValue(0.1); // below every floor: no similarity links
     await client.ingestBatch([A], { classify: false });
     const citer = { source_url: 'https://x.atlassian.net/browse/APP-12', platform: 'jira', title: 'APP-12', raw_text: `Queue work follows ${A.source_url}` };
     await client.ingestBatch([citer], { classify: false });
-    expect(linkCount()).toBe(0);
+    expect(linkCount()).toBe(1);
 
     const { snapshots } = await client.ingestBatch([A], { classify: false });
 
     expect(snapshots[0]).toMatchObject({ created: false, changed: false });
+    expect(linkCount()).toBe(1);
+  });
+
+  it('Linear connected before git: a commit saying "Fixes APP-123" links to the issue on arrival', async () => {
+    vi.mocked(cosineSimilarity).mockReturnValue(0.1); // below every floor: no similarity links
+    const issue = { source_url: 'https://linear.app/acme/issue/APP-123/queue-retries', platform: 'linear', title: 'APP-123 Queue retries', raw_text: 'Retry jobs three times.' };
+    await client.ingestBatch([issue], { classify: false });
+    const commit = { source_url: 'file:///work/abc', platform: 'git', title: 'Retry three times', raw_text: 'Retry three times. Fixes APP-123' };
+    await client.ingestBatch([commit], { classify: false });
     expect(linkCount()).toBe(1);
   });
 

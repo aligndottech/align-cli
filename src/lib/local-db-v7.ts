@@ -109,6 +109,7 @@ function repoint(db: DatabaseSync, table: string, column: string, from: string, 
 }
 
 function repointLinks(db: DatabaseSync, loser: string, survivor: string, group: Set<string>): void {
+  const hasDetector = columnsOf(db, 'decision_links').has('detector_version');
   const links = db.prepare(`SELECT id, source_id AS s, target_id AS t, relation, confidence FROM decision_links WHERE source_id = ? OR target_id = ?`)
     .all(loser, loser) as Array<{ id: string; s: string; t: string; relation: string; confidence: number }>;
   for (const link of links) {
@@ -123,6 +124,10 @@ function repointLinks(db: DatabaseSync, loser: string, survivor: string, group: 
       .get(s, t, link.relation) as { id: string } | undefined;
     if (existing) {
       db.prepare('UPDATE decision_links SET confidence = MAX(confidence, ?) WHERE id = ?').run(link.confidence, existing.id);
+      // A certain (reference) stamp on the folded row carries over: the survivor's pair is the same pair.
+      if (hasDetector) {
+        db.prepare(`UPDATE decision_links SET detector_version = 'ref' WHERE id = ? AND EXISTS (SELECT 1 FROM decision_links l WHERE l.id = ? AND l.detector_version = 'ref')`).run(existing.id, link.id);
+      }
       db.prepare('DELETE FROM decision_links WHERE id = ?').run(link.id);
     } else {
       db.prepare('UPDATE decision_links SET source_id = ?, target_id = ? WHERE id = ?').run(s, t, link.id);
@@ -152,6 +157,11 @@ function absorbLoser(db: DatabaseSync, loserId: string, survivorId: string, grou
   if (hasPromotions) repoint(db, 'promotions', 'local_id', loserId, survivorId);
   // Refs the survivor already had stay as they are; the loser's leftovers are duplicates.
   db.prepare('DELETE FROM decision_refs WHERE decision_id = ?').run(loserId);
+  // What the loser could be cited as moves to the survivor (it is the same item), so a later citer still finds it.
+  if (tableExists(db, 'decision_identities')) {
+    db.prepare('INSERT OR IGNORE INTO decision_identities (decision_id, ref, platform) SELECT ?, ref, platform FROM decision_identities WHERE decision_id = ?').run(survivorId, loserId);
+    db.prepare('DELETE FROM decision_identities WHERE decision_id = ?').run(loserId);
+  }
   db.prepare('DELETE FROM decision_embeddings WHERE decision_id = ?').run(loserId);
   db.prepare('DELETE FROM decisions WHERE id = ?').run(loserId);
   db.prepare(`INSERT INTO decision_audit (id, decision_id, action, actor, detail) VALUES (lower(hex(randomblob(16))), ?, 'merged', ?, ?)`)

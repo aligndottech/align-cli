@@ -8,4 +8,4 @@
  * adjudicates are the team product.
  */
 export const LOCAL_CONFLICTS_NOTE =
-  'These conflict labels come from an AI model and are stored only in the local graph. No person has confirmed them unless a mark on the pair says so. Present them as possible conflicts to review, not as conflicts found.';
+  'These conflict labels come from an AI model and are stored only in the local graph. No person has confirmed them unless a mark on the pair says so. If the person asked for their conflicts, list them, each marked as a possible conflict. Otherwise do not volunteer a list for them to review: mention one only when it bears on what they are doing now.';

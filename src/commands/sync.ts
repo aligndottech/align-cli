@@ -8,7 +8,8 @@ import { BACKFILL_SOURCES } from '../lib/mcp-backfill.js';
 import { claimProblem } from '../lib/sync/bg-claim.js';
 import { clearBlocked, writeBlocked } from '../lib/sync/blocked.js';
 import { acquireLock } from '../lib/sync/lock.js';
-import { classifyUnclassified, estimateClassify } from '../lib/sync/classify.js';
+import { BACKGROUND_CLASSIFY_MAX, classifyUnclassified, estimateClassify } from '../lib/sync/classify.js';
+import { hasConfiguredProvider } from '../lib/local-llm.js';
 import { localGraphPath, realStatusDeps, realSyncEnv } from '../lib/sync/real-env.js';
 import { renderOutcome } from '../lib/sync/report.js';
 import { runSync } from '../lib/sync/run-all.js';
@@ -33,6 +34,7 @@ export interface SyncCommandOptions {
   yes?: boolean;
   off?: boolean;
   on?: boolean;
+  autoClassify?: string;
 }
 
 export interface SyncCommandDeps {
@@ -55,6 +57,11 @@ export interface SyncCommandDeps {
   report?(o: SourceOutcome, trigger: ReportedTrigger): Promise<void>;
   /** A seam for tests; defaults to the real run. */
   run?: typeof runSync;
+  /** Has the person said yes to typing relationships after each background refresh? */
+  autoClassify(): boolean;
+  setAutoClassify(on: boolean): void;
+  /** Is any AI provider (a key or a local model) set up to type with? */
+  hasProvider(): boolean;
   /** L6: is the launch-time background refresh switched off (`align sync --off`)? */
   backgroundOff(): boolean;
   setBackgroundOff(off: boolean): void;
@@ -76,6 +83,7 @@ function whole(raw: string | undefined, fallback: number, min: number): number |
 /** Returns the process exit code. A background run always exits 0: nobody is there to read a failure, and the next run tries again. */
 export async function runSyncCommand(sourcesRaw: string[], opts: SyncCommandOptions, d: SyncCommandDeps): Promise<number> {
   let sourcesArg = sourcesRaw;
+  if (opts.autoClassify !== undefined) return autoClassifySwitch(sourcesArg, opts, d);
   if (opts.off || opts.on) {
     // A switch, not a sync: it takes nothing else, so a mistyped `align sync --off github` does not quietly sync (or not).
     if ((opts.off && opts.on) || sourcesArg.length > 0 || opts.status || opts.classify || opts.background || opts.yes || opts.max !== undefined || opts.delay !== undefined) {
@@ -125,6 +133,11 @@ export async function runSyncCommand(sourcesRaw: string[], opts: SyncCommandOpti
         ? `Background refresh: on, but off in this shell (${gate})`
         : `Background refresh: on (at most every ${SYNC_MIN_INTERVAL_MS / 60_000} minutes per source; turn it off: align sync --off)`);
     for (const line of d.backgroundProblems()) d.out(`Background refresh: ${line}`);
+    const typingIdle = !d.hasProvider() ? ' (no model is set up, so nothing runs: align ai)'
+      : d.backgroundOff() || gate !== undefined ? ' (it runs after a background refresh, and that is off here, so nothing runs)' : '';
+    d.out(d.autoClassify()
+      ? `Relationship typing: on, up to ${BACKGROUND_CLASSIFY_MAX} items per background refresh with your own model${typingIdle}. Turn it off: align sync --auto-classify off`
+      : 'Relationship typing: off. Turn it on: align sync --auto-classify on');
     return 0;
   }
   if (opts.classify) return classifyFlow(dbPath, max, opts, d);
@@ -180,7 +193,10 @@ export async function runSyncCommand(sourcesRaw: string[], opts: SyncCommandOpti
     const r = result.relink;
     if (!opts.background && r && r.linked + r.embedded > 0) d.out(`Finished the links for ${r.linked + r.embedded} stored items (on this machine, no AI calls).`);
     if (!opts.background && r?.timedOut) d.out('Stopped finishing links when the time budget ran out; the next sync continues.');
-    if (opts.background) return 0;
+    if (opts.background) {
+      await backgroundClassify(dbPath, d);
+      return 0;
+    }
     return result.outcomes.some((o) => o.state === 'error' || o.state === 'needs_reauth') ? 1 : 0;
   } finally {
     (env.client as unknown as { close?: () => void }).close?.();
@@ -193,6 +209,47 @@ async function settle(pings: Array<Promise<unknown>>): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const cap = new Promise<void>((resolve) => { timer = setTimeout(resolve, SYNC_TELEMETRY_TOTAL_MS); });
   try { await Promise.race([Promise.all(pings), cap]); } finally { clearTimeout(timer); }
+}
+
+/**
+ * `align sync --auto-classify on|off`. A switch, like --off/--on: it takes nothing else. Turning it
+ * on spends the person's key in the background, so a person turns it on, at a terminal, never an agent.
+ */
+function autoClassifySwitch(sources: string[], opts: SyncCommandOptions, d: SyncCommandDeps): number {
+  const value = opts.autoClassify;
+  const others = sources.length > 0 || opts.status || opts.classify || opts.background || opts.off || opts.on || opts.yes || opts.max !== undefined || opts.delay !== undefined;
+  if ((value !== 'on' && value !== 'off') || others) {
+    d.err('align sync: --auto-classify takes on or off, on its own: align sync --auto-classify on, or align sync --auto-classify off.');
+    return 2;
+  }
+  if (value === 'on' && (d.inAgent() || !d.isTty())) {
+    d.err(`align sync: --auto-classify on spends your AI key, so a person turns it on. ${d.inAgent() ? 'This runs inside a coding agent.' : 'There is no terminal here.'} Run it yourself, in your own terminal.`);
+    return 1;
+  }
+  d.setAutoClassify(value === 'on');
+  d.out(value === 'on'
+    ? `Relationship typing is on: after each background refresh, up to ${BACKGROUND_CLASSIFY_MAX} items are typed with your own model (which decision replaced which, and possible conflicts). Turn it off: align sync --auto-classify off`
+    : 'Relationship typing is off. `align sync --classify` still types on demand.');
+  return 0;
+}
+
+/**
+ * After a background refresh, when the person said yes: type a few items. Never fails the refresh.
+ * Never in a run an agent started (the align_sync MCP tool's child, or `align` inside a launched
+ * agent): an agent must not be able to spend the person's key by asking for refreshes, and the MCP
+ * tool's own contract is that nothing it starts calls a model.
+ */
+async function backgroundClassify(dbPath: string, d: SyncCommandDeps): Promise<void> {
+  if (d.inAgent() || !d.autoClassify() || !d.hasProvider()) return;
+  const lock = d.classifyLock();
+  if (!lock.ok) return; // an on-demand run is going: it does the same work
+  try {
+    await d.classify(dbPath, BACKGROUND_CLASSIFY_MAX);
+  } catch {
+    // Nobody is there to read it, and the next refresh tries again.
+  } finally {
+    lock.release();
+  }
 }
 
 async function classifyFlow(dbPath: string, max: number, opts: SyncCommandOptions, d: SyncCommandDeps): Promise<number> {
@@ -231,7 +288,7 @@ async function classifyFlow(dbPath: string, max: number, opts: SyncCommandOption
 export function registerSyncCommand(program: Command): void {
   program
     .command('sync [sources...]')
-    .description('Bring connected sources up to date in your local graph (reads only, no AI calls)')
+    .description('Bring connected sources up to date in your local graph (reads only; AI calls only with --classify, or --auto-classify on)')
     .option('--status', 'Show what is connected, when it last synced and what is waiting')
     .option('--classify', 'Type the relationships of imported items with your own AI key. Asks first')
     .option('--max <n>', `With --classify: how many items at most (default ${DEFAULT_CLASSIFY_MAX})`)
@@ -239,6 +296,7 @@ export function registerSyncCommand(program: Command): void {
     .option('--background', 'Run quietly, as the background refresh does')
     .option('--off', 'Stop the refresh that runs when you start Align (ALIGN_NO_SYNC=1 does the same for one shell)')
     .option('--on', 'Turn the refresh that runs when you start Align back on')
+    .option('--auto-classify <on|off>', `Type relationships with your own AI model after each background refresh (up to ${BACKGROUND_CLASSIFY_MAX} items each time)`)
     .addOption(new Option('--delay <seconds>', 'Wait before the first request (background default 20)').hideHelp())
     .action(async (sources: string[], opts: SyncCommandOptions) => {
       const config = createConfigStore();
@@ -261,6 +319,9 @@ export function registerSyncCommand(program: Command): void {
         classify: classifyUnclassified,
         classifyLock: () => acquireLock('sync-classify'),
         report: recordSourceSynced,
+        autoClassify: () => config.getAutoClassify() === true,
+        setAutoClassify: (on) => config.setAutoClassify(on),
+        hasProvider: () => hasConfiguredProvider(),
         backgroundOff: () => config.isBackgroundSyncOff(),
         setBackgroundOff: (off) => config.setBackgroundSyncOff(off),
         inAgent: () => Boolean(process.env['ALIGN_WRAPPED']) || process.env[STARTED_BY_AGENT_ENV] === 'mcp',

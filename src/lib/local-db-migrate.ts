@@ -13,6 +13,7 @@ import { migrateV10, repairPromotions } from './local-db-v10.js';
 import { migrateV11 } from './local-db-v11.js';
 import { hasDetectorVersion, migrateV12 } from './local-db-v12.js';
 import { hasCoChangeTable, migrateCoChange } from './local-db-cochange.js';
+import { deleteIdentities, hasIdentityTable, migrateRefLinks } from './local-ref-links.js';
 
 export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS decisions (
@@ -165,6 +166,7 @@ export function deleteDecisionWithDependents(db: DatabaseSync, id: string): void
   bumpRowSetEpoch(db);
   db.prepare('DELETE FROM decision_links WHERE source_id = ? OR target_id = ?').run(id, id);
   db.prepare('DELETE FROM decision_refs WHERE decision_id = ?').run(id);
+  deleteIdentities(db, id);
   db.prepare('DELETE FROM decision_embeddings WHERE decision_id = ?').run(id);
   db.prepare('DELETE FROM decision_audit WHERE decision_id = ?').run(id);
   // Absent in a graph still on its way through migrate() (the v4 tombstone step calls this).
@@ -519,6 +521,17 @@ export function migrate(db: DatabaseSync): void {
     db.exec('BEGIN IMMEDIATE');
     try {
       migrateCoChange(db);
+      db.exec('COMMIT');
+    } catch (err) {
+      if (db.isTransaction) db.exec('ROLLBACK');
+      throw err;
+    }
+  }
+  // Additive: decision_identities, and a one-time pass linking every exact reference. See local-ref-links.ts.
+  if (!hasIdentityTable(db)) {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      migrateRefLinks(db);
       db.exec('COMMIT');
     } catch (err) {
       if (db.isTransaction) db.exec('ROLLBACK');

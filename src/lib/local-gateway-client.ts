@@ -340,7 +340,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       const stored = step === 'full' ? null : db.getEmbedding(existingId);
       if (stored !== null) {
         db.replaceRefs(existingId, refs);
-        db.resolveRefs(existingId, refIdentityFor(platform, sourceUrl));
+        db.resolveRefs(existingId, refIdentityFor(platform, sourceUrl), refs);
         const related = step === 'relink' ? await linkPass(db, rankerFor(session), existingId, stored, title, summary, opts.classify) : [];
         if (step === 'relink') db.markEnriched(existingId);
         return { id: existingId, title, summary, sourceUrl, platform, related, created: false, changed: false, redacted };
@@ -360,7 +360,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     // citing a Jira key before Jira was ever connected), resolve that gap into a real
     // link now that the cited item has arrived. Harmless no-op for platforms with no
     // citable identity (refIdentityFor returns [] for a plain git/slack/cli capture).
-    db.resolveRefs(id, refIdentityFor(platform, sourceUrl));
+    db.resolveRefs(id, refIdentityFor(platform, sourceUrl), refs);
     const epochBefore = db.rowSetEpoch();
     db.setEmbedding(id, embedding, EMBEDDING_MODEL_ID);
     // This run's own write: the matrix learns it by append, so the bump setEmbedding makes when
