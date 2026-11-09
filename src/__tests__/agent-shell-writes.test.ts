@@ -44,6 +44,18 @@ const REFUSED: Array<[string, string]> = [
   ['code piped into python', `echo "open('lib/a.js','w')" | python3 -`],
   ['tee into a quoted path', 'echo x | tee "lib/a.js"'],
   ['a write after a harmless tee', "npm test | tee /tmp/out.log; sed -i 's/a/b/' lib/a.js"],
+  ['a write behind env and an assignment', `env FOO=1 python3 -c "open('lib/a.py','w').write('x')"`],
+  ['a write behind timeout', "timeout 5 sed -i 's/a/b/' lib/a.js"],
+  ['an interpreter by absolute path', `/usr/bin/python3 -c "open('lib/a.py','w').write('x')"`],
+  ['a versioned interpreter', `python3.11 -c "open('lib/a.py','a').write('x')"`],
+  ['a redirect inside bash -c', 'bash -c "echo x > lib/a.js"'],
+  ['sed inside sh -c', "sh -c 'sed -i s/a/b/ lib/a.js'"],
+  ['perl in place with a backup suffix', "perl -i.bak -pe 's/a/b/' lib/a.js"],
+  ['sed through xargs', "git ls-files | xargs sed -i 's/a/b/'"],
+  ['awk in place', "awk -i inplace '{print}' lib/a.js"],
+  ['a redirect that climbs out of /tmp', 'echo x > /tmp/../repo/lib/a.js'],
+  ['test output written into the repo', 'pnpm test --reporter=json > results.json'],
+  ['node --eval that writes', `node --eval "require('fs').appendFileSync('lib/a.js', 'x')"`],
 ];
 
 const ASKED: Array<[string, string]> = [
@@ -54,6 +66,15 @@ const ASKED: Array<[string, string]> = [
   ['a > inside quotes', 'grep -n "a > b" lib/a.js'],
   ['sed that only prints', "sed -n 140,175p lib/error-handler.js"],
   ['tee appending outside the repo', 'npm test | tee -a /tmp/out.log'],
+  ['inline node that only prints', 'node -e "console.log(require(\'./package.json\').version)"'],
+  ['inline python that only prints', `python3 -c "import json; print(json.load(open('package.json'))['name'])"`],
+  ['inline ruby that only prints', 'ruby -e "puts 1"'],
+  ['python reading stdin and writing stdout', `cat x | python3 -c "import sys; sys.stdout.write(sys.stdin.read())"`],
+  ['a python heredoc that only reads', "python3 - <<'EOF'\nprint(open('lib/a.py').read()[:10])\nEOF"],
+  ['a commit message heredoc with an arrow', 'git commit -F - <<EOF\nfix: a -> b\nEOF'],
+  ['node in interactive mode', 'node -i'],
+  ['a > inside a comment', 'npm test # a > b'],
+  ['removing a build folder', 'rm -rf build'],
 ];
 
 describe('broker: commands that change files are refused, so the edit gate sees every change', () => {
