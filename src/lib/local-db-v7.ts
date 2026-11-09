@@ -152,6 +152,7 @@ function absorbLoser(db: DatabaseSync, loserId: string, survivorId: string, grou
   if (hasPromotions) repoint(db, 'promotions', 'local_id', loserId, survivorId);
   // Refs the survivor already had stay as they are; the loser's leftovers are duplicates.
   db.prepare('DELETE FROM decision_refs WHERE decision_id = ?').run(loserId);
+  try { db.prepare('DELETE FROM decision_identities WHERE decision_id = ?').run(loserId); } catch { /* no table yet */ }
   db.prepare('DELETE FROM decision_embeddings WHERE decision_id = ?').run(loserId);
   db.prepare('DELETE FROM decisions WHERE id = ?').run(loserId);
   db.prepare(`INSERT INTO decision_audit (id, decision_id, action, actor, detail) VALUES (lower(hex(randomblob(16))), ?, 'merged', ?, ?)`)

@@ -7,6 +7,8 @@ import type { DeciderKind } from './decider-kind.js';
 import { bumpRowSetEpoch, rowSetEpoch } from './local-db-epoch.js';
 import { createLexicalStore, type LexicalStore } from './lexical-store.js';
 import { foldKeylessTwin } from './local-db-v7.js';
+import { insertLinkRow as writeLinkRow } from './local-link-write.js';
+import { linkByReference } from './local-ref-links.js';
 import { discussionStart } from './github-text.js';
 import { connectorItemKey, KEYED_PLATFORMS } from './source-key.js';
 import { alignConfigDir, ensurePrivateDir, precreatePrivateFile, tightenGraphFiles } from './private-files.js';
@@ -48,7 +50,7 @@ export interface AuditRow {
 }
 
 /** A link to write. `detectorVersion` defaults to 'v0' (schema v12). */
-export interface NewLink { id?: string; sourceId: string; targetId: string; relation: string; confidence: number; detectorVersion?: 'v0' | 'v1' }
+export interface NewLink { id?: string; sourceId: string; targetId: string; relation: string; confidence: number; detectorVersion?: 'v0' | 'v1' | 'ref' }
 
 export interface LinkRow {
   id: string;
@@ -181,18 +183,8 @@ export function createLocalDb(dbPath: string) {
     throw err;
   }
 
-  // Shared by insertLink and resolveRefs, so there is one writer of the
-  // decision_links insert rather than two copies of the same ON CONFLICT clause.
-  // `detectorVersion` (schema v12): which detector wrote the edge. Omitted means 'v0'; only the
-  // v1 detector passes 'v1'. A conflict on the triple keeps the stored version: same relation,
-  // nothing re-typed.
-  function insertLinkRow(link: NewLink): void {
-    db.prepare(
-      `INSERT INTO decision_links (id, source_id, target_id, relation, confidence, detector_version) VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT(source_id, target_id, relation)
-         DO UPDATE SET confidence = MAX(confidence, excluded.confidence)`
-    ).run(link.id ?? randomUUID(), link.sourceId, link.targetId, link.relation, link.confidence, link.detectorVersion ?? 'v0');
-  }
+  // The one decision_links writer lives in local-link-write.ts, shared with local-ref-links.ts.
+  const insertLinkRow = (link: NewLink): void => writeLinkRow(db, link);
 
   let dataVersionStmt: ReturnType<typeof db.prepare> | undefined;
   let lexical: LexicalStore | undefined;
@@ -710,7 +702,7 @@ export function createLocalDb(dbPath: string) {
         // Review F1: a `replaces` mark written over an existing classifier row keeps that row's id,
         // so the judgement itself is what protects it, not only the `mark:` id.
         db.prepare(
-          `DELETE FROM decision_links WHERE ((source_id = ? AND target_id = ?) OR (source_id = ? AND target_id = ?)) AND id NOT LIKE 'mark:%'
+          `DELETE FROM decision_links WHERE ((source_id = ? AND target_id = ?) OR (source_id = ? AND target_id = ?)) AND id NOT LIKE 'mark:%' AND detector_version <> 'ref'
              AND NOT (relation = 'supersedes' AND EXISTS (SELECT 1 FROM local_judgements j
                WHERE j.kind = 'supersede' AND j.decision_id = decision_links.source_id AND j.counterpart_id = decision_links.target_id))`,
         ).run(link.sourceId, link.targetId, link.targetId, link.sourceId);
@@ -767,37 +759,13 @@ export function createLocalDb(dbPath: string) {
     },
 
     /**
-     * The payoff: a newly-ingested decision may be the exact thing an EARLIER
-     * decision's text already cited (a git commit citing "APP-123", now that the Jira
-     * issue for it has been imported). `candidates` is that new decision's own
-     * identity (decision-refs.ts's `refIdentityFor`) - every shape another decision
-     * could have recorded it as. For each one that some existing ref already names,
-     * link the citer to this decision.
-     *
-     * Deliberately one-directional: it resolves refs that were ALREADY WAITING when
-     * this decision arrives. It does not also re-scan this decision's own text for refs
-     * pointing at decisions already in the graph - the realistic setup flow imports git
-     * (which writes the citing refs) before a connector is added later to fill them in,
-     * so the citer is always the one already present. A source imported before the
-     * repo it is later linked from is the case this does not cover.
-     *
-     * `relation: 'relates'` at confidence 1.0 - not a guess like the cosine-similarity
-     * `relates` edges elsewhere: this one is a deterministic exact-key match,
-     * and 1.0 says so. `insertLinkRow`'s unique index on (source, target, relation)
-     * makes re-resolving the same pair on a later import a no-op rather than a
-     * duplicate edge.
+     * Link `newDecisionId` by exact reference, both ways: to every decision whose text cites it
+     * (`candidates`, its own identity from refIdentityFor), and to every decision `ownRefs` (its
+     * own text's refs) names. Certain, so stamped 'ref' and never re-typed or deleted by a model
+     * path. local-ref-links.ts has the reasoning.
      */
-    resolveRefs(newDecisionId: string, candidates: Array<{ ref: string; platform: string }>): void {
-      if (!candidates.length) return;
-      const findCiters = db.prepare(
-        `SELECT decision_id as decisionId FROM decision_refs WHERE platform = ? AND ref = ? AND decision_id != ?`
-      );
-      for (const c of candidates) {
-        const citers = findCiters.all(c.platform, c.ref, newDecisionId) as Array<{ decisionId: string }>;
-        for (const citer of citers) {
-          insertLinkRow({ sourceId: citer.decisionId, targetId: newDecisionId, relation: 'relates', confidence: 1.0 });
-        }
-      }
+    resolveRefs(newDecisionId: string, candidates: Array<{ ref: string; platform: string }>, ownRefs: Array<{ ref: string; platform: string }> = []): void {
+      linkByReference(db, newDecisionId, candidates, ownRefs);
     },
 
     /**
@@ -837,7 +805,7 @@ export function createLocalDb(dbPath: string) {
       // so the schema's ON DELETE CASCADE never fires (same fact the v2 migration
       // documents above).
       bumpRowSetEpoch(db);
-      db.exec(`DELETE FROM decision_refs; DELETE FROM decision_links; DELETE FROM decision_embeddings; DELETE FROM co_change_rules; DELETE FROM decisions;`);
+      db.exec(`DELETE FROM decision_refs; DELETE FROM decision_identities; DELETE FROM decision_links; DELETE FROM decision_embeddings; DELETE FROM co_change_rules; DELETE FROM decisions;`);
     },
 
     /**
