@@ -71,6 +71,8 @@ export type WindowedOpts = {
   teams?: string[];
   projectId?: string;
   spaces?: string[];
+  /** Jira only: narrows the projects to one board's filter or a person's JQL (connector-core 0.14). Linear narrows with `projects`. */
+  jql?: string;
 };
 
 export interface CaptureFetchResult {

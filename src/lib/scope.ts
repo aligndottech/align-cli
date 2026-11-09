@@ -17,12 +17,12 @@
 import fs from 'node:fs';
 import { CAPTURE_SOURCES } from './capture-sources.js';
 import {
-  type FetchLike, findConfluenceSpace, findJiraProject, findLinearTeam, githubRepoIsPublic, githubRepoVisibility, gitlabProjectVisibility, listConfluenceSpaces, listJiraProjects,
-  listLinearTeams, ScopeLookupError,
+  checkJiraJql, type FetchLike, findConfluenceSpace, findJiraProject, findLinearTeam, githubRepoIsPublic, githubRepoVisibility, gitlabProjectVisibility, jiraBoardFilterJql,
+  listConfluenceSpaces, listJiraBoards, listJiraProjects, listLinearProjects, listLinearTeams, ScopeLookupError,
 } from './scope-choices.js';
 import {
-  type ActiveScope, describeScopeKey, disclosureText, fetchOptsFor, FIXED_SCOPES, normaliseScopeValues, SCOPED_SOURCES, type ScopedSource, type ScopeFetchOpts,
-  scopeKeyOf, ScopeValueError, type StoredScope, YOURS_KEY,
+  type ActiveScope, describeScopeKey, describeTeamScope, disclosureText, fetchOptsFor, FIXED_SCOPES, type Narrowing, normaliseScopeValues, SCOPED_SOURCES, type ScopedSource,
+  type ScopeFetchOpts, scopeKeyOf, ScopeValueError, type StoredScope, YOURS_KEY,
 } from './scope-values.js';
 import { adoptScope, readRows } from './sync/sync-state.js';
 import { inheritedWindowSince } from './sync/window.js';
@@ -48,8 +48,8 @@ export interface ScopeStore {
 export function markTold(store: ScopeStore, source: string, scopeKey: string): void {
   store.markDisclosed(source, scopeKey);
   const s = store.getScope(source);
-  if (s?.kind === 'team' && s.pending && isScoped(source) && scopeKeyOf(source, s.labels) === scopeKey) {
-    store.saveScope(source, { kind: 'team', values: s.values, labels: s.labels });
+  if (s?.kind === 'team' && s.pending && isScoped(source) && scopeKeyOf(source, s.labels, s.narrow) === scopeKey) {
+    store.saveScope(source, { kind: 'team', values: s.values, labels: s.labels, ...(s.narrow ? { narrow: s.narrow } : {}) });
   }
 }
 
@@ -101,12 +101,12 @@ function yours(origin: ResolvedScope['origin'], note?: string): ResolvedScope {
   return { scope: 'yours', scopeKey: YOURS_KEY, extras: {}, label: YOURS_LABEL, origin, ...(note !== undefined ? { note } : {}) };
 }
 
-function team(source: ScopedSource, values: string[], labels: string[], origin: ResolvedScope['origin'], deps: ScopeDeps, foreground: boolean): ResolvedScope {
-  const scopeKey = scopeKeyOf(source, labels);
+function team(source: ScopedSource, values: string[], labels: string[], origin: ResolvedScope['origin'], deps: ScopeDeps, foreground: boolean, narrow?: Narrowing): ResolvedScope {
+  const scopeKey = scopeKeyOf(source, labels, narrow);
   return {
-    scope: 'team', scopeKey, extras: fetchOptsFor(source, values), label: describeScopeKey(source, scopeKey, 'team'), origin,
+    scope: 'team', scopeKey, extras: fetchOptsFor(source, values, narrow), label: describeTeamScope(source, labels, narrow), origin,
     ...(source === 'github' ? { repo: values[0]! } : {}),
-    ...(foreground && !deps.store.isDisclosed(source, scopeKey) ? { disclosure: disclosureText(source, labels) } : {}),
+    ...(foreground && !deps.store.isDisclosed(source, scopeKey) ? { disclosure: disclosureText(source, labels, narrow) } : {}),
   };
 }
 
@@ -140,7 +140,7 @@ export async function resolveScope(source: string, deps: ScopeDeps, o: { foregro
     // Only a person at a terminal is shown the disclosure and asked. Anything else keeps what was in force. A pending scope is NEVER
     // promoted silently: the disclosure is shown every time, even if this scope was told before, and the caller must get an explicit Yes.
     if (person) {
-      return { ...team(source, stored.values, stored.labels, 'chosen', deps, true), disclosure: disclosureText(source, stored.labels), activates: true };
+      return { ...team(source, stored.values, stored.labels, 'chosen', deps, true, stored.narrow), disclosure: disclosureText(source, stored.labels, stored.narrow), activates: true };
     }
     const kept = await resolveFrom(source, stored.pending.previous, deps, { foreground: false });
     return { ...kept, pendingConfirm: true, note: `Team scope for ${source} is waiting for you to confirm: run \`align sync ${source}\` (it will show what it reads)` };
@@ -149,7 +149,7 @@ export async function resolveScope(source: string, deps: ScopeDeps, o: { foregro
 }
 
 async function resolveFrom(source: ScopedSource, stored: StoredScope | ActiveScope | null, deps: ScopeDeps, o: { foreground: boolean }): Promise<ResolvedScope> {
-  if (stored?.kind === 'team') return team(source, stored.values, stored.labels, 'chosen', deps, o.foreground);
+  if (stored?.kind === 'team') return team(source, stored.values, stored.labels, 'chosen', deps, o.foreground, stored.narrow);
   if (source === 'confluence') {
     return {
       ...yours('default'),
@@ -194,7 +194,8 @@ async function autoDetected(source: 'github' | 'gitlab', deps: ScopeDeps, foregr
 
 /** `unattended`: a command line nobody was at (no terminal, --json): like an agent's, a widening it asks for waits for a person. */
 export type ChangedBy = { via: 'cli'; unattended?: boolean } | { via: 'mcp'; agent: string };
-export type SetInput = { scope: 'yours' } | { scope: 'team'; values: unknown };
+/** `narrow` narrows a team scope to one part: a Jira `board` (id or exact name) or `jql` inside one project, or Linear `projects` inside one team. */
+export type SetInput = { scope: 'yours' } | { scope: 'team'; values: unknown; narrow?: { board?: unknown; jql?: unknown; projects?: unknown } };
 
 /** A change that was refused. The message is written for the person and never carries a value that was refused. */
 export class ScopeRefusal extends Error {
@@ -221,9 +222,77 @@ export interface SetScopeResult {
 
 const day = (iso: string): string => iso.slice(0, 10);
 
-interface Verified { values: string[]; labels: string[] }
+interface Verified { values: string[]; labels: string[]; narrow?: Narrowing }
 
-async function verify(source: ScopedSource, raw: unknown, deps: ScopeDeps, fields: Record<string, string>): Promise<Verified> {
+async function verify(source: ScopedSource, raw: unknown, deps: ScopeDeps, fields: Record<string, string>, narrow?: NonNullable<Extract<SetInput, { scope: 'team' }>['narrow']>): Promise<Verified> {
+  // Refused before any request: only Jira and Linear have parts to narrow to.
+  if (narrow !== undefined && source !== 'jira' && source !== 'linear') throw new ScopeRefusal(`${labelOf(source)} has no part to narrow to. Nothing was changed.`, 'invalid');
+  const base = await verifyValues(source, raw, deps, fields);
+  if (narrow === undefined) return base;
+  try {
+    return { ...base, narrow: await verifyNarrowing(source, base, narrow, deps, fields) };
+  } catch (e) {
+    if (e instanceof ScopeLookupError) throw new ScopeRefusal(`${e.message} Nothing was changed.`, 'lookup');
+    throw e;
+  }
+}
+
+const MAX_JQL = 2000;
+
+/** Checks a narrowing against what the token can see. Refuses with words that never repeat the value given. */
+async function verifyNarrowing(source: ScopedSource, base: Verified, n: NonNullable<Extract<SetInput, { scope: 'team' }>['narrow']>, deps: ScopeDeps, fields: Record<string, string>): Promise<Narrowing> {
+  const refuse = (m: string, kind: ScopeRefusal['kind'] = 'invalid'): never => { throw new ScopeRefusal(`${m} Nothing was changed.`, kind); };
+  if (source === 'jira') {
+    if (n.projects !== undefined) refuse('Jira is narrowed by a board or a JQL filter, not by projects.');
+    if (n.board !== undefined && n.jql !== undefined) refuse('Give a board or a JQL filter, not both.');
+    if (base.values.length !== 1) refuse('A board or a filter narrows one Jira project. Name exactly one.');
+    const key = base.values[0]!;
+    if (n.board !== undefined) {
+      if (typeof n.board !== 'string' || n.board.trim() === '') refuse('A Jira board is its id or its exact name.');
+      const wanted = (n.board as string).trim();
+      const listed = await listJiraBoards(fields, key, deps.fetch);
+      const byId = listed.items.filter((b) => b.id === wanted);
+      const hits = byId.length > 0 ? byId : listed.items.filter((b) => b.name === wanted);
+      if (hits.length === 0) refuse(`Your Jira token cannot see that board in ${key} (the value is not printed back).`, 'not_visible');
+      if (hits.length > 1) refuse(`More than one board in ${key} has that name. Give the board's id.`);
+      const board = hits[0]!;
+      const jql = await jiraBoardFilterJql(fields, board.id, deps.fetch);
+      if (await checkJiraJql(fields, [key], jql, deps.fetch) === 'invalid') refuse(`That board's filter cannot be used to narrow ${key}.`);
+      return { by: 'board', id: board.id, name: board.name, jql };
+    }
+    if (n.jql !== undefined) {
+      if (typeof n.jql !== 'string' || n.jql.trim() === '') refuse('A JQL filter is text.');
+      const jql = (n.jql as string).trim();
+      if (jql.length > MAX_JQL) refuse(`A JQL filter is at most ${MAX_JQL} characters.`);
+      if (await checkJiraJql(fields, [key], jql, deps.fetch) === 'invalid') refuse(`Jira did not accept that filter inside ${key} (it is not printed back).`);
+      return { by: 'jql', jql };
+    }
+    return refuse('Give a board or a JQL filter.');
+  }
+  if (source === 'linear') {
+    if (n.board !== undefined || n.jql !== undefined) refuse('Linear is narrowed by projects, not by a board or a JQL filter.');
+    if (base.values.length !== 1) refuse('Projects narrow one Linear team. Name exactly one.');
+    let wanted: string[];
+    try { wanted = [...new Set(listOfText(n.projects))]; } catch { return refuse('Linear projects are their names or ids.'); }
+    if (wanted.length === 0 || wanted.length > 20) refuse('Name between 1 and 20 Linear projects.');
+    const listed = await listLinearProjects(fields, base.values[0]!, deps.fetch);
+    const hits = wanted.map((w) => listed.items.find((p) => p.id === w) ?? listed.items.find((p) => p.name === w));
+    const missing = hits.filter((h) => h === undefined).length;
+    if (missing > 0) refuse(`Your Linear token cannot see ${missing} of the projects you gave in that team (the values are not printed back).`, 'not_visible');
+    const found = hits as Array<{ id: string; name: string }>;
+    return { by: 'projects', ids: found.map((p) => p.id), names: found.map((p) => p.name) };
+  }
+  return refuse(`${labelOf(source)} has no part to narrow to.`);
+}
+
+/** Names given as a comma list or an array. Names may hold spaces, so only commas split. */
+function listOfText(raw: unknown): string[] {
+  const parts = typeof raw === 'string' ? raw.split(',') : Array.isArray(raw) ? raw : undefined;
+  if (parts === undefined || parts.some((p) => typeof p !== 'string')) throw new Error('not text');
+  return (parts as string[]).map((p) => p.trim()).filter((p) => p !== '');
+}
+
+async function verifyValues(source: ScopedSource, raw: unknown, deps: ScopeDeps, fields: Record<string, string>): Promise<Verified> {
   let given: string[];
   try { given = normaliseScopeValues(source, raw); } catch (e) {
     if (e instanceof ScopeValueError) throw new ScopeRefusal(`${e.message} Nothing was changed.`, 'invalid');
@@ -290,6 +359,8 @@ export interface Choice {
   values: string[];
   /** What people read (Linear: team keys). Empty for yours. */
   labels: string[];
+  /** One part of the team scope (a Jira board or filter, Linear projects). */
+  narrow?: Narrowing;
 }
 
 /**
@@ -312,9 +383,9 @@ export async function chooseScope(deps: ScopeDeps, source: string, input: SetInp
     }
     return { source, scope: 'yours', scopeKey: YOURS_KEY, label: YOURS_LABEL, values: [], labels: [] };
   }
-  const v = await verify(source, input.values, deps, fields);
-  const scopeKey = scopeKeyOf(source, v.labels);
-  return { source, scope: 'team', scopeKey, label: describeScopeKey(source, scopeKey, 'team'), values: v.values, labels: v.labels };
+  const v = await verify(source, input.values, deps, fields, input.narrow);
+  const scopeKey = scopeKeyOf(source, v.labels, v.narrow);
+  return { source, scope: 'team', scopeKey, label: describeTeamScope(source, v.labels, v.narrow), values: v.values, labels: v.labels, ...(v.narrow ? { narrow: v.narrow } : {}) };
 }
 
 /** Write a checked choice: the stored preference, and the scope's own `source_sync` row (the source's window, no watermark). Deletes nothing. */
@@ -327,12 +398,12 @@ export function commitScope(deps: ScopeDeps, source: ScopedSource, choice: Choic
     // An AGENT's team choice waits for a person (the disclosure at a terminal); what was in force stays in force until then.
     // Re-choosing the scope that is already active is not a change, so it needs no confirmation.
     const current = deps.store.getScope(source);
-    const active: ActiveScope | null = current === null ? null : current.kind === 'team' && current.pending ? current.pending.previous : current.kind === 'team' ? { kind: 'team', values: current.values, labels: current.labels } : current;
-    const same = active?.kind === 'team' && scopeKeyOf(source, active.labels) === choice.scopeKey;
+    const active: ActiveScope | null = current === null ? null : current.kind === 'team' && current.pending ? current.pending.previous
+      : current.kind === 'team' ? { kind: 'team', values: current.values, labels: current.labels, ...(current.narrow ? { narrow: current.narrow } : {}) } : current;
+    const same = active?.kind === 'team' && scopeKeyOf(source, active.labels, active.narrow) === choice.scopeKey;
     const waits = by.via === 'mcp' || by.unattended === true;
-    deps.store.saveScope(source, waits && !same
-      ? { kind: 'team', values: choice.values, labels: choice.labels, pending: { previous: active } }
-      : { kind: 'team', values: choice.values, labels: choice.labels });
+    const chosen = { kind: 'team' as const, values: choice.values, labels: choice.labels, ...(choice.narrow ? { narrow: choice.narrow } : {}) };
+    deps.store.saveScope(source, waits && !same ? { ...chosen, pending: { previous: active } } : chosen);
   }
   // "Yours" is written down for every source that has one: otherwise GitHub and GitLab widen again from the folder's remote, and Jira
   // and Linear from the keys local decisions cite, as if nothing had been chosen.
@@ -369,7 +440,7 @@ export async function setScope(deps: ScopeDeps, source: string, input: SetInput,
   result.text = created || back === undefined
     ? `${name} now reads ${choice.label}. This scope has not been read before, so the next sync re-reads ${name} ${reach} for it. That can take a few minutes and uses part of your ${name} rate limit. Nothing already imported is deleted.`
     : `${name} now reads ${choice.label}. This scope was read before, so the next sync catches up since ${back}. Nothing already imported is deleted.`;
-  result.disclosure = disclosureText(choice.source, choice.labels);
+  result.disclosure = disclosureText(choice.source, choice.labels, choice.narrow);
   if (pending) {
     result.pending = true;
     result.text = `${name} will read ${choice.label} once the person confirms it. It is waiting for the person: nothing reads it in the background, or when an agent runs a sync, until they run \`align sync ${choice.source}\` at a terminal, which shows what it reads first. Until then ${name} keeps its current scope. When confirmed, the first sync re-reads ${name} ${reach} for this scope (a few minutes, some of its rate limit). Nothing already imported is deleted.`;
@@ -415,10 +486,10 @@ export async function viewScopes(deps: ScopeDeps): Promise<ScopeView[]> {
     // A waiting agent choice is not in force: show what is, and what is waiting.
     const waitingKey = raw?.kind === 'team' && raw.pending ? raw : undefined;
     const stored: StoredScope | ActiveScope | null = waitingKey ? waitingKey.pending!.previous : raw;
-    const waiting = waitingKey ? { waiting: describeScopeKey(source, scopeKeyOf(source as ScopedSource, waitingKey.labels), 'team') } : {};
+    const waiting = waitingKey ? { waiting: describeTeamScope(source as ScopedSource, waitingKey.labels, waitingKey.narrow) } : {};
     const push = (v: ScopeView): void => { out.push({ ...v, ...waiting }); };
     if (stored?.kind === 'team') {
-      push({ source, kind: 'team', scope_key: scopeKeyOf(source as ScopedSource, stored.labels), label: describeScopeKey(source, scopeKeyOf(source as ScopedSource, stored.labels), 'team'), values: stored.labels, can_set: true, origin: 'chosen' });
+      push({ source, kind: 'team', scope_key: scopeKeyOf(source as ScopedSource, stored.labels, stored.narrow), label: describeTeamScope(source as ScopedSource, stored.labels, stored.narrow), values: stored.labels, can_set: true, origin: 'chosen' });
     } else if (source === 'confluence') {
       push({ source, kind: 'unset', scope_key: YOURS_KEY, label: 'no spaces chosen, so nothing is read', can_set: true, origin: 'default' });
     } else if (stored?.kind === 'yours') {

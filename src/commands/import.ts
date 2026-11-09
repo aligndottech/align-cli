@@ -176,6 +176,7 @@ interface ConnectGroupOpts {
   from?: string; to?: string; approve: boolean;
   source?: string; token?: string; yes?: boolean; json?: boolean; since?: string;
   scope?: string; repo?: string; projects?: string; teams?: string; gitlabProject?: string; spaces?: string;
+  board?: string; jql?: string; linearProjects?: string;
 }
 
 /** The L4 scope flags that were given, as the connect flow takes them. Omitted keys stay omitted. */
@@ -187,6 +188,9 @@ function scopeFlagsOf(o: ConnectGroupOpts): ScopeFlags {
   if (o.teams !== undefined) flags.teams = o.teams;
   if (o.gitlabProject !== undefined) flags.gitlabProject = o.gitlabProject;
   if (o.spaces !== undefined) flags.spaces = o.spaces;
+  if (o.board !== undefined) flags.board = o.board;
+  if (o.jql !== undefined) flags.jql = o.jql;
+  if (o.linearProjects !== undefined) flags.linearProjects = o.linearProjects;
   return flags;
 }
 
@@ -248,6 +252,9 @@ export function registerImportCommand(program: Command): void {
     .option('--teams <keys>', 'With --source linear: read everyone\'s issues in these team keys (ENG)')
     .option('--gitlab-project <project>', 'With --source gitlab: read everyone\'s merge requests in this project (id or group/project)')
     .option('--spaces <keys>', 'With --source confluence: the spaces to read (ENG,OPS)')
+    .option('--board <id|name>', 'With --source jira and one --projects key: read only the issues on this board')
+    .option('--jql <filter>', 'With --source jira and one --projects key: read only issues matching this JQL, inside that project')
+    .option('--linear-projects <names>', 'With --source linear and one --teams key: read only these projects (names or ids, comma separated)')
     .option('--all', 'Scan all connected connectors')
     .option('--channel <id>', 'Slack channel ID (single-connector only)')
     .option('--project <key>', 'Project key (Jira prefix or GitHub org/repo)')

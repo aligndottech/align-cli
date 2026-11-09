@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 /**
  * L4: what a source's scope is made of - the non-secret values a person can name (a repo, project keys, team keys, a
  * GitLab project, space keys), how each is checked, the canonical key it is stored under in `source_sync`, and the
@@ -12,8 +14,18 @@
 export const SCOPED_SOURCES = ['github', 'jira', 'linear', 'gitlab', 'confluence'] as const;
 export type ScopedSource = (typeof SCOPED_SOURCES)[number];
 
-/** The option each fetcher takes for a team scope (connector-core 0.10.0). GitHub's is `repo` + `scope`, set elsewhere. */
-export interface ScopeFetchOpts { projects?: string[]; teams?: string[]; projectId?: string; spaces?: string[] }
+/** The option each fetcher takes for a team scope. GitHub's is `repo` + `scope`, set elsewhere. Jira `jql` and Linear `projects` narrow (connector-core 0.14). */
+export interface ScopeFetchOpts { projects?: string[]; teams?: string[]; projectId?: string; spaces?: string[]; jql?: string }
+
+/**
+ * A team scope narrowed to one part: a Jira board (its filter, read at choice time and kept) or the person's own JQL, always inside
+ * one project; or Linear projects inside the chosen team. Stored on disk as kind "narrowed" (config.ts), so an older CLI reads it as
+ * yours and never as the whole project.
+ */
+export type Narrowing =
+  | { by: 'board'; id: string; name: string; jql: string }
+  | { by: 'jql'; jql: string }
+  | { by: 'projects'; ids: string[]; names: string[] };
 
 export class ScopeValueError extends Error {
   constructor(message: string) {
@@ -28,7 +40,7 @@ export const YOURS_KEY = 'yours';
 export type ActiveScope =
   | { kind: 'yours' }
   /** `values` are what the fetcher takes (Linear: team ids); `labels` are what people read (Linear: team keys). */
-  | { kind: 'team'; values: string[]; labels: string[] };
+  | { kind: 'team'; values: string[]; labels: string[]; narrow?: Narrowing };
 /**
  * `pending` marks a team scope an AGENT chose (align_scope via MCP): nothing reads it in the background, or for an agent running
  * `align sync`, until a person at a terminal has been shown the disclosure. `previous` is what stays in force until then (null: nothing
@@ -36,7 +48,7 @@ export type ActiveScope =
  */
 export type StoredScope =
   | { kind: 'yours' }
-  | { kind: 'team'; values: string[]; labels: string[]; pending?: { previous: ActiveScope | null } };
+  | { kind: 'team'; values: string[]; labels: string[]; narrow?: Narrowing; pending?: { previous: ActiveScope | null } };
 const MAX_VALUES = 20;
 
 const GITHUB_REPO = /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/;
@@ -113,9 +125,15 @@ export function normaliseScopeValues(source: ScopedSource, raw: unknown): string
 }
 
 /** The `source_sync.scope_key` for a choice. GitHub keeps the `repo:` shape L5 already writes. */
-export function scopeKeyOf(source: ScopedSource, labels: string[]): string {
+export function scopeKeyOf(source: ScopedSource, labels: string[], narrow?: Narrowing): string {
   const sorted = [...labels].sort(codeUnit);
-  return source === 'github' ? `repo:${sorted[0]}` : `${source}:${sorted.join(',')}`;
+  if (source === 'github') return `repo:${sorted[0]}`;
+  const base = `${source}:${sorted.join(',')}`;
+  // A narrowing is its own row (and watermark). A JQL is hashed: it is never written into a key a person can read.
+  if (narrow === undefined) return base;
+  if (narrow.by === 'board') return `${base}#board=${narrow.id}`;
+  if (narrow.by === 'jql') return `${base}#jql=${createHash('sha256').update(narrow.jql).digest('hex').slice(0, 12)}`;
+  return `${base}#projects=${[...narrow.ids].sort(codeUnit).join(',')}`;
 }
 
 const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many);
@@ -137,7 +155,7 @@ export function labelOfScopeKey(source: string, scopeKey: string): string {
   if (scopeKey.startsWith('repo:')) return scopeKey.slice('repo:'.length);
   const prefix = `${source}:`;
   if ((SCOPED_SOURCES as readonly string[]).includes(source) && source !== 'github' && scopeKey.startsWith(prefix)) {
-    const labels = scopeKey.slice(prefix.length).split(',').filter((l) => l !== '');
+    const labels = scopeKey.slice(prefix.length).split('#')[0]!.split(',').filter((l) => l !== '');
     if (labels.length > 0) return scopeLabel(source as ScopedSource, labels);
   }
   return scopeKey;
@@ -145,14 +163,32 @@ export function labelOfScopeKey(source: string, scopeKey: string): string {
 
 /** A stored `source_sync` row in words, for status. */
 export function describeScopeKey(source: string, scopeKey: string, scope: 'yours' | 'team'): string {
-  return scope === 'yours' ? 'your own items' : `everyone's items in ${labelOfScopeKey(source, scopeKey)}`;
+  if (scope === 'yours') return 'your own items';
+  const place = labelOfScopeKey(source, scopeKey);
+  const part = scopeKey.split('#')[1];
+  if (part?.startsWith('board=')) return `issues on Jira board ${part.slice('board='.length)} in ${place}`;
+  if (part?.startsWith('jql=')) return `issues matching your filter in ${place}`;
+  if (part?.startsWith('projects=')) {
+    const n = part.slice('projects='.length).split(',').length;
+    return `issues in ${n} ${plural(n, 'Linear project', 'Linear projects')} of ${place}`;
+  }
+  return `everyone's items in ${place}`;
+}
+
+/** A team scope in words, naming its narrowing's part when it has one: "issues on the Payments board in Jira project AC". */
+export function describeTeamScope(source: ScopedSource, labels: string[], narrow?: Narrowing): string {
+  const place = scopeLabel(source, labels);
+  if (narrow?.by === 'board') return `issues on the ${narrow.name} board in ${place}`;
+  if (narrow?.by === 'jql') return `issues matching your filter in ${place}`;
+  if (narrow?.by === 'projects') return `issues in ${plural(narrow.names.length, 'Linear project', 'Linear projects')} ${[...narrow.names].sort(codeUnit).join(', ')} of ${place}`;
+  return describeScopeKey(source, scopeKeyOf(source, labels), 'team');
 }
 
 /** What to hand each fetcher for a team scope. GitHub's repo travels as `repo`, not here. */
-export function fetchOptsFor(source: ScopedSource, values: string[]): ScopeFetchOpts {
+export function fetchOptsFor(source: ScopedSource, values: string[], narrow?: Narrowing): ScopeFetchOpts {
   switch (source) {
-    case 'jira': return { projects: values };
-    case 'linear': return { teams: values };
+    case 'jira': return { projects: values, ...(narrow && narrow.by !== 'projects' ? { jql: narrow.jql } : {}) };
+    case 'linear': return { teams: values, ...(narrow?.by === 'projects' ? { projects: narrow.ids } : {}) };
     case 'gitlab': return { projectId: values[0]! };
     case 'confluence': return { spaces: values };
     case 'github': return {};
@@ -160,8 +196,13 @@ export function fetchOptsFor(source: ScopedSource, values: string[]): ScopeFetch
 }
 
 /** The plain-words line shown once per source before the first team read (plan, Phase L4). */
-export function disclosureText(source: ScopedSource, labels: string[]): string {
-  return `Importing items from everyone in ${scopeLabel(source, labels)} that your token can read. They stay on this machine. To read only your own: align connect --source ${source} --scope yours`;
+export function disclosureText(source: ScopedSource, labels: string[], narrow?: Narrowing): string {
+  const place = scopeLabel(source, labels);
+  const tail = `They stay on this machine. To read only your own: align connect --source ${source} --scope yours`;
+  if (narrow?.by === 'board') return `Importing issues on the ${narrow.name} board in ${place} that your token can read. Only ${labels.join(', ')} is read, even if the board shows other projects. ${tail}`;
+  if (narrow?.by === 'jql') return `Importing issues matching your filter in ${place} that your token can read. Only ${labels.join(', ')} is read. ${tail}`;
+  if (narrow?.by === 'projects') return `Importing issues in ${plural(narrow.names.length, 'Linear project', 'Linear projects')} ${[...narrow.names].sort(codeUnit).join(', ')} of ${place} that your token can read. ${tail}`;
+  return `Importing items from everyone in ${place} that your token can read. ${tail}`;
 }
 
 /**

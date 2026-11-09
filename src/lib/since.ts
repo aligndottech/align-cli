@@ -103,5 +103,6 @@ export function windowExtras(o?: FetchExtras): FetchExtras {
     ...(o?.teams !== undefined ? { teams: o.teams } : {}),
     ...(o?.projectId !== undefined ? { projectId: o.projectId } : {}),
     ...(o?.spaces !== undefined ? { spaces: o.spaces } : {}),
+    ...(o?.jql !== undefined ? { jql: o.jql } : {}),
   };
 }

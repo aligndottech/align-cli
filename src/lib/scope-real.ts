@@ -5,7 +5,7 @@
 import { createConfigStore } from './config.js';
 import { currentRepoIdentity } from './repo-identity.js';
 import { CONFLUENCE_NEEDS_SPACES, type ScopeDeps, type ScopeStore } from './scope.js';
-import { type ActiveScope, describeScopeKey, type ScopedSource, scopeKeyOf } from './scope-values.js';
+import { type ActiveScope, describeTeamScope, type ScopedSource, scopeKeyOf } from './scope-values.js';
 
 /** `group/project` from `gitlab.com/group/project`. Self-managed hosts are not detected: name them with `--project`. */
 export function gitlabPlaceOf(identity: string | null): string | undefined {
@@ -33,8 +33,8 @@ export function activeStoredScope(source: string, config = createConfigStore()):
 /** What the sync status needs to know about the scope in force, from the stored choice. An unchosen source answers undefined (the most recently started row is used). */
 export function scopeStatusHooks(config = createConfigStore()): { activeScopeKey(id: string): string | undefined; pendingScope(id: string): string | undefined; blockedScope(id: string): string | undefined } {
   const store = configScopeStore(config);
-  const key = (source: string, s: { kind: 'yours' } | { kind: 'team'; labels: string[] } | null): string | undefined =>
-    s === null ? undefined : s.kind === 'yours' ? 'yours' : scopeKeyOf(source as ScopedSource, s.labels);
+  const key = (source: string, s: ActiveScope | null): string | undefined =>
+    s === null ? undefined : s.kind === 'yours' ? 'yours' : scopeKeyOf(source as ScopedSource, s.labels, s.narrow);
   return {
     activeScopeKey: (id) => {
       const s = store.getScope(id);
@@ -44,7 +44,7 @@ export function scopeStatusHooks(config = createConfigStore()): { activeScopeKey
     blockedScope: (id) => (id === 'confluence' && activeStoredScope(id, config)?.kind !== 'team' ? CONFLUENCE_NEEDS_SPACES : undefined),
     pendingScope: (id) => {
       const s = store.getScope(id);
-      return s?.kind === 'team' && s.pending ? describeScopeKey(id, scopeKeyOf(id as ScopedSource, s.labels), 'team') : undefined;
+      return s?.kind === 'team' && s.pending ? describeTeamScope(id as ScopedSource, s.labels, s.narrow) : undefined;
     },
   };
 }

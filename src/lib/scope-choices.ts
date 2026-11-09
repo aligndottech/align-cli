@@ -10,6 +10,8 @@
  * Every function takes the `fetch` to use, so a test runs against scripted responses and nothing here touches a network
  * it was not handed.
  */
+import { buildJiraJql } from '@aligndottech/connector-core';
+
 export type FetchLike = typeof fetch;
 type Init = NonNullable<Parameters<typeof fetch>[1]>;
 
@@ -124,6 +126,77 @@ export async function listConfluenceSpaces(fields: Record<string, string>, f: Fe
   return { items, truncated };
 }
 
+const DIGITS = /^\d{1,12}$/;
+
+/**
+ * The boards of one Jira project (Jira Software's Agile REST: GET /rest/agile/1.0/board?projectKeyOrId=KEY, paged by
+ * startAt/maxResults/isLast, https://developer.atlassian.com/cloud/jira/software/rest/api-group-board/). A site without
+ * Jira Software answers 404 here: that is "no boards", and the person can still read the whole project or give --jql.
+ */
+export async function listJiraBoards(fields: Record<string, string>, projectKey: string, f: FetchLike, o: { max?: number } = {}): Promise<Listed<{ id: string; name: string }>> {
+  const max = o.max ?? MAX_LISTED;
+  const host = hostOf('Jira', fields['domain']);
+  const headers = atlassianHeaders(fields);
+  const items: Array<{ id: string; name: string }> = [];
+  let truncated = false;
+  for (let startAt = 0, pages = 0; items.length < max; pages++) {
+    if (pages >= MAX_PAGES) { truncated = true; break; }
+    let page: Record<string, unknown>;
+    try {
+      page = asRecord(await get('Jira', `https://${host}/rest/agile/1.0/board?projectKeyOrId=${encodeURIComponent(projectKey)}&startAt=${startAt}&maxResults=50`, headers, f));
+    } catch (e) {
+      if (e instanceof ScopeLookupError && e.message.includes('answered 404')) return { items: [], truncated: false };
+      throw e;
+    }
+    const values = Array.isArray(page['values']) ? page['values'] : [];
+    for (const v of values) {
+      const id = asRecord(v)['id'];
+      const name = text(asRecord(v)['name']);
+      if ((typeof id === 'number' || typeof id === 'string') && DIGITS.test(String(id)) && name !== undefined) items.push({ id: String(id), name });
+    }
+    if (page['isLast'] !== false || values.length === 0) break;
+    startAt += values.length;
+    if (items.length >= max) truncated = true;
+  }
+  return { items, truncated };
+}
+
+/** A board's saved filter JQL: its configuration names the filter, and the filter holds the JQL. The filter id must be digits before it enters a URL. */
+export async function jiraBoardFilterJql(fields: Record<string, string>, boardId: string, f: FetchLike): Promise<string> {
+  if (!DIGITS.test(boardId)) throw new ScopeLookupError('A Jira board id is digits.', 'unsupported');
+  const host = hostOf('Jira', fields['domain']);
+  const headers = atlassianHeaders(fields);
+  const config = asRecord(await get('Jira', `https://${host}/rest/agile/1.0/board/${boardId}/configuration`, headers, f));
+  const filterId = asRecord(config['filter'])['id'];
+  if ((typeof filterId !== 'string' && typeof filterId !== 'number') || !DIGITS.test(String(filterId))) {
+    throw new ScopeLookupError('That Jira board has no filter Align can read.', 'unsupported');
+  }
+  const jql = text(asRecord(await get('Jira', `https://${host}/rest/api/3/filter/${String(filterId)}`, headers, f))['jql']);
+  if (jql === undefined) throw new ScopeLookupError('That Jira board has no filter Align can read.', 'unsupported');
+  return jql;
+}
+
+/**
+ * Does Jira accept this fragment inside these projects? One search for one issue. The JQL is built by connector-core's
+ * buildJiraJql, the same function the read uses, so this CLI never writes JQL itself. 400 is invalid; 401/403 is the token.
+ */
+export async function checkJiraJql(fields: Record<string, string>, projects: string[], jql: string, f: FetchLike): Promise<'ok' | 'invalid'> {
+  const host = hostOf('Jira', fields['domain']);
+  const headers = { ...atlassianHeaders(fields), 'Content-Type': 'application/json' };
+  let query: string;
+  try { query = buildJiraJql({ projects, jql } as Parameters<typeof buildJiraJql>[0]); } catch { return 'invalid'; }
+  let res: Response;
+  try {
+    res = await f(`https://${host}/rest/api/3/search/jql`, { method: 'POST', headers, body: JSON.stringify({ jql: query, maxResults: 1, fields: ['key'] }), redirect: 'manual', signal: AbortSignal.timeout(TIMEOUT_MS) });
+  } catch {
+    throw new ScopeLookupError('Could not reach Jira to check the filter.', 'unreachable');
+  }
+  if (res.status === 401 || res.status === 403) throw new ScopeLookupError('Jira refused the saved token. Reconnect: align connect jira', 'auth');
+  if (res.status === 400) return 'invalid';
+  if (!res.ok) throw new ScopeLookupError(`Jira answered ${res.status} when checking the filter.`, 'unreachable');
+  return 'ok';
+}
+
 function linearHeaders(fields: Record<string, string>): Record<string, string> {
   const token = fields['token'];
   if (!token) throw new ScopeLookupError('The Linear connection has no token saved. Reconnect: align connect linear', 'unsupported');
@@ -212,4 +285,19 @@ export async function gitlabProjectVisibility(fields: Record<string, string>, pr
   if (!token || !HOSTNAME.test(domain)) return 'unknown';
   const code = await status(`https://${domain}/api/v4/projects/${encodeURIComponent(project)}`, { Authorization: `Bearer ${token}` }, f);
   return code === 200 ? 'visible' : code === 404 ? 'invisible' : 'unknown';
+}
+
+/** One Linear team's projects. The team id travels as a GraphQL variable, never spliced into the query text. */
+export async function listLinearProjects(fields: Record<string, string>, teamId: string, f: FetchLike): Promise<Listed<{ id: string; name: string }>> {
+  const query = 'query($id: String!) { team(id: $id) { projects(first: 100) { nodes { id name } pageInfo { hasNextPage } } } }';
+  const body = await get('Linear', 'https://api.linear.app/graphql', linearHeaders(fields), f, { method: 'POST', body: JSON.stringify({ query, variables: { id: teamId } }) });
+  const projects = asRecord(asRecord(asRecord(asRecord(body)['data'])['team'])['projects']);
+  if (!Array.isArray(projects['nodes'])) throw new ScopeLookupError('Linear did not return a project list.', 'unreachable');
+  const items: Array<{ id: string; name: string }> = [];
+  for (const n of projects['nodes']) {
+    const id = text(asRecord(n)['id']);
+    const name = text(asRecord(n)['name']);
+    if (id !== undefined && name !== undefined) items.push({ id, name });
+  }
+  return { items, truncated: asRecord(projects['pageInfo'])['hasNextPage'] === true };
 }

@@ -35,7 +35,7 @@ describe('schema', () => {
     expect(SCOPE_TOOL_SCHEMA.inputSchema.additionalProperties).toBe(false);
     expect(SCOPE_TOOL_SCHEMA.inputSchema.required).toEqual(['action']);
     expect(SCOPE_TOOL_SCHEMA.inputSchema.properties.action.enum).toEqual(['view', 'set']);
-    expect(Object.keys(SCOPE_TOOL_SCHEMA.inputSchema.properties).sort()).toEqual(['action', 'gitlab_project', 'projects', 'repo', 'scope', 'source', 'spaces', 'teams']);
+    expect(Object.keys(SCOPE_TOOL_SCHEMA.inputSchema.properties).sort()).toEqual(['action', 'board', 'gitlab_project', 'linear_projects', 'projects', 'repo', 'scope', 'source', 'spaces', 'teams']);
   });
 
   it('no property is named like a secret (and the same check flags one that is)', () => {

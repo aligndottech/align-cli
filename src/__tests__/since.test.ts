@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ACCEPTED_SINCE_FORMS, fetchWindow, parseSince, SinceError, windowLabel } from '../lib/since.js';
+import { ACCEPTED_SINCE_FORMS, fetchWindow, parseSince, SinceError, windowExtras, windowLabel } from '../lib/since.js';
 import { SYNC_CEILINGS, SYNC_TIME_BUDGET_MS, SYNC_WINDOW_DEFAULT_DAYS } from '../lib/import-defaults.js';
 
 /**
@@ -136,5 +136,15 @@ describe('fetchWindow: the one place a window becomes fetcher options', () => {
 
   it('two different windows give two different since values (the table is not a constant)', () => {
     expect(fetchWindow('jira', parseSince('1y', NOW)).since).not.toBe(fetchWindow('jira', parseSince('2w', NOW)).since);
+  });
+});
+
+// A narrowing must reach the fetch. windowExtras copies named keys only, so a new one is silently dropped unless named here.
+describe('windowExtras carries a narrowing', () => {
+  it('passes a Jira jql beside the projects', () => {
+    expect(windowExtras({ projects: ['AC'], jql: 'labels = pay' })).toEqual({ projects: ['AC'], jql: 'labels = pay' });
+  });
+  it('passes Linear projects beside the teams', () => {
+    expect(windowExtras({ teams: ['t-1'], projects: ['p-1'] })).toEqual({ teams: ['t-1'], projects: ['p-1'] });
   });
 });
