@@ -254,7 +254,10 @@ function valueLine(v: CardValue): string {
     const reuse = v.reuseRate === null ? 'n/a' : `${Math.round(v.reuseRate * 100)}%`;
     return `${cardLabel('This week')}${v.conflictsCaught} conflicts caught, reuse rate ${reuse}`;
   }
-  const conflicts = v.conflictsCaught > 0 ? `, ${v.conflictsCaught} conflicts caught` : '';
+  // Local conflict links are labels from the person's own AI model (align sync --classify, or a
+  // capture with a key set). Nobody has confirmed them, so they are possible conflicts, not
+  // caught ones. Cross-tool conflict detection that a person adjudicates is the team product.
+  const conflicts = v.conflictsCaught > 0 ? `, ${v.conflictsCaught} possible ${v.conflictsCaught === 1 ? 'conflict' : 'conflicts'} flagged` : '';
   return `${cardLabel('So far')}${v.decisions} decisions in your graph${conflicts}`;
 }
 

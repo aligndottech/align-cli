@@ -110,6 +110,8 @@ export interface ConflictsResult {
   conflict_count: number;
   showing?: number;
   message?: string;
+  /** Local graph only: how to read the labels (local-conflicts-note.ts). */
+  note?: string;
 }
 
 export interface ConnectorInfo {
