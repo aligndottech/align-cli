@@ -30,6 +30,14 @@ const FIELD_COMMAND = [
 ].join('\n');
 
 const REFUSED: Array<[string, string]> = [
+  // git's own options come before the subcommand, and must not hide it.
+  ['git apply after -C', 'git -C . apply fix.patch'],
+  ['git apply after -c', 'git -c core.whitespace=fix apply fix.patch'],
+  ['git apply after --no-pager and --git-dir=', 'git --no-pager --git-dir=.git apply fix.patch'],
+  // -0 and -l take digits, then the cluster goes on: the i after them is still -i.
+  ['perl slurp mode in place', "perl -0777pi -e 's/a/b/' lib/a.js"],
+  ['perl line-ending mode in place', "perl -l012pi -e 's/a/b/' lib/a.js"],
+  ['perl hex record separator in place', "perl -0x1Fpi -e 's/a/b/' lib/a.js"],
   ['ruby opening a file to write', `ruby -e "File.open('lib/a.rb', 'w') { |f| f.write('x') }"`],
   ['ruby opening a file to read and write', `ruby -e "File.open('lib/a.rb', 'r+') { |f| f.write('x') }"`],
   ['git apply --stat that also applies', 'git apply --stat --apply fix.patch'],
@@ -67,6 +75,9 @@ const REFUSED: Array<[string, string]> = [
 ];
 
 const ASKED: Array<[string, string]> = [
+  ['git status after -C', 'git -C . status'],
+  ['git apply --check after -C', 'git -C . apply --check fix.patch'],
+  ['perl slurp mode printing', "perl -0777ne 'print length' lib/a.js"],
   // File.open with no mode, or 'r', only reads.
   ['ruby reading a file', `ruby -e "puts File.open('README.md').read"`],
   ['ruby reading a file with r', `ruby -e "puts File.open('README.md', 'r').read"`],

@@ -73,6 +73,7 @@ function claudeArgs(state: { projectHasMcp: boolean; projectHasBlock: boolean })
   return args;
 }
 
+/** Opens the chosen agent engine with Align's gate. `notices` are shown under the header (background reads, failed reads). Returns the exit code. */
 export async function runAgentSession(opts: { engine?: EngineName; notices?: string[] }, deps: SessionDeps = defaultSessionDeps()): Promise<number> {
   const model = await deps.resolveModel();
   const claudeBin = deps.findClaude();

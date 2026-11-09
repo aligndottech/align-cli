@@ -106,17 +106,32 @@ function commandWords(masked: string, original: string, start: number): string[]
   return words;
 }
 
-// perl and ruby -i, alone or clustered (-pi, -i.bak). A switch that takes an argument (-MList::Util, -rtime, -e) ends the
-// cluster, so an i inside a module or library name is not -i.
+// perl and ruby -i, alone or clustered (-pi, -i.bak, -0777pi). -0 and -l take digits (-0x a hex value) and the cluster
+// goes on after them. A switch that takes the rest of the token (-MList::Util, -rtime, -e) ends the cluster, so an i
+// inside a module or library name is not -i.
 function inPlaceSwitch(token: string): boolean {
-  if (!/^-[a-zA-Z]/.test(token)) return false;
-  for (const c of token.slice(1)) {
+  if (!/^-[a-zA-Z0-9]/.test(token)) return false;
+  const s = token.slice(1);
+  for (let k = 0; k < s.length; k++) {
+    const c = s[k]!;
     if (c === 'i') return true;
+    if (c === '0' && s[k + 1] === 'x') { k++; while (/[0-9a-fA-F]/.test(s[k + 1] ?? '')) k++; continue; }
+    if (c === '0' || c === 'l') { while (/[0-7]/.test(s[k + 1] ?? '')) k++; continue; }
     if ('MmIrFCDxeE'.includes(c) || !/[a-zA-Z]/.test(c)) return false;
   }
   return false;
 }
 
+// git's global options that take a separate value (`--git-dir=x` is one token and skipped as one).
+const GIT_OPTS_WITH_VALUE = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--super-prefix', '--config-env']);
+/** Skips git's global options (-C <dir>, -c <k=v>, --no-pager, ...) so `git -C . apply` is read as `apply`. Returns the subcommand and its arguments. */
+function gitSubcommand(rest: string[]): string[] {
+  let k = 0;
+  while (k < rest.length && rest[k]!.startsWith('-')) k += GIT_OPTS_WITH_VALUE.has(rest[k]!) ? 2 : 1;
+  return rest.slice(k);
+}
+
+/** Whether one command segment (between `;`, `&&`, `|`) changes a file. `whole` is the full line, for programs read from stdin. */
 function segmentChangesFiles(words: string[], segment: string, whole: string, bodies: string[], depth: number): boolean {
   const [head, ...rest] = words;
   if (head === undefined) return false;
@@ -127,9 +142,11 @@ function segmentChangesFiles(words: string[], segment: string, whole: string, bo
   // A patch carries arbitrary content into the repo.
   if (head === 'patch') return true;
   // git apply --check / --stat / --numstat / --summary only inspect the patch, unless --apply is also given.
-  if (head === 'git' && rest[0] === 'apply') {
-    const inspects = rest.some((x) => x === '--check' || x === '--stat' || x === '--numstat' || x === '--summary');
-    return !inspects || rest.includes('--apply');
+  if (head === 'git') {
+    const args = gitSubcommand(rest);
+    if (args[0] !== 'apply') return false;
+    const inspects = args.some((x) => x === '--check' || x === '--stat' || x === '--numstat' || x === '--summary');
+    return !inspects || args.includes('--apply');
   }
   if (SHELLS.has(head)) {
     const at = rest.indexOf('-c');
@@ -144,6 +161,7 @@ function segmentChangesFiles(words: string[], segment: string, whole: string, bo
   return inline && (WRITES_A_FILE.test(code) || bodies.some((b) => WRITES_A_FILE.test(b)));
 }
 
+/** changesFiles at a nesting depth, so `bash -c '...'` is read inside, at most three levels down. */
 function changesFilesAt(command: string, depth: number): boolean {
   const { shell, bodies } = splitHeredocs(command);
   const masked = mask(shell);

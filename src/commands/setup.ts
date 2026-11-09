@@ -1167,6 +1167,7 @@ export async function connectLocalSources(o: ConnectLocalSourcesOptions): Promis
   return results;
 }
 
+/** Connects the local sources setup picked, background reads by default, and returns the lines the agent screen shows under its header. */
 async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<string[]> {
   const { interactive, config, localEnv, localClient, dbPath, opts, capture, funnel, agents, foundTitles, agent } = ctx;
 

@@ -106,6 +106,7 @@ function yours(origin: ResolvedScope['origin'], note?: string): ResolvedScope {
   return { scope: 'yours', scopeKey: YOURS_KEY, extras: {}, label: YOURS_LABEL, origin, ...(note !== undefined ? { note } : {}) };
 }
 
+/** A team scope ready to read, or blocked when it carries a narrowing the installed connector-core cannot apply. */
 function team(source: ScopedSource, values: string[], labels: string[], origin: ResolvedScope['origin'], deps: ScopeDeps, foreground: boolean, narrow?: Narrowing): ResolvedScope {
   // A narrowing this CLI cannot apply would read the whole project: nothing is read instead.
   if (narrow !== undefined && !narrows(deps)) {
@@ -233,6 +234,7 @@ const day = (iso: string): string => iso.slice(0, 10);
 
 interface Verified { values: string[]; labels: string[]; narrow?: Narrowing }
 
+/** Checks the values (and any narrowing) against what the token can see. Throws ScopeRefusal and never prints a refused value back. */
 async function verify(source: ScopedSource, raw: unknown, deps: ScopeDeps, fields: Record<string, string>, narrow?: NonNullable<Extract<SetInput, { scope: 'team' }>['narrow']>): Promise<Verified> {
   // Refused before any request: only Jira and Linear have parts to narrow to.
   if (narrow !== undefined && source !== 'jira' && source !== 'linear') throw new ScopeRefusal(`${labelOf(source)} has no part to narrow to. Nothing was changed.`, 'invalid');
@@ -304,6 +306,7 @@ function listOfText(raw: unknown): string[] {
   return (parts as string[]).map((p) => p.trim()).filter((p) => p !== '');
 }
 
+/** Checks the project, space or team values a person gave against what the token can see. */
 async function verifyValues(source: ScopedSource, raw: unknown, deps: ScopeDeps, fields: Record<string, string>): Promise<Verified> {
   let given: string[];
   try { given = normaliseScopeValues(source, raw); } catch (e) {
