@@ -761,10 +761,10 @@ export function createLocalDb(dbPath: string) {
     /**
      * Link `newDecisionId` by exact reference, both ways: to every decision whose text cites it
      * (`candidates`, its own identity from refIdentityFor), and to every decision `ownRefs` (its
-     * own text's refs) names. Certain, so stamped 'ref' and never re-typed or deleted by a model
-     * path. local-ref-links.ts has the reasoning.
+     * own text's refs) names. An unambiguous match is stamped 'ref' and never re-typed or deleted by
+     * a model path. local-ref-links.ts has the reasoning.
      */
-    resolveRefs(newDecisionId: string, candidates: Array<{ ref: string; platform: string }>, ownRefs: Array<{ ref: string; platform: string }> = []): void {
+    resolveRefs(newDecisionId: string, candidates: Array<{ ref: string; platform: string }>, ownRefs?: Array<{ ref: string; platform: string }>): void {
       linkByReference(db, newDecisionId, candidates, ownRefs);
     },
 

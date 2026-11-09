@@ -10,7 +10,7 @@
  *    connecting Linear before importing git linked nothing. `decision_identities` records what
  *    each decision can be cited as (refIdentityFor), so a citer arriving later can find it.
  *
- * 2. STAMPED 'ref'. A certain link carries detector_version 'ref'. `align local relink` only
+ * 2. STAMPED 'ref', WHEN CERTAIN. An unambiguous match carries detector_version 'ref' (see linker). `align local relink` only
  *    re-types 'v0' links, and `replaceLink` (every model path: capture, `align sync --classify`,
  *    relink) never deletes a 'ref' link. Before this, a classifier verdict on the pair deleted the
  *    certain link and kept the model's guess.
@@ -37,51 +37,75 @@ export function hasIdentityTable(db: DatabaseSync): boolean {
 }
 
 /**
- * A bare `#N` names a pull request or issue in whichever forge hosts the repo, so it is only the
- * same item within one repo. Both repos known and different: not a match. Either unknown: a match,
- * which is what the one-directional resolver always did.
+ * The statements one pass uses, prepared once (a backfill links every ref in the graph inside one
+ * write lock, so per-row prepares would hold that lock far longer), with repo lookups cached.
  */
-function sameRepoOrUnknown(db: DatabaseSync, a: string, b: string): boolean {
-  const repo = db.prepare('SELECT repo FROM decisions WHERE id = ?');
-  const ra = (repo.get(a) as { repo: string | null } | undefined)?.repo ?? null;
-  const rb = (repo.get(b) as { repo: string | null } | undefined)?.repo ?? null;
-  return ra === null || rb === null || ra === rb;
-}
-
-function link(db: DatabaseSync, citer: string, cited: string, platform: string): void {
-  if (citer === cited) return;
-  if (platform === 'code' && !sameRepoOrUnknown(db, citer, cited)) return;
-  insertLinkRow(db, { sourceId: citer, targetId: cited, relation: 'relates', confidence: 1.0, detectorVersion: REF_DETECTOR });
+function linker(db: DatabaseSync) {
+  const repoOf = db.prepare('SELECT repo FROM decisions WHERE id = ?');
+  const holders = db.prepare(
+    `SELECT COUNT(DISTINCT i.decision_id) AS n FROM decision_identities i JOIN decisions d ON d.id = i.decision_id WHERE i.platform = ? AND i.ref = ?`,
+  );
+  const repos = new Map<string, string | null>();
+  const repo = (id: string): string | null => {
+    if (!repos.has(id)) repos.set(id, (repoOf.get(id) as { repo: string | null } | undefined)?.repo ?? null);
+    return repos.get(id)!;
+  };
+  /**
+   * Certain only when exactly one decision carries the identity cited and, for a bare `#N` (which
+   * names a pull request or issue in whichever forge hosts the repo), both repos are known and
+   * equal. Anything else is still a likely link, written the way the old resolver wrote it ('v0',
+   * so a model may re-type it), never stamped certain: two items both called APP-123 (a Jira and a
+   * Linear one), or a `#12` from a commit with no known repo, are not certain.
+   */
+  return (citer: string, cited: string, ref: Ref): void => {
+    if (citer === cited) return;
+    let certain = (holders.get(ref.platform, ref.ref) as { n: number }).n === 1;
+    if (ref.platform === 'code') {
+      const a = repo(citer);
+      const b = repo(cited);
+      if (a !== null && b !== null && a !== b) return; // known to be different repos: not the same item
+      if (a === null || b === null) certain = false;
+    }
+    insertLinkRow(db, { sourceId: citer, targetId: cited, relation: 'relates', confidence: 1.0, detectorVersion: certain ? REF_DETECTOR : 'v0' });
+  };
 }
 
 /**
  * Record what `id` can be cited as, then link it both ways: to every decision whose text already
- * cites it, and to every decision its own text cites. Idempotent: the unique index on
- * (source, target, relation) makes a repeat a no-op.
+ * cites it, and, when `ownRefs` is given, to every decision its own text cites. Idempotent: the
+ * unique index on (source, target, relation) makes a repeat a no-op.
+ *
+ * `ownRefs` given (an ingest, which knows the decision's current text) also retires this
+ * decision's own certain links first, so a link outlives no ref: rewrite a commit message so it no
+ * longer cites APP-123 and its certain link to APP-123 goes. Omitted, the decision's own links are
+ * left alone.
  */
-export function linkByReference(db: DatabaseSync, id: string, identities: Ref[], ownRefs: Ref[]): void {
+export function linkByReference(db: DatabaseSync, id: string, identities: Ref[], ownRefs?: Ref[]): void {
   db.prepare('DELETE FROM decision_identities WHERE decision_id = ?').run(id);
   const addIdentity = db.prepare('INSERT OR IGNORE INTO decision_identities (decision_id, ref, platform) VALUES (?, ?, ?)');
   for (const c of identities) addIdentity.run(id, c.ref, c.platform);
+  const link = linker(db);
 
   const citers = db.prepare(
     `SELECT r.decision_id AS id FROM decision_refs r JOIN decisions d ON d.id = r.decision_id
       WHERE r.platform = ? AND r.ref = ? AND r.decision_id != ?`,
   );
   for (const c of identities) {
-    for (const row of citers.all(c.platform, c.ref, id) as Array<{ id: string }>) link(db, row.id, id, c.platform);
+    for (const row of citers.all(c.platform, c.ref, id) as Array<{ id: string }>) link(row.id, id, c);
   }
 
+  if (ownRefs === undefined) return;
+  db.prepare(`DELETE FROM decision_links WHERE source_id = ? AND relation = 'relates' AND detector_version = ?`).run(id, REF_DETECTOR);
   const cited = db.prepare(
     `SELECT i.decision_id AS id FROM decision_identities i JOIN decisions d ON d.id = i.decision_id
       WHERE i.platform = ? AND i.ref = ? AND i.decision_id != ?`,
   );
   for (const r of ownRefs) {
-    for (const row of cited.all(r.platform, r.ref, id) as Array<{ id: string }>) link(db, id, row.id, r.platform);
+    for (const row of cited.all(r.platform, r.ref, id) as Array<{ id: string }>) link(id, row.id, r);
   }
 }
 
-/** Remove a decision's identities: the explicit-delete paths name every dependent (foreign keys are off). */
+/** Remove a decision's identities: the explicit-delete paths name every dependent. */
 export function deleteIdentities(db: DatabaseSync, id: string): void {
   try { db.prepare('DELETE FROM decision_identities WHERE decision_id = ?').run(id); } catch { /* no table yet */ }
 }
@@ -89,7 +113,7 @@ export function deleteIdentities(db: DatabaseSync, id: string): void {
 /**
  * Create the table, then bring an existing graph up to date in one pass: record every decision's
  * identity, link every ref that matches one, and so stamp the links the old resolver wrote (exact
- * matches stored as 'v0') as 'ref'. Runs once, when the table first appears.
+ * matches stored as 'v0') as 'ref' where they are unambiguous. Runs once, when the table first appears.
  */
 export function migrateRefLinks(db: DatabaseSync): void {
   db.exec(`CREATE TABLE IF NOT EXISTS decision_identities (
@@ -103,10 +127,11 @@ export function migrateRefLinks(db: DatabaseSync): void {
   const rows = db.prepare('SELECT id, platform, source_url AS sourceUrl FROM decisions WHERE source_url IS NOT NULL').all() as Array<{ id: string; platform: string; sourceUrl: string }>;
   for (const r of rows) for (const c of refIdentityFor(r.platform, r.sourceUrl)) addIdentity.run(r.id, c.ref, c.platform);
 
+  const link = linker(db);
   const matches = db.prepare(
-    `SELECT r.decision_id AS citer, i.decision_id AS cited, r.platform AS platform
+    `SELECT r.decision_id AS citer, i.decision_id AS cited, r.ref AS ref, r.platform AS platform
        FROM decision_refs r JOIN decision_identities i ON i.platform = r.platform AND i.ref = r.ref
       WHERE r.decision_id != i.decision_id`,
-  ).all() as Array<{ citer: string; cited: string; platform: string }>;
-  for (const m of matches) link(db, m.citer, m.cited, m.platform);
+  ).all() as Array<{ citer: string; cited: string; ref: string; platform: string }>;
+  for (const m of matches) link(m.citer, m.cited, { ref: m.ref, platform: m.platform });
 }

@@ -5,6 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { refIdentityFor } from '../lib/decision-refs.js';
 import { deleteDecisionWithDependents } from '../lib/local-db-migrate.js';
+import { foldKeylessTwin } from '../lib/local-db-v7.js';
 import { createLocalDb } from '../lib/local-db.js';
 
 // Links made from an exact reference (local-ref-links.ts): certain, both directions, never
@@ -24,9 +25,11 @@ function rows(): Array<{ source: string; target: string; relation: string; v: st
   } finally { raw.close(); }
 }
 
+const platformOf = (url: string): string => (url.includes('linear.app') ? 'linear' : url.includes('atlassian.net') ? 'jira' : 'github');
+
 function ticket(db: ReturnType<typeof createLocalDb>, url = LINEAR, repo: string | null = null): string {
-  const id = db.insertDecision({ title: 'APP-123', summary: 'Retry the queue', sourceUrl: url, platform: url.includes('linear') ? 'linear' : 'github', repo });
-  db.resolveRefs(id, refIdentityFor(url.includes('linear') ? 'linear' : 'github', url), []);
+  const id = db.insertDecision({ title: 'APP-123', summary: 'Retry the queue', sourceUrl: url, platform: platformOf(url), repo });
+  db.resolveRefs(id, refIdentityFor(platformOf(url), url), []);
   return id;
 }
 
@@ -84,6 +87,17 @@ describe('a link from an exact reference', () => {
     expect(rows()).toEqual([{ source: a, target: b, relation: 'supersedes', v: 'v1' }]);
   });
 
+  it('upgrades a guessed link to certain when the citing item arrives second', () => {
+    const db = createLocalDb(path);
+    const t = ticket(db);
+    const c = db.insertDecision({ title: 'Retry three times', summary: 'Fixes it', sourceUrl: null, platform: 'git' });
+    db.insertLink({ sourceId: c, targetId: t, relation: 'relates', confidence: 0.5 });
+    db.replaceRefs(c, [{ ref: 'APP-123', platform: 'tracker' }]);
+    db.resolveRefs(c, [], [{ ref: 'APP-123', platform: 'tracker' }]);
+    db.close();
+    expect(rows()).toEqual([{ source: c, target: t, relation: 'relates', v: 'ref' }]);
+  });
+
   it('upgrades a guessed link on the same pair to certain, and a later guess never downgrades it', () => {
     const db = createLocalDb(path);
     const c = commit(db, [{ ref: 'APP-123', platform: 'tracker' }]);
@@ -99,15 +113,70 @@ describe('a link from an exact reference', () => {
 describe('a bare #N is one item only within one repo', () => {
   const PR = 'https://github.com/o/a/pull/12';
   it.each([
-    ['the same repo', 'o/a', 'o/a', 1],
-    ['an unknown repo on one side', null, 'o/a', 1],
-    ['two different repos', 'o/b', 'o/a', 0],
-  ])('%s', (_name, commitRepo, prRepo, expected) => {
+    ['the same repo: certain', 'o/a', 'o/a', ['ref']],
+    ['an unknown repo on one side: linked, but not certain', null, 'o/a', ['v0']],
+    ['two different repos: not linked', 'o/b', 'o/a', []],
+  ])('%s', (_name, commitRepo, prRepo, stamps) => {
     const db = createLocalDb(path);
     ticket(db, PR, prRepo);
     commit(db, [{ ref: '#12', platform: 'code' }], commitRepo);
     db.close();
-    expect(rows()).toHaveLength(expected);
+    expect(rows().map((r) => r.v)).toEqual(stamps);
+  });
+});
+
+describe('an ambiguous reference is linked but never stamped certain', () => {
+  it('a bare key that both a Jira issue and a Linear issue carry links to both, as guesses a model may re-type', () => {
+    const db = createLocalDb(path);
+    const linear = ticket(db);
+    const jira = ticket(db, 'https://acme.atlassian.net/browse/APP-123');
+    commit(db, [{ ref: 'APP-123', platform: 'tracker' }]);
+    db.close();
+    const all = rows();
+    expect(all.map((r) => r.target).sort()).toEqual([jira, linear].sort());
+    expect(all.every((r) => r.v === 'v0')).toBe(true);
+  });
+});
+
+describe('a certain link outlives no reference', () => {
+  it('a commit re-imported without the reference loses its certain link', () => {
+    const db = createLocalDb(path);
+    ticket(db);
+    const c = commit(db, [{ ref: 'APP-123', platform: 'tracker' }]);
+    db.replaceRefs(c, []);
+    db.resolveRefs(c, [], []);
+    db.close();
+    expect(rows()).toEqual([]);
+  });
+
+  it('a call that does not pass the decision\'s own refs leaves its links alone', () => {
+    const db = createLocalDb(path);
+    const t = ticket(db);
+    const c = commit(db, [{ ref: 'APP-123', platform: 'tracker' }]);
+    db.resolveRefs(c, []);
+    db.close();
+    expect(rows()).toEqual([{ source: c, target: t, relation: 'relates', v: 'ref' }]);
+  });
+});
+
+describe('merging two copies of one item', () => {
+  it('keeps the certain stamp and what the merged copy could be cited as', () => {
+    const db = createLocalDb(path);
+    const keeper = db.insertDecision({ title: 'APP-123', summary: 'Retry the queue', sourceUrl: null, platform: 'linear' });
+    const twin = ticket(db); // carries the identity; linked from a citer below
+    const c = commit(db, [{ ref: 'APP-123', platform: 'tracker' }]);
+    db.insertLink({ sourceId: c, targetId: keeper, relation: 'relates', confidence: 0.5 }); // a guess on the pair the merge lands on
+    db.close();
+    expect(rows().find((r) => r.target === twin)?.v).toBe('ref');
+
+    const raw = new DatabaseSync(path);
+    foldKeylessTwin(raw, twin, keeper, 'linear:APP-123');
+    const identities = raw.prepare('SELECT decision_id AS id FROM decision_identities').all() as Array<{ id: string }>;
+    raw.close();
+
+    expect(rows()).toEqual([{ source: c, target: keeper, relation: 'relates', v: 'ref' }]);
+    expect(identities.length).toBeGreaterThan(0);
+    expect(identities.every((i) => i.id === keeper)).toBe(true);
   });
 });
 
