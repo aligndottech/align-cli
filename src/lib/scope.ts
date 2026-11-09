@@ -117,6 +117,9 @@ export function cannotSeeNote(source: 'github' | 'gitlab', place: string): strin
     : `Your GitLab token cannot see ${place}, so only your own merge requests were imported. Reconnect with access: align connect gitlab`;
 }
 
+/** A public repo whose search the token is refused: true, and offers no command the same token would fail. */
+export const PUBLIC_REPO_NOTE = 'GitHub syncs here read only items you are involved in.';
+
 /** Confluence has no "only yours": with no chosen spaces it reads nothing. */
 export const CONFLUENCE_NEEDS_SPACES = 'Confluence reads only the spaces you choose, and none are chosen yet. Pick them: align connect --source confluence --spaces ENG,OPS';
 
@@ -179,7 +182,7 @@ async function autoDetected(source: 'github' | 'gitlab', deps: ScopeDeps, foregr
     : 'unknown';
   if (seen === 'invisible') {
     // A public repo was already read without a token; "reconnect" would be false there.
-    if (source === 'github' && await githubRepoIsPublic(place, deps.fetch)) return yours('default');
+    if (source === 'github' && await githubRepoIsPublic(place, deps.fetch)) return yours('default', PUBLIC_REPO_NOTE);
     return yours('default', cannotSeeNote(source, place));
   }
   // 'unknown' proceeds: a probe that could not answer is not evidence of a refusal, and the fetch reports its own.

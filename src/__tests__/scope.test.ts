@@ -68,11 +68,14 @@ describe('resolveScope: GitHub', () => {
   // A fine-grained token answered 422 for fastify/fastify, a public repo the first-run import had already read
   // without any token. Telling a new user to reconnect there is false, so a public repo gets no line.
   const REPO_META = /api\.github\.com\/repos\/fastify\/fastify$/;
-  it('a public repo the token cannot search: yours, and no reconnect line', async () => {
+  // The public repo was already read without a token, so "cannot see" and "reconnect" are false.
+  // What stays true: later syncs read only the person's own items. No command is offered, because
+  // `--repo` with the same token fails the same search.
+  it('a public repo the token cannot search: yours, and a plain line with no reconnect', async () => {
     const d = deps({ cwdRepo: async () => 'fastify/fastify', table: [[SEARCH, { status: 422 }], [REPO_META, { body: { private: false } }]] });
     const r = await resolveScope('github', d, { foreground: true });
     expect(r).toMatchObject({ scope: 'yours', scopeKey: 'yours', origin: 'default' });
-    expect(r.note).toBeUndefined();
+    expect(r.note).toBe('GitHub syncs here read only items you are involved in.');
   });
 
   it('a repo whose metadata says private keeps the reconnect line', async () => {
