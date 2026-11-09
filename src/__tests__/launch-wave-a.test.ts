@@ -95,12 +95,13 @@ describe('wave A: the picker offers them when installed, and not when absent', (
     expect(select.mock.calls[0]![0].filter((o: { hint?: string }) => !o.hint).map((o: { value: string }) => o.value)).toEqual(['codex', 'gemini-cli']);
     expect(r).toBe('gemini-cli');
   });
-  it('the wizard marks the absent ones not installed (only Copilot installed: preselected, Enter keeps it)', async () => {
-    const select = vi.fn(async (_o: unknown, initial?: string) => initial ?? null);
+  // Two installed, so the picker opens (one installed is taken without a picker).
+  it('the wizard marks the absent ones not installed (Copilot and Gemini installed, Copilot chosen)', async () => {
+    const select = vi.fn(async () => 'copilot');
     let stored: string | undefined;
     const config = { getAgent: () => stored, setAgent: (a: string) => { stored = a; } };
-    const r = await pickAgent(config, { interactive: true }, { agents: supportedAgents(), env: {}, platform: 'linux', findOnPath: (b) => (b === 'copilot' ? '/b/copilot' : null), select, say: () => {} });
-    expect(select.mock.calls[0]![1]).toBe('copilot');
+    const r = await pickAgent(config, { interactive: true }, { agents: supportedAgents(), env: {}, platform: 'linux', findOnPath: (b) => (b === 'copilot' || b === 'gemini' ? `/b/${b}` : null), select, say: () => {} });
+    expect(select).toHaveBeenCalledTimes(1);
     expect((select.mock.calls[0]![0] as Array<{ value: string; label: string }>).find((o) => o.value === 'codex')!.label).toBe('Codex (not installed)');
     expect(r).toBe('copilot');
   });

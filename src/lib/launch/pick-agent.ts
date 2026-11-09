@@ -81,8 +81,10 @@ export async function pickAgent(
   let chosen: LaunchAgent | null | undefined;
   if (opts.approve) {
     chosen = byPriority(installed)[0];
+  } else if (opts.interactive && installed.length === 1) {
+    // One installed is the only sensible answer: no question, and the line below says how to switch.
+    chosen = installed[0];
   } else if (opts.interactive) {
-    // Always asked on a terminal: with one installed it is preselected, so Enter keeps it.
     chosen = await chooseAgent(d.agents, {
       isInstalled,
       select: (options, initial) => d.select(options, initial),
