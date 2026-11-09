@@ -56,6 +56,10 @@ const REFUSED: Array<[string, string]> = [
   ['a redirect that climbs out of /tmp', 'echo x > /tmp/../repo/lib/a.js'],
   ['test output written into the repo', 'pnpm test --reporter=json > results.json'],
   ['node --eval that writes', `node --eval "require('fs').appendFileSync('lib/a.js', 'x')"`],
+  ['awk writing a file from its own program', `awk '{print > "lib/out.txt"}' lib/a.js`],
+  ['git apply', 'git apply fix.patch'],
+  ['patch', 'patch -p1 < fix.patch'],
+  ['python copying over a file', `python3 -c "import shutil; shutil.copy('a', 'lib/b.py')"`],
 ];
 
 const ASKED: Array<[string, string]> = [
@@ -75,6 +79,12 @@ const ASKED: Array<[string, string]> = [
   ['node in interactive mode', 'node -i'],
   ['a > inside a comment', 'npm test # a > b'],
   ['removing a build folder', 'rm -rf build'],
+  ['python asking where git is', `python3 -c "import shutil; print(shutil.which('git'))"`],
+  ['python writing bytes to stdout', `python3 -c "import sys; sys.stdout.buffer.write(b'x')"`],
+  ["node writing to a child's stdin", `node -e "const p = require('child_process').spawn('cat'); p.stdin.write('x')"`],
+  ['node answering an http request', `node -e "require('http').createServer((q, r) => r.write('x')).listen(0)"`],
+  ['node printing a function, not calling it', `node -e "console.log(require('fs').rmSync)"`],
+  ['awk comparing a field', `awk '$1 > 2' data.txt`],
 ];
 
 describe('broker: commands that change files are refused, so the edit gate sees every change', () => {
