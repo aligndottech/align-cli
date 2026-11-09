@@ -30,6 +30,7 @@ const FIELD_COMMAND = [
 ].join('\n');
 
 const REFUSED: Array<[string, string]> = [
+  ['perl in place after a module flag', "perl -Mstrict -pi -e 's/a/b/' lib/a.js"],
   ['the python heredoc from the field', FIELD_COMMAND],
   ['inline node code', `node -e "require('fs').writeFileSync('lib/a.js', 'x')"`],
   ['inline python code', `python3 -c "open('lib/a.py','w').write('x')"`],
@@ -63,6 +64,9 @@ const REFUSED: Array<[string, string]> = [
 ];
 
 const ASKED: Array<[string, string]> = [
+  // A module flag's name can hold an i (List::Util, time): that is not -i, so nothing is edited in place.
+  ['perl loading a module', "perl -MList::Util -e 'print 1'"],
+  ['ruby requiring a library', "ruby -rtime -e 'puts 1'"],
   ['a test run', 'npm test'],
   ['a test run that merges stderr', 'node --test test/reply-error.test.js 2>&1 | tail -30'],
   ['output thrown away', 'npm run build > /dev/null'],

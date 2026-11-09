@@ -102,6 +102,22 @@ describe('choosing Linear projects', () => {
   });
 });
 
+describe('choosing Linear projects in a large team', () => {
+  it('a project past the first page is not called invisible: the refusal says the list was cut off', async () => {
+    const d = deps([linear({ nodes: [{ id: 't-1', key: 'ENG', name: 'Eng' }], pageInfo: {} }, { nodes: [{ id: 'p-1', name: 'Auth' }], pageInfo: { hasNextPage: true } })]);
+    const e = await refusal(chooseScope(d, 'linear', { scope: 'team', values: 'ENG', narrow: { projects: 'Billing' } }, FIELDS['linear']!));
+    expect(e.kind).toBe('not_visible');
+    expect(e.message).toContain('cut off after 1');
+    expect(e.message).not.toContain('Billing');
+  });
+
+  it('a short list that misses the project says nothing about a cut-off', async () => {
+    const d = deps([linear({ nodes: [{ id: 't-1', key: 'ENG', name: 'Eng' }], pageInfo: {} }, { nodes: [{ id: 'p-1', name: 'Auth' }], pageInfo: { hasNextPage: false } })]);
+    const e = await refusal(chooseScope(d, 'linear', { scope: 'team', values: 'ENG', narrow: { projects: 'Billing' } }, FIELDS['linear']!));
+    expect(e.message).not.toContain('cut off');
+  });
+});
+
 describe('a committed narrowing', () => {
   it('is read back with the narrowing in the fetch and the part in the disclosure', async () => {
     const store = memStore();

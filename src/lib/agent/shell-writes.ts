@@ -104,6 +104,17 @@ function commandWords(masked: string, original: string, start: number): string[]
   return words;
 }
 
+// perl and ruby -i, alone or clustered (-pi, -i.bak). A switch that takes an argument (-MList::Util, -rtime, -e) ends the
+// cluster, so an i inside a module or library name is not -i.
+function inPlaceSwitch(token: string): boolean {
+  if (!/^-[a-zA-Z]/.test(token)) return false;
+  for (const c of token.slice(1)) {
+    if (c === 'i') return true;
+    if ('MmIrFCDxeE'.includes(c) || !/[a-zA-Z]/.test(c)) return false;
+  }
+  return false;
+}
+
 function segmentChangesFiles(words: string[], segment: string, whole: string, bodies: string[], depth: number): boolean {
   const [head, ...rest] = words;
   if (head === undefined) return false;
@@ -119,7 +130,7 @@ function segmentChangesFiles(words: string[], segment: string, whole: string, bo
   }
   if (!INTERPRETER.test(head)) return false;
   // perl and ruby -i edit in place; python and node -i are interactive.
-  if ((head === 'perl' || head === 'ruby') && rest.some((t) => /^-[a-zA-Z]*i/.test(t))) return true;
+  if ((head === 'perl' || head === 'ruby') && rest.some(inPlaceSwitch)) return true;
   const inline = rest.some((t) => INLINE_FLAGS.has(t)) || segment.includes('<<');
   // `-` takes the program from stdin, so its code is whatever was piped in: read the whole line.
   const code = rest.includes('-') ? whole : segment;

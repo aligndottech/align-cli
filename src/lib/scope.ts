@@ -290,7 +290,7 @@ async function verifyNarrowing(source: ScopedSource, base: Verified, n: NonNulla
     const listed = await listLinearProjects(fields, base.values[0]!, deps.fetch);
     const hits = wanted.map((w) => listed.items.find((p) => p.id === w) ?? listed.items.find((p) => p.name === w));
     const missing = hits.filter((h) => h === undefined).length;
-    if (missing > 0) refuse(`Your Linear token cannot see ${missing} of the projects you gave in that team (the values are not printed back).`, 'not_visible');
+    if (missing > 0) refuse(`Your Linear token cannot see ${missing} of the projects you gave in that team (the values are not printed back).${listed.truncated ? ` The list was cut off after ${listed.items.length}, so a project past it could not be checked.` : ''}`, 'not_visible');
     const found = hits as Array<{ id: string; name: string }>;
     return { by: 'projects', ids: found.map((p) => p.id), names: found.map((p) => p.name) };
   }

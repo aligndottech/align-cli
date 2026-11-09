@@ -272,7 +272,8 @@ export function registerImportCommand(program: Command): void {
       // (`--repo` is also github's own flag, and --since is shared the same way.)
       const given = Object.keys(scopeFlagsOf(thisCommand.opts<ConnectGroupOpts>())).filter((k) => !(k === 'repo' && subcommand.name() === 'github'));
       if (given.length > 0) {
-        console.error(chalk.red(`align connect ${subcommand.name()} does not take --${given[0] === 'gitlabProject' ? 'gitlab-project' : given[0]}. Use: align connect --source ${subcommand.name()} --${given[0] === 'gitlabProject' ? 'gitlab-project' : given[0]} ...`));
+        const flag = given[0]!.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+        console.error(chalk.red(`align connect ${subcommand.name()} does not take --${flag}. Use: align connect --source ${subcommand.name()} --${flag} ...`));
         process.exit(2);
       }
     })

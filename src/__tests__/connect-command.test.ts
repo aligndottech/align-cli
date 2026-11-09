@@ -443,6 +443,13 @@ describe('align connect', () => {
       expect(stderr.join('\n')).toContain('align connect --source jira --projects');
     });
 
+    it('--linear-projects after a source name is refused with its own spelling, never the camelCase key', async () => {
+      expect(await run(['connect', 'linear', '--linear-projects', 'Billing'])).toBe(2);
+      expect(stderr.join('\n')).toContain('does not take --linear-projects');
+      expect(stderr.join('\n')).toContain('align connect --source linear --linear-projects');
+      expect(stderr.join('\n')).not.toContain('linearProjects');
+    });
+
     it('--repo after `github` is github\'s own flag, not refused by the scope guard', async () => {
       expect(await run(['connect', 'github', '--repo', 'o/r'])).not.toBe(2);
       expect(stderr.join('\n')).not.toContain('does not take --repo');
