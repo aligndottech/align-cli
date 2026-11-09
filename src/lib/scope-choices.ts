@@ -195,6 +195,17 @@ export async function githubRepoVisibility(token: string, repo: string, f: Fetch
   return code === 200 ? 'visible' : code === 422 ? 'invisible' : 'unknown';
 }
 
+/** Is `o/r` public? Asked WITHOUT the token: a fine-grained token can fail a search on a repo anyone can read. */
+export async function githubRepoIsPublic(repo: string, f: FetchLike): Promise<boolean> {
+  if (!REPO.test(repo) || repo.split('/').some((seg) => /^\.+$/.test(seg))) return false;
+  try {
+    const res = await f(`https://api.github.com/repos/${repo}`, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'align-cli' }, redirect: 'manual', signal: AbortSignal.timeout(TIMEOUT_MS) });
+    return res.status === 200 && asRecord(await res.json())['private'] === false;
+  } catch {
+    return false;
+  }
+}
+
 export async function gitlabProjectVisibility(fields: Record<string, string>, project: string, f: FetchLike): Promise<Visibility> {
   const token = fields['token'];
   const domain = fields['domain'] || 'gitlab.com';

@@ -17,7 +17,7 @@
 import fs from 'node:fs';
 import { CAPTURE_SOURCES } from './capture-sources.js';
 import {
-  type FetchLike, findConfluenceSpace, findJiraProject, findLinearTeam, githubRepoVisibility, gitlabProjectVisibility, listConfluenceSpaces, listJiraProjects,
+  type FetchLike, findConfluenceSpace, findJiraProject, findLinearTeam, githubRepoIsPublic, githubRepoVisibility, gitlabProjectVisibility, listConfluenceSpaces, listJiraProjects,
   listLinearTeams, ScopeLookupError,
 } from './scope-choices.js';
 import {
@@ -177,7 +177,11 @@ async function autoDetected(source: 'github' | 'gitlab', deps: ScopeDeps, foregr
   const seen = fields?.['token']
     ? source === 'github' ? await githubRepoVisibility(fields['token'], place, deps.fetch) : await gitlabProjectVisibility(fields, place, deps.fetch)
     : 'unknown';
-  if (seen === 'invisible') return yours('default', cannotSeeNote(source, place));
+  if (seen === 'invisible') {
+    // A public repo was already read without a token; "reconnect" would be false there.
+    if (source === 'github' && await githubRepoIsPublic(place, deps.fetch)) return yours('default');
+    return yours('default', cannotSeeNote(source, place));
+  }
   // 'unknown' proceeds: a probe that could not answer is not evidence of a refusal, and the fetch reports its own.
   return team(source, [place], [place], 'detected', deps, foreground);
 }
