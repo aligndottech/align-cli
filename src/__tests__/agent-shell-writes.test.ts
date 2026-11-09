@@ -30,6 +30,9 @@ const FIELD_COMMAND = [
 ].join('\n');
 
 const REFUSED: Array<[string, string]> = [
+  ['ruby opening a file to write', `ruby -e "File.open('lib/a.rb', 'w') { |f| f.write('x') }"`],
+  ['ruby opening a file to read and write', `ruby -e "File.open('lib/a.rb', 'r+') { |f| f.write('x') }"`],
+  ['git apply --stat that also applies', 'git apply --stat --apply fix.patch'],
   ['perl in place after a module flag', "perl -Mstrict -pi -e 's/a/b/' lib/a.js"],
   ['the python heredoc from the field', FIELD_COMMAND],
   ['inline node code', `node -e "require('fs').writeFileSync('lib/a.js', 'x')"`],
@@ -64,6 +67,12 @@ const REFUSED: Array<[string, string]> = [
 ];
 
 const ASKED: Array<[string, string]> = [
+  // File.open with no mode, or 'r', only reads.
+  ['ruby reading a file', `ruby -e "puts File.open('README.md').read"`],
+  ['ruby reading a file with r', `ruby -e "puts File.open('README.md', 'r').read"`],
+  // These git apply forms only inspect a patch.
+  ['git apply --check', 'git apply --check fix.patch'],
+  ['git apply --stat', 'git apply --stat fix.patch'],
   // A module flag's name can hold an i (List::Util, time): that is not -i, so nothing is edited in place.
   ['perl loading a module', "perl -MList::Util -e 'print 1'"],
   ['ruby requiring a library', "ruby -rtime -e 'puts 1'"],

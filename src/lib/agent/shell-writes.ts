@@ -22,7 +22,9 @@ const WRITES_A_FILE = new RegExp([
   String.raw`\b(?:write|append)File(?:Sync)?\s*\(`,
   String.raw`\bcreateWriteStream\s*\(`,
   String.raw`\b(?:unlink|rm|rmdir|rename|copyFile|cp)Sync\s*\(`,
-  String.raw`\bFile\.(?:write|open|delete)\s*\(`,
+  String.raw`\bFile\.(?:write|delete)\s*\(`,
+  // File.open writes only with a write mode: 'w', 'a', or any '+' ('r+'). No mode, or 'r', reads.
+  String.raw`\bFile\.open\s*\([^)]*,\s*['"][rbt]*[wa+]`,
   String.raw`\bos\.(?:remove|unlink|rename|replace|rmdir)\s*\(`,
   String.raw`\bshutil\.(?:copy\w*|move|rmtree)\s*\(`,
 ].join('|'));
@@ -123,7 +125,12 @@ function segmentChangesFiles(words: string[], segment: string, whole: string, bo
   // awk can write from its own program (print > "file"), which the shell never sees.
   if (head === 'awk' || head === 'gawk') return rest.some((t, i) => t === '-i' && rest[i + 1] === 'inplace') || /\bprintf?\b[^;}]*>>?\s*"/.test(segment);
   // A patch carries arbitrary content into the repo.
-  if (head === 'patch' || (head === 'git' && rest[0] === 'apply')) return true;
+  if (head === 'patch') return true;
+  // git apply --check / --stat / --numstat / --summary only inspect the patch, unless --apply is also given.
+  if (head === 'git' && rest[0] === 'apply') {
+    const inspects = rest.some((x) => x === '--check' || x === '--stat' || x === '--numstat' || x === '--summary');
+    return !inspects || rest.includes('--apply');
+  }
   if (SHELLS.has(head)) {
     const at = rest.indexOf('-c');
     return at !== -1 && rest[at + 1] !== undefined && depth < 3 && changesFilesAt(unquote(rest[at + 1]!), depth + 1);

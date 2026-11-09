@@ -75,6 +75,7 @@ const mockSaveConnectorFields = vi.hoisted(() => vi.fn());
 const mockSetConnectorScope = vi.hoisted(() => vi.fn());
 const mockGetScope = vi.hoisted(() => vi.fn((_e: string, _s: string): unknown => null));
 const mockMarkDisclosed = vi.hoisted(() => vi.fn());
+const mockForget = vi.hoisted(() => vi.fn());
 vi.mock('../lib/config.js', async (importOriginal) => ({
   ...(await importOriginal<object>()),
   createConfigStore: vi.fn(() => ({
@@ -82,7 +83,7 @@ vi.mock('../lib/config.js', async (importOriginal) => ({
     getDefaultEnv: vi.fn(() => 'prod'),
     getConnectorFields: mockGetConnectorFields,
     saveConnectorFields: mockSaveConnectorFields,
-    forgetConnector: vi.fn(),
+    forgetConnector: mockForget,
     getConnectorScope: mockGetScope, setConnectorScope: mockSetConnectorScope, clearConnectorScope: vi.fn(),
     isTeamScopeDisclosed: vi.fn(() => false), markTeamScopeDisclosed: mockMarkDisclosed, clearTeamScopeDisclosed: vi.fn(),
     getConnectorToken: vi.fn(() => null),
@@ -98,10 +99,15 @@ vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => { stderr.push
 
 
 // Counted, not replaced. fetchUnderScope asks the scope step again; setup calls it from outside the module, so the count is real.
-const decideSpy = vi.hoisted(() => ({ calls: 0 }));
+const decideSpy = vi.hoisted(() => ({ calls: 0, fails: new Map<string, Error>() }));
 vi.mock('../lib/scope-connect.js', async (orig) => {
   const real = await orig<typeof ScopeConnect>();
-  return { ...real, fetchUnderScope: (...a: Parameters<typeof real.fetchUnderScope>) => { decideSpy.calls++; return real.fetchUnderScope(...a); } };
+  return {
+    ...real,
+    fetchUnderScope: (...a: Parameters<typeof real.fetchUnderScope>) => { decideSpy.calls++; return real.fetchUnderScope(...a); },
+    // A source's scope step can fail (the vendor errors while listing projects); setup calls it from outside, so this reaches it.
+    decideConnectScope: (...a: Parameters<typeof real.decideConnectScope>) => { const e = decideSpy.fails.get(a[0]); if (e) return Promise.reject(e); return real.decideConnectScope(...a); },
+  };
 });
 const mockProve = vi.hoisted(() => vi.fn(async () => 'ok' as 'ok' | 'refused' | 'unknown'));
 vi.mock('../lib/scope-choices.js', async (orig) => ({ ...(await orig<object>()), proveToken: mockProve }));
@@ -127,6 +133,7 @@ describe('setup reads connectors in the background', () => {
     mockGetConnectorFields.mockReturnValue(null);
     mockProve.mockResolvedValue('ok');
     decideSpy.calls = 0;
+    decideSpy.fails.clear();
   });
   afterEach(() => { vi.unstubAllGlobals(); });
 
@@ -199,5 +206,25 @@ describe('setup reads connectors in the background', () => {
     await connect({ preselected: ['linear'], seedTokens: { token: 'lin_api_x' }, background: true, startSync });
     expect(mockSaveConnectorFields).toHaveBeenCalledWith('local', 'linear', expect.anything());
     expect(startSync).toHaveBeenCalledWith(['linear'], expect.anything());
+  });
+
+  it('one source whose scope step fails is skipped with its reason; the others still read in the background', async () => {
+    decideSpy.fails.set('jira', new Error('Jira did not answer'));
+    const startSync = vi.fn(async () => ({ ok: true, pid: 1 }));
+    const results = await connect({ preselected: ['jira', 'linear'], seedTokens: { ...JIRA }, background: true, startSync });
+    expect(startSync).toHaveBeenCalledExactlyOnceWith(['linear'], expect.anything());
+    expect(mockFetchJira).not.toHaveBeenCalled();
+    expect(mockSaveConnectorFields).not.toHaveBeenCalledWith('local', 'jira', expect.anything());
+    expect(results).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'jira', error: 'Jira did not answer' }),
+      expect.objectContaining({ id: 'linear', deferred: true }),
+    ]));
+  });
+
+  it('a SAVED token the scope step finds expired is forgotten, as the foreground does', async () => {
+    mockGetConnectorFields.mockImplementation((_e: string, id: string) => (id === 'jira' ? JIRA : null));
+    decideSpy.fails.set('jira', new Error('401 Unauthorized'));
+    await connect({ preselected: ['jira'], background: true, startSync: vi.fn(async () => ({ ok: true, pid: 1 })) });
+    expect(mockForget).toHaveBeenCalledWith('local', 'jira');
   });
 });

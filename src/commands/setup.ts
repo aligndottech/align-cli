@@ -1077,7 +1077,22 @@ export async function connectLocalSources(o: ConnectLocalSourcesOptions): Promis
         foreground = foreground.filter((x) => x !== r);
         continue;
       }
-      const decision = await decideConnectScope(r.source.id, r.tokens, scopeCtx);
+      let decision: ScopeDecision;
+      try {
+        decision = await decideConnectScope(r.source.id, r.tokens, scopeCtx);
+      } catch (e) {
+        // One source's failure never stops the others, as in the foreground loop below.
+        const msg = (e as Error).message;
+        if (r.reused && isAuthExpiry(e)) {
+          config.forgetConnector('local', r.source.id);
+          p.log.info(`Skipped ${r.source.label} - its saved token was rejected (${msg}). Token forgotten; run setup again to paste a fresh one.`);
+        } else {
+          p.log.info(`Skipped ${r.source.label} - ${msg}`);
+        }
+        results.push({ id: r.source.id, label: r.source.label, found: 0, imported: 0, error: msg });
+        foreground = foreground.filter((x) => x !== r);
+        continue;
+      }
       decided.set(r.source.id, decision);
       config.saveConnectorFields('local', r.source.id, r.tokens);
       decision.commit();
