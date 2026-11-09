@@ -133,8 +133,10 @@ export async function runSyncCommand(sourcesRaw: string[], opts: SyncCommandOpti
         ? `Background refresh: on, but off in this shell (${gate})`
         : `Background refresh: on (at most every ${SYNC_MIN_INTERVAL_MS / 60_000} minutes per source; turn it off: align sync --off)`);
     for (const line of d.backgroundProblems()) d.out(`Background refresh: ${line}`);
+    const typingIdle = !d.hasProvider() ? ' (no model is set up, so nothing runs: align ai)'
+      : d.backgroundOff() || gate !== undefined ? ' (it runs after a background refresh, and that is off here, so nothing runs)' : '';
     d.out(d.autoClassify()
-      ? `Relationship typing: on, up to ${BACKGROUND_CLASSIFY_MAX} items per background refresh with your own model${d.hasProvider() ? '' : ' (no model is set up, so nothing runs: align ai)'}. Turn it off: align sync --auto-classify off`
+      ? `Relationship typing: on, up to ${BACKGROUND_CLASSIFY_MAX} items per background refresh with your own model${typingIdle}. Turn it off: align sync --auto-classify off`
       : 'Relationship typing: off. Turn it on: align sync --auto-classify on');
     return 0;
   }
@@ -231,9 +233,14 @@ function autoClassifySwitch(sources: string[], opts: SyncCommandOptions, d: Sync
   return 0;
 }
 
-/** After a background refresh, when the person said yes: type a few items. Never fails the refresh. */
+/**
+ * After a background refresh, when the person said yes: type a few items. Never fails the refresh.
+ * Never in a run an agent started (the align_sync MCP tool's child, or `align` inside a launched
+ * agent): an agent must not be able to spend the person's key by asking for refreshes, and the MCP
+ * tool's own contract is that nothing it starts calls a model.
+ */
 async function backgroundClassify(dbPath: string, d: SyncCommandDeps): Promise<void> {
-  if (!d.autoClassify() || !d.hasProvider()) return;
+  if (d.inAgent() || !d.autoClassify() || !d.hasProvider()) return;
   const lock = d.classifyLock();
   if (!lock.ok) return; // an on-demand run is going: it does the same work
   try {

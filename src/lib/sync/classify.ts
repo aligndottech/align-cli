@@ -38,17 +38,33 @@ export function unclassifiedItems(dbPath: string, limit: number): Unclassified[]
     db.exec('PRAGMA busy_timeout = 30000');
     return db.prepare(
       `SELECT d.id AS id, d.title AS title, d.summary AS summary, d.platform AS platform FROM decisions d
-       WHERE EXISTS (SELECT 1 FROM decision_links l WHERE l.source_id = d.id AND l.relation = 'relates' AND l.confidence >= ?)
+       WHERE EXISTS (SELECT 1 FROM decision_links l WHERE l.source_id = d.id AND l.relation = 'relates' AND l.confidence >= ? AND l.detector_version <> 'ref')
          AND NOT EXISTS (SELECT 1 FROM decision_links t WHERE (t.source_id = d.id OR t.target_id = d.id) AND t.relation <> 'relates')
          AND NOT EXISTS (SELECT 1 FROM decision_audit a WHERE a.decision_id = d.id AND a.action = ?)
        ORDER BY d.created_at DESC, d.rowid DESC LIMIT ?`,
     ).all(RELATED_FLOOR, CLASSIFY_AUDIT_ACTION, limit) as unknown as Unclassified[];
   } catch (e) {
-    if (/no such table/i.test((e as Error).message)) return [];
+    if (/no such (table|column)/i.test((e as Error).message)) return [];
     throw e;
   } finally {
     db.close();
   }
+}
+
+/**
+ * An item's candidates: its own `relates` links at or above the link floor, cross-tool first, then
+ * by score. Two kinds are never sent to the model: a certain reference link ('ref', already known),
+ * and a pair a person has judged (a conflict marked false, a replacement), which an unattended run
+ * must not re-raise.
+ */
+function candidatesFor(raw: DatabaseSync, item: Unclassified, judged: boolean): Array<{ targetId: string }> {
+  const rows = raw.prepare(
+    `SELECT l.target_id AS targetId, l.confidence AS confidence, d.platform AS platform FROM decision_links l JOIN decisions d ON d.id = l.target_id
+      WHERE l.source_id = ? AND l.relation = 'relates' AND l.confidence >= ? AND l.detector_version <> 'ref'${judged ? `
+        AND NOT EXISTS (SELECT 1 FROM local_judgements j WHERE (j.decision_id = l.source_id AND j.counterpart_id = l.target_id) OR (j.decision_id = l.target_id AND j.counterpart_id = l.source_id))` : ''}`,
+  ).all(item.id, RELATED_FLOOR) as Array<{ targetId: string; confidence: number; platform: string | null }>;
+  const crosses = (p: string | null): number => ((p ?? null) !== (item.platform ?? null) ? 1 : 0);
+  return rows.sort((a, b) => crosses(b.platform) - crosses(a.platform) || b.confidence - a.confidence).slice(0, CAPTURE_CLASSIFY_TOP_K);
 }
 
 export interface Estimate {
@@ -78,14 +94,13 @@ export async function classifyUnclassified(
   classify: (a: { title: string; summary: string }, b: { title: string; summary: string }) => Promise<ClassificationOutcome> = classifyRelationship,
 ): Promise<ClassifyResult> {
   const db = createLocalDb(dbPath);
+  const raw = new DatabaseSync(dbPath);
+  raw.exec('PRAGMA busy_timeout = 30000');
+  const judged = raw.prepare(`SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = 'local_judgements'`).get() !== undefined;
   const out: ClassifyResult = { items: 0, calls: 0, typed: 0, unparsed: 0 };
   try {
     for (const item of unclassifiedItems(dbPath, Math.max(0, max))) {
-      const crossesTools = (targetId: string): number => (db.getDecisionById(targetId)?.platform !== item.platform ? 1 : 0);
-      const candidates = db.listLinks({ relation: 'relates', decisionId: item.id })
-        .filter((l) => l.sourceId === item.id && l.confidence >= RELATED_FLOOR)
-        .sort((a, b) => crossesTools(b.targetId) - crossesTools(a.targetId) || b.confidence - a.confidence)
-        .slice(0, CAPTURE_CLASSIFY_TOP_K);
+      const candidates = candidatesFor(raw, item, judged);
       let stopped = false;
       for (const l of candidates) {
         const existing = db.getDecisionById(l.targetId);
@@ -110,6 +125,7 @@ export async function classifyUnclassified(
       out.items += 1;
     }
   } finally {
+    raw.close();
     db.close();
   }
   return out;

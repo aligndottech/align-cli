@@ -413,6 +413,20 @@ describe('relationship typing after a background refresh', () => {
     expect(classifyCalls(over)).toEqual([]);
   });
 
+  it('a refresh an agent started never types: an agent must not spend the person\'s key', async () => {
+    autoOn = true;
+    h.script({ items: [] });
+    const over: Partial<SyncCommandDeps> = { classify: vi.fn(), inAgent: () => true };
+    expect(await run(['github'], { background: true, delay: '0' }, over)).toBe(0);
+    expect(classifyCalls(over)).toEqual([]);
+  });
+
+  it('--status says nothing runs when the background refresh is off', async () => {
+    autoOn = true; bgOff = true;
+    await run([], { status: true });
+    expect(out.join('\n')).toContain('that is off here, so nothing runs');
+  });
+
   it('a foreground sync never types, even with a yes', async () => {
     autoOn = true;
     h.script({ items: [] });

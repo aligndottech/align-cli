@@ -178,3 +178,43 @@ describe('cross-tool links are typed', () => {
     expect(asked).toHaveLength(3);
   });
 });
+
+describe('what an unattended run never sends to the model', () => {
+  it('a certain reference link: it is already known, while a guessed link of the same item is still asked about', async () => {
+    const db = createLocalDb(dbPath);
+    const issue = db.insertDecision({ title: 'APP-7', summary: 'issue', sourceUrl: 'https://linear.app/a/issue/APP-7/x', platform: 'linear' });
+    const other = db.insertDecision({ title: 'guessed', summary: 'doc', sourceUrl: null, platform: 'notion' });
+    const commit = db.insertDecision({ title: 'commit', summary: 'Fixes APP-7', sourceUrl: null, platform: 'git' });
+    db.insertLink({ sourceId: commit, targetId: issue, relation: 'relates', confidence: 1, detectorVersion: 'ref' });
+    db.insertLink({ sourceId: commit, targetId: other, relation: 'relates', confidence: 0.5 });
+    db.close();
+    const asked: string[] = [];
+    await classifyUnclassified(dbPath, 10, async (existing) => { asked.push(existing.title); return { ok: true as const, relationship: { type: 'relates' as never, confidence: 0.8 } }; });
+    expect(asked).toEqual(['guessed']);
+  });
+
+  it('an item whose only link is certain is not picked at all', async () => {
+    const db = createLocalDb(dbPath);
+    const issue = db.insertDecision({ title: 'APP-8', summary: 'issue', sourceUrl: 'https://linear.app/a/issue/APP-8/x', platform: 'linear' });
+    const commit = db.insertDecision({ title: 'commit', summary: 'Fixes APP-8', sourceUrl: null, platform: 'git' });
+    db.insertLink({ sourceId: commit, targetId: issue, relation: 'relates', confidence: 1, detectorVersion: 'ref' });
+    db.close();
+    expect(unclassifiedItems(dbPath, 10)).toEqual([]);
+  });
+
+  it('a pair the person already judged, while an unjudged pair of the same item is still asked about', async () => {
+    const db = createLocalDb(dbPath);
+    const item = db.insertDecision({ title: 'item', summary: 's', sourceUrl: null, platform: 'git' });
+    const judgedTarget = db.insertDecision({ title: 'judged', summary: 's', sourceUrl: null, platform: 'linear' });
+    const freshTarget = db.insertDecision({ title: 'fresh', summary: 's', sourceUrl: null, platform: 'linear' });
+    db.insertLink({ sourceId: item, targetId: judgedTarget, relation: 'relates', confidence: 0.9 });
+    db.insertLink({ sourceId: item, targetId: freshTarget, relation: 'relates', confidence: 0.5 });
+    db.close();
+    const raw = new DatabaseSync(dbPath);
+    raw.prepare(`INSERT INTO local_judgements (id, decision_id, counterpart_id, kind, value, judge_id, via, judged_at) VALUES ('j1', ?, ?, 'conflict_verdict', 'false', 'me', 'cli', datetime('now'))`).run(judgedTarget, item);
+    raw.close();
+    const asked: string[] = [];
+    await classifyUnclassified(dbPath, 10, async (existing) => { asked.push(existing.title); return { ok: true as const, relationship: { type: 'relates' as never, confidence: 0.8 } }; });
+    expect(asked).toEqual(['fresh']);
+  });
+});
