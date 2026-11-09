@@ -12,7 +12,8 @@ import { createLocalDb } from '../local-db.js';
 import { hasConfiguredProvider, probeOllama } from '../local-llm.js';
 import { alignConfigDir } from '../private-files.js';
 import { STARTUP_ENV } from '../startup-env.js';
-import { applyBackgroundPlan, planBackgroundSync } from '../sync/launch-hook.js';
+import { applyBackgroundPlan, failedReadLines, planBackgroundSync } from '../sync/launch-hook.js';
+import { readSummary } from '../sync/summary-read.js';
 import { launchAlignEntry } from '../trusted-align-bin.js';
 import { ASK_ONCE_GUIDANCE } from './agent-guidance.js';
 import { gateEdit } from './edit-gate.js';
@@ -72,7 +73,7 @@ function claudeArgs(state: { projectHasMcp: boolean; projectHasBlock: boolean })
   return args;
 }
 
-export async function runAgentSession(opts: { engine?: EngineName }, deps: SessionDeps = defaultSessionDeps()): Promise<number> {
+export async function runAgentSession(opts: { engine?: EngineName; notices?: string[] }, deps: SessionDeps = defaultSessionDeps()): Promise<number> {
   const model = await deps.resolveModel();
   const claudeBin = deps.findClaude();
   const choice = selectEngine({ flag: opts.engine, remembered: deps.getRemembered(), hasModel: model !== undefined, claudeOnPath: claudeBin !== null });
@@ -112,8 +113,8 @@ export async function runAgentSession(opts: { engine?: EngineName }, deps: Sessi
 
   deps.record(agent);
   // Bare `align` opens here, not through the launcher, so the refresh starts here too.
-  let notices: string[] = [];
-  try { notices = deps.backgroundSync(); } catch { /* no refresh this time; the agent still opens */ }
+  let notices: string[] = [...(opts.notices ?? [])];
+  try { notices = [...notices, ...deps.backgroundSync()]; } catch { /* no refresh this time; the agent still opens */ }
   return deps.runAgentUi({ engine, decisionCount: deps.countDecisions(), gate: deps.makeGate(), gitRunsPrograms: deps.gitRunsPrograms, notices });
 }
 
@@ -162,7 +163,7 @@ export function defaultSessionDeps(): SessionDeps {
       const lines: string[] = [];
       const host = { env: process.env, home: os.homedir(), platform: process.platform, isTTY: Boolean(process.stdin.isTTY && process.stdout.isTTY), config, err: (l: string) => lines.push(l) };
       applyBackgroundPlan(planBackgroundSync(host), host);
-      return lines;
+      return [...lines, ...failedReadLines(readSummary())];
     },
     record: (agent) => {
       void import('../usage-telemetry.js')

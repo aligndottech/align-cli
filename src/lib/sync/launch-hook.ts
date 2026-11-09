@@ -147,3 +147,9 @@ export function applyBackgroundPlan(plan: BackgroundPlan, h: BackgroundSyncHost)
     // No refresh this time; the launch goes on.
   }
 }
+
+/** A line for the agent screen naming every source whose last read failed, so an empty graph never reads as "nothing found". */
+export function failedReadLines(summary: SyncSummary | undefined): string[] {
+  const failed = (summary?.sources ?? []).filter((s) => s.status === 'error').map((s) => s.id);
+  return failed.length === 0 ? [] : [`The last read of ${failed.join(', ')} failed. See: align sync --status`];
+}

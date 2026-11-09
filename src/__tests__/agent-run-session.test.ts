@@ -141,6 +141,14 @@ describe('runAgentSession: the background refresh', () => {
     expect(await runAgentSession({}, d)).toBe(0);
     expect(vi.mocked(d.runAgentUi).mock.calls[0]![0].notices).toEqual([]);
   });
+  it("setup's own lines (what it handed to the background) come first, then the refresh's", async () => {
+    const { d } = deps({ backgroundSync: () => ['Align cannot refresh notion: reconnect.'] });
+    await runAgentSession({ notices: ['Reading Jira, Linear in the background. Progress: align sync --status'] }, d);
+    expect(vi.mocked(d.runAgentUi).mock.calls[0]![0].notices).toEqual([
+      'Reading Jira, Linear in the background. Progress: align sync --status',
+      'Align cannot refresh notion: reconnect.',
+    ]);
+  });
   it('no refresh starts when nothing can run', async () => {
     const { d } = deps({ resolveModel: async () => undefined, findClaude: () => null });
     await runAgentSession({}, d);
