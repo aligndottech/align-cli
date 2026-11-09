@@ -2,7 +2,7 @@ import { Container, Editor, type EditorTheme, Loader, Markdown, type MarkdownThe
 import chalk from 'chalk';
 import { createBroker, type HumanQuestion } from '../permission-broker.js';
 import type { AgentEngine, GateOutcome, HumanAnswer, ToolAsk } from '../types.js';
-import { commandCard, gateCard, gateNote, headerLine, toolLine } from './cards.js';
+import { answeredLine, commandCard, gateCard, gateNote, headerLine, oneLine, toolLine } from './cards.js';
 import { answerForKey, createController } from './controller.js';
 import { SPINNER_FRAMES, SPINNER_INTERVAL_MS, statusMessage, toolActivity, wordAt } from './status.js';
 import { theme } from './theme.js';
@@ -36,7 +36,7 @@ export async function runAgentUi(opts: AgentUiOptions): Promise<number> {
   const editor = new Editor(tui, editorTheme);
   const controller = createController();
   let streaming: { md: Markdown; text: string } | undefined;
-  let pending: { kind: 'gate' | 'command'; resolve: (a: HumanAnswer) => void } | undefined;
+  let pending: { q: HumanQuestion; card: Container; resolve: (a: HumanAnswer) => void } | undefined;
   let finish: (code: number) => void = () => {};
 
   // The turn in progress, if any. Each submit gets a new id, so a late end for an older turn
@@ -74,6 +74,11 @@ export async function runAgentUi(opts: AgentUiOptions): Promise<number> {
     for (const l of lines) transcript.addChild(new Text(l, 1, 0));
     tui.requestRender();
   };
+  const fold = (q: HumanQuestion, card: Container, answer: HumanAnswer): void => {
+    card.clear();
+    card.addChild(new Text(answeredLine(q, answer), 1, 0));
+    tui.requestRender();
+  };
   const endTurn = (id: number | undefined): void => {
     if (!turn || turn.id !== id) return;
     turn = undefined;
@@ -82,9 +87,10 @@ export async function runAgentUi(opts: AgentUiOptions): Promise<number> {
     // A card left open when its turn ended (an engine error, an abort) is answered no, so the
     // tool call behind it is refused and the next key goes to the editor again.
     if (pending) {
-      const { resolve } = pending;
+      const { q, card, resolve } = pending;
       pending = undefined;
       controller.endAsk();
+      fold(q, card, 'stop');
       resolve('stop');
     }
     controller.turnEnded();
@@ -92,11 +98,16 @@ export async function runAgentUi(opts: AgentUiOptions): Promise<number> {
     tui.requestRender();
   };
 
+  // Each card sits in its own container, so an answer can fold it to one line in place.
   const askHuman = (q: HumanQuestion): Promise<HumanAnswer> => {
     hideStatus();
-    addLines(['', ...(q.kind === 'gate' ? gateCard(q) : commandCard(q)), '']);
+    streaming = undefined;
+    const card = new Container();
+    for (const l of ['', ...(q.kind === 'gate' ? gateCard(q) : commandCard(q)), '']) card.addChild(new Text(l, 1, 0));
+    transcript.addChild(card);
+    tui.requestRender();
     controller.beginAsk();
-    return new Promise((resolve) => { pending = { kind: q.kind, resolve }; });
+    return new Promise((resolve) => { pending = { q, card, resolve }; });
   };
   const broker = createBroker({ gate: opts.gate, gitRunsPrograms: opts.gitRunsPrograms, askHuman, onGate: (outcome) => addLines(gateNote(outcome)) });
 
@@ -109,11 +120,14 @@ export async function runAgentUi(opts: AgentUiOptions): Promise<number> {
     controller.otherKey();
     if (matchesKey(data, 'ctrl+d') && controller.ctrlD(editor.getText() === '') === 'exit') { finish(0); return { consume: true }; }
     if (pending) {
-      const answer = answerForKey(pending.kind, data);
+      const answer = answerForKey(pending.q.kind, data);
       if (answer) {
-        const { resolve } = pending;
+        const { q, card, resolve } = pending;
         pending = undefined;
         controller.endAsk();
+        fold(q, card, answer);
+        // The approved command names itself until its tool ends (both engines key tool events by this id).
+        if (q.kind === 'command' && answer !== 'stop') running.set(q.ask.id, `Running ${oneLine(q.command, 40)}`);
         showStatus();
         resolve(answer);
       }
