@@ -14,6 +14,8 @@ export interface AgentUiOptions {
   gate: (ask: ToolAsk) => Promise<GateOutcome>;
   gitRunsPrograms?: () => Promise<boolean>;
   terminal?: Terminal;
+  /** Lines shown under the header when the screen opens, such as a background refresh starting. */
+  notices?: string[];
 }
 
 const markdownTheme: MarkdownTheme = {
@@ -135,6 +137,7 @@ export async function runAgentUi(opts: AgentUiOptions): Promise<number> {
   };
 
   tui.addChild(new Text(headerLine({ label: engine.label, decisionCount: opts.decisionCount }), 1, 0));
+  for (const line of opts.notices ?? []) tui.addChild(new Text(theme.dim(line), 1, 0));
   tui.addChild(new Spacer(1));
   tui.addChild(transcript);
   tui.addChild(status);

@@ -12,6 +12,7 @@ import { createLocalDb } from '../local-db.js';
 import { hasConfiguredProvider, probeOllama } from '../local-llm.js';
 import { alignConfigDir } from '../private-files.js';
 import { STARTUP_ENV } from '../startup-env.js';
+import { applyBackgroundPlan, planBackgroundSync } from '../sync/launch-hook.js';
 import { launchAlignEntry } from '../trusted-align-bin.js';
 import { ASK_ONCE_GUIDANCE } from './agent-guidance.js';
 import { gateEdit } from './edit-gate.js';
@@ -47,6 +48,8 @@ export interface SessionDeps {
   createClaudeCodeEngine: (o: ClaudeCodeOpts) => AgentEngine;
   runAgentUi: (o: AgentUiOptions) => Promise<number>;
   record: (agent: 'align' | 'claude-code') => void;
+  /** Starts the 15-minute refresh of connected sources if one is due, and returns its lines for the screen. */
+  backgroundSync: () => string[];
 }
 
 const NOTHING_TO_RUN = [
@@ -108,7 +111,10 @@ export async function runAgentSession(opts: { engine?: EngineName }, deps: Sessi
   }
 
   deps.record(agent);
-  return deps.runAgentUi({ engine, decisionCount: deps.countDecisions(), gate: deps.makeGate(), gitRunsPrograms: deps.gitRunsPrograms });
+  // Bare `align` opens here, not through the launcher, so the refresh starts here too.
+  let notices: string[] = [];
+  try { notices = deps.backgroundSync(); } catch { /* no refresh this time; the agent still opens */ }
+  return deps.runAgentUi({ engine, decisionCount: deps.countDecisions(), gate: deps.makeGate(), gitRunsPrograms: deps.gitRunsPrograms, notices });
 }
 
 export function defaultSessionDeps(): SessionDeps {
@@ -152,6 +158,12 @@ export function defaultSessionDeps(): SessionDeps {
     },
     createClaudeCodeEngine,
     runAgentUi,
+    backgroundSync: () => {
+      const lines: string[] = [];
+      const host = { env: process.env, home: os.homedir(), platform: process.platform, isTTY: Boolean(process.stdin.isTTY && process.stdout.isTTY), config, err: (l: string) => lines.push(l) };
+      applyBackgroundPlan(planBackgroundSync(host), host);
+      return lines;
+    },
     record: (agent) => {
       void import('../usage-telemetry.js')
         .then((m) => m.recordFunnelStage(localEnv, 'agent_launched', 'align', { agent }))

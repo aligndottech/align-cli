@@ -53,6 +53,17 @@ describe('agent screen', () => {
     expect(engine.start).toHaveBeenCalledOnce();
   });
 
+  it('shows each notice under the header when the screen opens', async () => {
+    const engine = fakeEngine();
+    const t = fakeTerminal();
+    void runAgentUi({ engine, decisionCount: 749, gate: async () => ({ kind: 'allow', cards: [] }), terminal: t.term, notices: ['Refreshing jira in the background.', 'Align cannot refresh notion: reconnect.'] });
+    await tick();
+    const screen = t.screen();
+    expect(screen).toContain('Refreshing jira in the background.');
+    expect(screen).toContain('Align cannot refresh notion: reconnect.');
+    expect(screen.indexOf('749 decisions')).toBeLessThan(screen.indexOf('Refreshing jira'));
+  });
+
   it('denies an edit when the person answers s on the gate card', async () => {
     const { t, engine } = await launch(async () => askOutcome);
     const verdict = engine.broker(editAsk);

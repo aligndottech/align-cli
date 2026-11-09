@@ -29,6 +29,7 @@ function deps(over: Partial<SessionDeps> = {}) {
     createClaudeCodeEngine: vi.fn(() => ccEngine),
     runAgentUi: vi.fn(async () => 0),
     record: vi.fn(),
+    backgroundSync: vi.fn(() => []),
     ...over,
   };
   return { d, lines, piEngine, ccEngine, remembered };
@@ -113,5 +114,36 @@ describe('runAgentSession: remembering the choice', () => {
     const { d, remembered } = deps();
     await runAgentSession({}, d);
     expect(remembered).toEqual([]);
+  });
+});
+
+// Bare `align` opens this session, not the launcher, so the 15-minute refresh has to start here too
+// or a connected Jira or Slack never updates after its first scan. Its lines go into the screen:
+// the full-screen UI repaints the terminal, so a line printed before it would be lost.
+describe('runAgentSession: the background refresh', () => {
+  it('starts before the screen opens and its line reaches the screen', async () => {
+    const order: string[] = [];
+    const { d } = deps({
+      backgroundSync: vi.fn(() => { order.push('sync'); return ['Refreshing jira in the background.']; }),
+      runAgentUi: vi.fn(async () => { order.push('ui'); return 0; }),
+    });
+    await runAgentSession({}, d);
+    expect(order).toEqual(['sync', 'ui']);
+    expect(vi.mocked(d.runAgentUi).mock.calls[0]![0].notices).toEqual(['Refreshing jira in the background.']);
+  });
+  it('passes every line it gives, whatever they say', async () => {
+    const { d } = deps({ backgroundSync: () => ['Refreshing slack, linear in the background.', 'Align cannot refresh notion: reconnect.'] });
+    await runAgentSession({}, d);
+    expect(vi.mocked(d.runAgentUi).mock.calls[0]![0].notices).toEqual(['Refreshing slack, linear in the background.', 'Align cannot refresh notion: reconnect.']);
+  });
+  it('a refresh that throws never stops the agent opening', async () => {
+    const { d } = deps({ backgroundSync: () => { throw new Error('lock dir unwritable'); } });
+    expect(await runAgentSession({}, d)).toBe(0);
+    expect(vi.mocked(d.runAgentUi).mock.calls[0]![0].notices).toEqual([]);
+  });
+  it('no refresh starts when nothing can run', async () => {
+    const { d } = deps({ resolveModel: async () => undefined, findClaude: () => null });
+    await runAgentSession({}, d);
+    expect(d.backgroundSync).not.toHaveBeenCalled();
   });
 });
