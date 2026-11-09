@@ -31,6 +31,7 @@ export function createClaudeCodeEngine(opts: ClaudeCodeOpts): AgentEngine {
   let initTimer: ReturnType<typeof setTimeout> | undefined;
   let buffer = '';
   let interrupts = 0;
+  let initId: string | undefined;
 
   const send = (text: string) => { child?.stdin.write(text); };
 
@@ -46,7 +47,8 @@ export function createClaudeCodeEngine(opts: ClaudeCodeOpts): AgentEngine {
   function onLine(raw: string) {
     if (!raw.trim()) return;
     const parsed = parseLine(raw);
-    if (parsed.init) clearTimeout(initTimer);
+    // claude answers `initialize` at once but sends system/init only after the first prompt.
+    if (parsed.init || (initId !== undefined && parsed.answered === initId)) clearTimeout(initTimer);
     for (const e of parsed.events) {
       emit(e);
       if (e.type === 'turn-end') { pending?.resolve(); pending = undefined; }
@@ -87,7 +89,8 @@ export function createClaudeCodeEngine(opts: ClaudeCodeOpts): AgentEngine {
           }
         });
         c.once('spawn', () => {
-          send(initializeLine(`init-${Date.now()}`));
+          initId = `init-${Date.now()}`;
+          send(initializeLine(initId));
           // A claude that never starts ends the run: the waiting turn fails, the child is stopped,
           // and later prompts are refused with the same reason, so the screen never hangs.
           initTimer = setTimeout(() => {

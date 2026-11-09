@@ -147,6 +147,24 @@ describe('failures', () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(events).toEqual([]);
   });
+  // claude 2.1.318 sends system/init only after the first user message, so a user who takes longer
+  // than the timeout to type was killed. Its answer to `initialize` arrives in ~0.2s and is the real start.
+  it('the answer to initialize cancels the timeout, before any prompt is typed', async () => {
+    const { child, events, started } = setup({ firstEventTimeoutMs: 20 });
+    await started;
+    const initId = child.lines()[0]!['request_id'];
+    child.say({ type: 'control_response', response: { subtype: 'success', request_id: initId, response: {} } });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(events).toEqual([]);
+    expect(child.kill).not.toHaveBeenCalled();
+  });
+  it('an answer to some other request does not count as started', async () => {
+    const { child, events, started } = setup({ firstEventTimeoutMs: 20 });
+    await started;
+    child.say({ type: 'control_response', response: { subtype: 'success', request_id: 'not-the-init', response: {} } });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(events).toEqual([{ type: 'error', message: expect.stringContaining('claude --version') }]);
+  });
 });
 
 describe('spawn contract', () => {

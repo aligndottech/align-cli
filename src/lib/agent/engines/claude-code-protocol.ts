@@ -11,6 +11,8 @@ export interface ParsedLine {
   events: AgentUiEvent[];
   /** The engine saw its system/init line. */
   init?: true;
+  /** The request id a successful control_response answers. */
+  answered?: string;
   /** A can_use_tool request the host must answer. */
   permission?: { requestId: string; ask: ToolAsk; input: Record<string, unknown> };
 }
@@ -94,6 +96,11 @@ export function parseLine(raw: string): ParsedLine {
   switch (msg['type']) {
     case 'system':
       return msg['subtype'] === 'init' ? { events: [], init: true } : { events: [] };
+    case 'control_response': {
+      const r = asRecord(msg['response']);
+      const id = r?.['subtype'] === 'success' ? str(r['request_id']) : undefined;
+      return id === undefined ? { events: [] } : { events: [], answered: id };
+    }
     case 'result': {
       // An error result ("Not logged in", a refused request) must show, not read as an empty turn.
       const failed = msg['is_error'] === true ? str(msg['result']) : undefined;
