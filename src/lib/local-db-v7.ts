@@ -109,6 +109,7 @@ function repoint(db: DatabaseSync, table: string, column: string, from: string, 
 }
 
 function repointLinks(db: DatabaseSync, loser: string, survivor: string, group: Set<string>): void {
+  const hasDetector = columnsOf(db, 'decision_links').has('detector_version');
   const links = db.prepare(`SELECT id, source_id AS s, target_id AS t, relation, confidence FROM decision_links WHERE source_id = ? OR target_id = ?`)
     .all(loser, loser) as Array<{ id: string; s: string; t: string; relation: string; confidence: number }>;
   for (const link of links) {
@@ -124,7 +125,7 @@ function repointLinks(db: DatabaseSync, loser: string, survivor: string, group: 
     if (existing) {
       db.prepare('UPDATE decision_links SET confidence = MAX(confidence, ?) WHERE id = ?').run(link.confidence, existing.id);
       // A certain (reference) stamp on the folded row carries over: the survivor's pair is the same pair.
-      if (columnsOf(db, 'decision_links').has('detector_version')) {
+      if (hasDetector) {
         db.prepare(`UPDATE decision_links SET detector_version = 'ref' WHERE id = ? AND EXISTS (SELECT 1 FROM decision_links l WHERE l.id = ? AND l.detector_version = 'ref')`).run(existing.id, link.id);
       }
       db.prepare('DELETE FROM decision_links WHERE id = ?').run(link.id);

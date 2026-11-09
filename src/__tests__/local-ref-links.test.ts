@@ -123,6 +123,35 @@ describe('a bare #N is one item only within one repo', () => {
     db.close();
     expect(rows().map((r) => r.v)).toEqual(stamps);
   });
+
+  it('two repos that each have a #12: a commit in one links only to its own, and is certain', () => {
+    const db = createLocalDb(path);
+    const mine = ticket(db, 'https://github.com/o/a/pull/12', 'o/a');
+    ticket(db, 'https://github.com/o/b/pull/12', 'o/b');
+    const c = commit(db, [{ ref: '#12', platform: 'code' }], 'o/a');
+    db.close();
+    expect(rows()).toEqual([{ source: c, target: mine, relation: 'relates', v: 'ref' }]);
+  });
+});
+
+describe('one unit', () => {
+  it('a failure part-way leaves the identities as they were', () => {
+    const db = createLocalDb(path);
+    const t = ticket(db);
+    db.close();
+    const raw = new DatabaseSync(path);
+    raw.exec("CREATE TRIGGER fail_link BEFORE INSERT ON decision_links BEGIN SELECT RAISE(ABORT, 'boom'); END");
+    raw.close();
+    const again = createLocalDb(path);
+    const c = again.insertDecision({ title: 'cites', summary: 's', sourceUrl: null, platform: 'git' });
+    again.replaceRefs(c, [{ ref: 'APP-123', platform: 'tracker' }]);
+    expect(() => again.resolveRefs(t, refIdentityFor('linear', LINEAR), [])).toThrow(/boom/);
+    again.close();
+    const check = new DatabaseSync(path);
+    const ids = check.prepare('SELECT COUNT(*) AS n FROM decision_identities WHERE decision_id = ?').get(t) as { n: number };
+    check.close();
+    expect(ids.n).toBeGreaterThan(0);
+  });
 });
 
 describe('an ambiguous reference is linked but never stamped certain', () => {

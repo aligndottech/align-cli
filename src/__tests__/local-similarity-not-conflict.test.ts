@@ -93,7 +93,9 @@ describe('the write: cosine similarity is `relates`, never a conflict', () => {
     expect(LOCAL_CONFLICTS_NOTE).toContain('stored only in the local graph');
     expect(LOCAL_CONFLICTS_NOTE).not.toContain('on this machine');
     // No review queue: raise one only when it bears on the work.
-    expect(LOCAL_CONFLICTS_NOTE).toContain('Do not list them for the person to review');
+    expect(LOCAL_CONFLICTS_NOTE).toContain('do not volunteer a list for them to review');
+    // ...but a person who asks for their conflicts gets them.
+    expect(LOCAL_CONFLICTS_NOTE).toContain('If the person asked for their conflicts, list them');
   });
 
   it('still writes a link, and writes it as `relates`', async () => {

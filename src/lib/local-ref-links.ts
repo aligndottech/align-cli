@@ -45,6 +45,10 @@ function linker(db: DatabaseSync) {
   const holders = db.prepare(
     `SELECT COUNT(DISTINCT i.decision_id) AS n FROM decision_identities i JOIN decisions d ON d.id = i.decision_id WHERE i.platform = ? AND i.ref = ?`,
   );
+  // A bare #N is unique per repo, so "exactly one" is counted within the citer's repo.
+  const holdersInRepo = db.prepare(
+    `SELECT COUNT(DISTINCT i.decision_id) AS n FROM decision_identities i JOIN decisions d ON d.id = i.decision_id WHERE i.platform = ? AND i.ref = ? AND d.repo = ?`,
+  );
   const repos = new Map<string, string | null>();
   const repo = (id: string): string | null => {
     if (!repos.has(id)) repos.set(id, (repoOf.get(id) as { repo: string | null } | undefined)?.repo ?? null);
@@ -64,7 +68,7 @@ function linker(db: DatabaseSync) {
       const a = repo(citer);
       const b = repo(cited);
       if (a !== null && b !== null && a !== b) return; // known to be different repos: not the same item
-      if (a === null || b === null) certain = false;
+      certain = a !== null && b !== null && (holdersInRepo.get(ref.platform, ref.ref, a) as { n: number }).n === 1;
     }
     insertLinkRow(db, { sourceId: citer, targetId: cited, relation: 'relates', confidence: 1.0, detectorVersion: certain ? REF_DETECTOR : 'v0' });
   };
@@ -81,6 +85,21 @@ function linker(db: DatabaseSync) {
  * left alone.
  */
 export function linkByReference(db: DatabaseSync, id: string, identities: Ref[], ownRefs?: Ref[]): void {
+  // One unit: a reader (the advisory hook opens the graph on every edit) never sees this decision
+  // with its identities half-replaced, and an import pays one commit, not one per statement. A
+  // SAVEPOINT, not BEGIN, because a caller may already hold a transaction.
+  db.exec('SAVEPOINT link_by_reference');
+  try {
+    linkInOneUnit(db, id, identities, ownRefs);
+    db.exec('RELEASE link_by_reference');
+  } catch (err) {
+    db.exec('ROLLBACK TO link_by_reference');
+    db.exec('RELEASE link_by_reference');
+    throw err;
+  }
+}
+
+function linkInOneUnit(db: DatabaseSync, id: string, identities: Ref[], ownRefs?: Ref[]): void {
   db.prepare('DELETE FROM decision_identities WHERE decision_id = ?').run(id);
   const addIdentity = db.prepare('INSERT OR IGNORE INTO decision_identities (decision_id, ref, platform) VALUES (?, ?, ?)');
   for (const c of identities) addIdentity.run(id, c.ref, c.platform);
