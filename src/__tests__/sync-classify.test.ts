@@ -142,3 +142,39 @@ describe('classifyUnclassified', () => {
     expect(bad).toMatchObject({ items: 2, typed: 0, unparsed: 2 });
   });
 });
+
+// Links between tools mostly score 0.45 to 0.62 (local-thresholds.ts): the old 0.65 floor skipped them.
+describe('cross-tool links are typed', () => {
+  it('an item whose only link crosses tools at 0.5 is classified; one at 0.3 (below the link floor) is not', async () => {
+    const db = createLocalDb(dbPath);
+    const issue = db.insertDecision({ title: 'Retry three times', summary: 'Linear issue', sourceUrl: 'https://linear.app/a/issue/APP-1/x', platform: 'linear' });
+    const commit = db.insertDecision({ title: 'Retry five times', summary: 'commit', sourceUrl: null, platform: 'git' });
+    const faint = db.insertDecision({ title: 'Unrelated', summary: 'commit', sourceUrl: null, platform: 'git' });
+    db.insertLink({ sourceId: commit, targetId: issue, relation: 'relates', confidence: 0.5 });
+    db.insertLink({ sourceId: faint, targetId: issue, relation: 'relates', confidence: 0.3 });
+    db.close();
+
+    const classify = vi.fn(ok('supersedes'));
+    const r = await classifyUnclassified(dbPath, 10, classify);
+
+    expect(r).toMatchObject({ items: 1, calls: 1, typed: 1 });
+    expect(sql<{ source_id: string; relation: string }>(`SELECT source_id, relation FROM decision_links WHERE relation = 'supersedes'`))
+      .toEqual([{ source_id: commit, relation: 'supersedes' }]);
+  });
+
+  it('pairs that cross tools are asked about first, ahead of a same-tool pair with a higher score', async () => {
+    const db = createLocalDb(dbPath);
+    const item = db.insertDecision({ title: 'item', summary: 'git commit', sourceUrl: null, platform: 'git' });
+    const sameTool = Array.from({ length: 3 }, (_, k) => db.insertDecision({ title: `git ${k}`, summary: 's', sourceUrl: null, platform: 'git' }));
+    const otherTool = db.insertDecision({ title: 'linear one', summary: 's', sourceUrl: 'https://linear.app/a/issue/APP-2/x', platform: 'linear' });
+    for (const t of sameTool) db.insertLink({ sourceId: item, targetId: t, relation: 'relates', confidence: 0.9 });
+    db.insertLink({ sourceId: item, targetId: otherTool, relation: 'relates', confidence: 0.5 });
+    db.close();
+
+    const asked: string[] = [];
+    await classifyUnclassified(dbPath, 1, async (existing) => { asked.push(existing.title); return { ok: true as const, relationship: { type: 'relates' as never, confidence: 0.8 } }; });
+
+    expect(asked[0]).toBe('linear one');
+    expect(asked).toHaveLength(3);
+  });
+});

@@ -201,12 +201,10 @@ describe('renderSecondRunCard', () => {
     // is hidden; a real one appears the moment it exists, same rule as renderValueReadout.
     expect(renderSecondRunCard(full)).toContain('So far       12 decisions in your graph');
     expect(renderSecondRunCard(full)).not.toMatch(/conflicts caught/);
-    // Local conflict links are unconfirmed labels from the person's own AI model: possible, not caught.
+    // No conflict count locally, even with labels stored: a count is a review queue (next-step.ts).
     const withConflict = renderSecondRunCard({ ...full, value: { ...full.value, conflictsCaught: 2 } });
-    expect(withConflict).toContain('So far       12 decisions in your graph, 2 possible conflicts flagged');
-    expect(withConflict).not.toMatch(/conflicts caught/);
-    const withOne = renderSecondRunCard({ ...full, value: { ...full.value, conflictsCaught: 1 } });
-    expect(withOne).toContain('12 decisions in your graph, 1 possible conflict flagged');
+    expect(withConflict).toContain('So far       12 decisions in your graph');
+    expect(withConflict).not.toMatch(/conflict/i);
   });
 
   it('empty graph: the single action is `align connect`, the one verb the card may name', () => {

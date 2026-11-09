@@ -92,6 +92,8 @@ describe('the write: cosine similarity is `relates`, never a conflict', () => {
     // The label is stored locally, but the model may be hosted: never claim it ran here.
     expect(LOCAL_CONFLICTS_NOTE).toContain('stored only in the local graph');
     expect(LOCAL_CONFLICTS_NOTE).not.toContain('on this machine');
+    // No review queue: raise one only when it bears on the work.
+    expect(LOCAL_CONFLICTS_NOTE).toContain('Do not list them for the person to review');
   });
 
   it('still writes a link, and writes it as `relates`', async () => {

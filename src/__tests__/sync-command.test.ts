@@ -9,6 +9,7 @@ vi.mock('../lib/local-embeddings.js', () => ({
 }));
 
 import { runSyncCommand, type SyncCommandDeps, type SyncCommandOptions } from '../commands/sync.js';
+import { BACKGROUND_CLASSIFY_MAX } from '../lib/sync/classify.js';
 import { acquireLock } from '../lib/sync/lock.js';
 import { readRows } from '../lib/sync/sync-state.js';
 import { type Harness, harness, pr } from './helpers/sync-env.js';
@@ -32,9 +33,11 @@ let refreshes: number;
 let bgOff: boolean;
 let bgWrites: boolean[];
 let notes: string[];
+let autoOn: boolean;
+let hasModel: boolean;
 beforeEach(() => {
   h = harness();
-  out = []; err = []; sleeps = []; refreshes = 0; bgOff = false; bgWrites = []; notes = [];
+  out = []; err = []; sleeps = []; refreshes = 0; bgOff = false; bgWrites = []; notes = []; autoOn = false; hasModel = true;
   tokens = new Map([['github', { token: 'tok' }], ['jira', { token: 'tok', domain: 'x.atlassian.net' }]]);
 });
 afterEach(() => h.cleanup());
@@ -55,6 +58,9 @@ function deps(over: Partial<SyncCommandDeps> = {}): SyncCommandDeps {
     classify: vi.fn(async () => ({ items: 10, calls: 30, typed: 12, unparsed: 0 })),
     classifyLock: () => acquireLock('sync-classify', { dir: h.lockDir, alive: () => true }),
     backgroundOff: () => bgOff,
+    autoClassify: () => autoOn,
+    setAutoClassify: (on) => { autoOn = on; },
+    hasProvider: () => hasModel,
     shellGate: () => undefined,
     inAgent: () => false,
     noteOutcome: (source, state) => { notes.push(`${source}:${state}`); },
@@ -380,5 +386,91 @@ describe('a run that dies', () => {
     db.close();
     expect(await runSyncCommand(['github'], {}, failing)).toBe(0);
     expect(err.join('\n')).toContain('finishing the links failed: disk full');
+  });
+});
+
+// Typing relationships after a background refresh: only with the person's yes and a model.
+describe('relationship typing after a background refresh', () => {
+  const classifyCalls = (d: Partial<SyncCommandDeps>) => (d.classify as ReturnType<typeof vi.fn>).mock.calls;
+
+  it('with a yes and a model: types up to the background limit, quietly, and exits 0', async () => {
+    autoOn = true;
+    h.script({ items: [] });
+    const over: Partial<SyncCommandDeps> = { classify: vi.fn(async () => ({ items: 2, calls: 6, typed: 2, unparsed: 0 })) };
+    expect(await run(['github'], { background: true, delay: '0' }, over)).toBe(0);
+    expect(classifyCalls(over)).toEqual([[h.dbPath, BACKGROUND_CLASSIFY_MAX]]);
+    expect(out).toEqual([]);
+  });
+
+  it.each([
+    ['nobody said yes', false, true],
+    ['no model is set up', true, false],
+  ])('does nothing when %s', async (_n, yes, model) => {
+    autoOn = yes; hasModel = model;
+    h.script({ items: [] });
+    const over: Partial<SyncCommandDeps> = { classify: vi.fn() };
+    expect(await run(['github'], { background: true, delay: '0' }, over)).toBe(0);
+    expect(classifyCalls(over)).toEqual([]);
+  });
+
+  it('a foreground sync never types, even with a yes', async () => {
+    autoOn = true;
+    h.script({ items: [] });
+    const over: Partial<SyncCommandDeps> = { classify: vi.fn() };
+    await run(['github'], {}, over);
+    expect(classifyCalls(over)).toEqual([]);
+  });
+
+  it('skips while an on-demand classification holds the lock, and a failure never fails the refresh', async () => {
+    autoOn = true;
+    h.script({ items: [] });
+    const held: Partial<SyncCommandDeps> = { classify: vi.fn(), classifyLock: () => ({ ok: false }) as never };
+    expect(await run(['github'], { background: true, delay: '0' }, held)).toBe(0);
+    expect(classifyCalls(held)).toEqual([]);
+    h.script({ items: [] });
+    const boom: Partial<SyncCommandDeps> = { classify: vi.fn(async () => { throw new Error('provider down'); }) };
+    expect(await run(['github'], { background: true, delay: '0' }, boom)).toBe(0);
+  });
+});
+
+describe('--auto-classify on|off', () => {
+  it('on: stores the yes, says what it does and how to turn it off, and runs no sync', async () => {
+    expect(await run([], { autoClassify: 'on' }, { graphPath: () => undefined })).toBe(0);
+    expect(autoOn).toBe(true);
+    expect(out.join('\n')).toContain('align sync --auto-classify off');
+    expect(h.fetchCalls).toHaveLength(0);
+  });
+  it('off: clears it', async () => {
+    autoOn = true;
+    expect(await run([], { autoClassify: 'off' })).toBe(0);
+    expect(autoOn).toBe(false);
+  });
+  it.each([
+    ['inside an agent', { inAgent: () => true }],
+    ['with no terminal', { isTty: () => false }],
+  ])('on is refused %s: it spends the person\'s key', async (_n, over) => {
+    expect(await run([], { autoClassify: 'on' }, over as Partial<SyncCommandDeps>)).toBe(1);
+    expect(autoOn).toBe(false);
+  });
+  it('off is allowed anywhere: it is the safe direction', async () => {
+    autoOn = true;
+    expect(await run([], { autoClassify: 'off' }, { inAgent: () => true, isTty: () => false })).toBe(0);
+    expect(autoOn).toBe(false);
+  });
+  it.each([
+    ['a value other than on or off', [], { autoClassify: 'yes' }],
+    ['with a source', ['github'], { autoClassify: 'on' }],
+    ['with --background', [], { autoClassify: 'on', background: true }],
+  ])('exits 2 %s', async (_n, sources, opts) => {
+    expect(await run(sources as string[], opts as SyncCommandOptions)).toBe(2);
+    expect(autoOn).toBe(false);
+  });
+  it('--status says which way it is set', async () => {
+    await run([], { status: true });
+    expect(out.join('\n')).toContain('Relationship typing: off');
+    out.length = 0;
+    autoOn = true;
+    await run([], { status: true });
+    expect(out.join('\n')).toContain('Relationship typing: on');
   });
 });

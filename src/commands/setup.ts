@@ -45,7 +45,7 @@ import { projectForeignNotice } from '../lib/foreign-env.js';
 import { PICK_CANCELLED, pickAgent } from '../lib/launch/pick-agent.js';
 import { offerSavedTokens } from '../lib/saved-token-offer.js';
 import { readOnlyTokenNote } from '../lib/read-only-token-note.js';
-import { runModelStep } from '../lib/model-step.js';
+import { runModelAndTypingSteps } from '../lib/model-step.js';
 import { InvalidEnvError, routeSetup } from '../lib/setup-route.js';
 import { agentByName } from '../lib/launch/agents.js';
 import { launchesAfterWizard } from '../lib/launch/launch.js';
@@ -1156,7 +1156,7 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
   // The 0.48.0 outro said "Open Claude Code in this repo and ask: ..." and align then opened
   // Claude Code itself. When it is about to, the last line says so instead.
   // Said before the outro, once, only when true: with no model the checks the graph exists for cannot run.
-  await runModelStep({ interactive });
+  await runModelAndTypingSteps({ interactive });
   // Declined writes: the agent has no align MCP or hook, so opening it "with your graph" would be false.
   const launching = !ctx.writesDeclined && willLaunchAgent(agent, Boolean(opts.launchNext));
   const launchLabel = launching && agent ? 'Align' : undefined;

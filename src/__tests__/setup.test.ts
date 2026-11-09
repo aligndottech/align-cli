@@ -211,7 +211,8 @@ vi.mock('../lib/claude-presence.js', () => ({ claudeCodeExists: mockClaudePresen
 
 // The model step has its own suite (model-step.test.ts). Here it is a stub, so these wizard tests say WHEN it runs.
 const mockRunModelStep = vi.hoisted(() => vi.fn().mockResolvedValue('ready'));
-vi.mock('../lib/model-step.js', () => ({ runModelStep: mockRunModelStep }));
+// setup makes one call for the model step and the relationship-typing offer that follows it.
+vi.mock('../lib/model-step.js', () => ({ runModelAndTypingSteps: mockRunModelStep }));
 
 const mockLoginInteractive = vi.hoisted(() => vi.fn().mockResolvedValue(true));
 vi.mock('../lib/login-flow.js', () => ({
