@@ -311,6 +311,7 @@ export function clackScopePrompts(): ScopePrompts {
     async confirm(message) {
       return askWithTimeout(async () => (await p.confirm({ message, initialValue: false })) === true);
     },
+    /** One choice from a list, with the cursor on `initial`; null when the person cancels. */
     async select(message, options, initial) {
       const answer = await p.select({ message, options: options.map((x) => ({ value: x.value, label: x.label })), initialValue: initial, maxItems: 12 });
       return p.isCancel(answer) ? null : String(answer);

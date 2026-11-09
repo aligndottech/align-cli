@@ -74,6 +74,7 @@ export async function runAgentUi(opts: AgentUiOptions): Promise<number> {
     for (const l of lines) transcript.addChild(new Text(l, 1, 0));
     tui.requestRender();
   };
+  /** Folds an answered approval card to one line, so the key press shows at once what happens next. */
   const fold = (q: HumanQuestion, card: Container, answer: HumanAnswer): void => {
     card.clear();
     card.addChild(new Text(answeredLine(q, answer), 1, 0));

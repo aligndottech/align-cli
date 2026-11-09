@@ -72,6 +72,7 @@ export interface ScopeDeps {
 }
 
 const UPDATE_TO_NARROW = 'Update it: npm install -g @aligndottech/cli';
+/** Does the installed connector-core apply a narrowing? Tests answer through deps; otherwise connector-core is asked. */
 const narrows = (deps: ScopeDeps): boolean => (deps.coreNarrows ?? connectorCoreNarrows)();
 
 export interface ResolvedScope {

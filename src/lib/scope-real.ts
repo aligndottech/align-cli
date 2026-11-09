@@ -33,6 +33,7 @@ export function activeStoredScope(source: string, config = createConfigStore()):
 /** What the sync status needs to know about the scope in force, from the stored choice. An unchosen source answers undefined (the most recently started row is used). */
 export function scopeStatusHooks(config = createConfigStore()): { activeScopeKey(id: string): string | undefined; pendingScope(id: string): string | undefined; blockedScope(id: string): string | undefined } {
   const store = configScopeStore(config);
+  /** The scope key a stored choice reads under: `yours`, or the team key with any narrowing. */
   const key = (source: string, s: ActiveScope | null): string | undefined =>
     s === null ? undefined : s.kind === 'yours' ? 'yours' : scopeKeyOf(source as ScopedSource, s.labels, s.narrow);
   return {

@@ -310,6 +310,7 @@ export async function listLinearProjects(fields: Record<string, string>, teamId:
 export async function proveToken(source: string, fields: Record<string, string>, f: FetchLike): Promise<'ok' | 'refused' | 'unknown'> {
   try {
     let res: Response;
+    /** Request options for one identity call: the vendor's auth headers, no redirects, and a timeout. */
     const init = (headers: Record<string, string>, extra: Init = {}): Init => ({ ...extra, headers, redirect: 'manual', signal: AbortSignal.timeout(TIMEOUT_MS) });
     switch (source) {
       case 'jira':
