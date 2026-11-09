@@ -17,7 +17,7 @@
 import fs from 'node:fs';
 import { CAPTURE_SOURCES } from './capture-sources.js';
 import {
-  checkJiraJql, type FetchLike, findConfluenceSpace, findJiraProject, findLinearTeam, githubRepoIsPublic, githubRepoVisibility, gitlabProjectVisibility, jiraBoardFilterJql,
+  checkJiraJql, connectorCoreNarrows, type FetchLike, findConfluenceSpace, findJiraProject, findLinearTeam, githubRepoIsPublic, githubRepoVisibility, gitlabProjectVisibility, jiraBoardFilterJql,
   listConfluenceSpaces, listJiraBoards, listJiraProjects, listLinearProjects, listLinearTeams, ScopeLookupError,
 } from './scope-choices.js';
 import {
@@ -67,7 +67,12 @@ export interface ScopeDeps {
   fetch: FetchLike;
   /** Cap on how many projects, spaces or teams a lookup lists before it calls the list truncated. Tests lower it; absent is the real cap. */
   listMax?: number;
+  /** Does the installed connector-core apply a narrowing? Absent: ask it (connectorCoreNarrows). */
+  coreNarrows?: () => boolean;
 }
+
+const UPDATE_TO_NARROW = 'Update it: npm install -g @aligndottech/cli';
+const narrows = (deps: ScopeDeps): boolean => (deps.coreNarrows ?? connectorCoreNarrows)();
 
 export interface ResolvedScope {
   scope: 'yours' | 'team';
@@ -102,6 +107,10 @@ function yours(origin: ResolvedScope['origin'], note?: string): ResolvedScope {
 }
 
 function team(source: ScopedSource, values: string[], labels: string[], origin: ResolvedScope['origin'], deps: ScopeDeps, foreground: boolean, narrow?: Narrowing): ResolvedScope {
+  // A narrowing this CLI cannot apply would read the whole project: nothing is read instead.
+  if (narrow !== undefined && !narrows(deps)) {
+    return { ...yours(origin), blocked: `${labelOf(source)} is set to read ${describeTeamScope(source, labels, narrow)}, which this version of Align cannot narrow, so nothing was read. ${UPDATE_TO_NARROW}` };
+  }
   const scopeKey = scopeKeyOf(source, labels, narrow);
   return {
     scope: 'team', scopeKey, extras: fetchOptsFor(source, values, narrow), label: describeTeamScope(source, labels, narrow), origin,
@@ -242,6 +251,7 @@ const MAX_JQL = 2000;
 /** Checks a narrowing against what the token can see. Refuses with words that never repeat the value given. */
 async function verifyNarrowing(source: ScopedSource, base: Verified, n: NonNullable<Extract<SetInput, { scope: 'team' }>['narrow']>, deps: ScopeDeps, fields: Record<string, string>): Promise<Narrowing> {
   const refuse = (m: string, kind: ScopeRefusal['kind'] = 'invalid'): never => { throw new ScopeRefusal(`${m} Nothing was changed.`, kind); };
+  if (!narrows(deps)) refuse(`This version of Align cannot narrow a read to one part. ${UPDATE_TO_NARROW}`);
   if (source === 'jira') {
     if (n.projects !== undefined) refuse('Jira is narrowed by a board or a JQL filter, not by projects.');
     if (n.board !== undefined && n.jql !== undefined) refuse('Give a board or a JQL filter, not both.');
@@ -257,6 +267,8 @@ async function verifyNarrowing(source: ScopedSource, base: Verified, n: NonNulla
       if (hits.length > 1) refuse(`More than one board in ${key} has that name. Give the board's id.`);
       const board = hits[0]!;
       const jql = await jiraBoardFilterJql(fields, board.id, deps.fetch);
+      // A board's filter comes from Jira: held to the same limit as a typed one.
+      if (jql.length > MAX_JQL) refuse(`That board's filter is longer than ${MAX_JQL} characters, so it cannot be used to narrow ${key}.`);
       if (await checkJiraJql(fields, [key], jql, deps.fetch) === 'invalid') refuse(`That board's filter cannot be used to narrow ${key}.`);
       return { by: 'board', id: board.id, name: board.name, jql };
     }

@@ -129,3 +129,46 @@ describe('a source with no parts', () => {
     expect(e.kind).toBe('invalid');
   });
 });
+
+// A narrowing is a consent boundary, and an older connector-core silently ignores it. So a CLI whose connector-core does not
+// narrow refuses to choose one, and blocks reading a stored one, rather than reading the whole project.
+describe('when the installed connector-core cannot narrow', () => {
+  it('choosing a narrowing is refused, and says to update', async () => {
+    const d = { ...deps([jiraProjects('AC'), boards([42, 'Payments']), ...filterOf, searchOk]), coreNarrows: () => false };
+    const e = await refusal(chooseScope(d, 'jira', { scope: 'team', values: 'AC', narrow: { board: 'Payments' } }, FIELDS['jira']!));
+    expect(e.kind).toBe('invalid');
+    expect(e.message).toMatch(/update/i);
+  });
+
+  it('a stored narrowing is blocked, never read as the whole project (two sources)', async () => {
+    const store = memStore({ scopes: {
+      jira: { kind: 'team', values: ['AC'], labels: ['AC'], narrow: { by: 'jql', jql: 'labels = pay' } },
+      linear: { kind: 'team', values: ['t-1'], labels: ['ENG'], narrow: { by: 'projects', ids: ['p-1'], names: ['Auth'] } },
+    }, disclosed: ['jira', 'linear'] });
+    for (const source of ['jira', 'linear']) {
+      const r = await resolveScope(source, { ...deps([], store), coreNarrows: () => false }, { foreground: false });
+      expect(r.blocked).toMatch(/update/i);
+    }
+  });
+
+  it('a stored scope with no narrowing still reads as before', async () => {
+    const store = memStore({ scopes: { jira: { kind: 'team', values: ['AC'], labels: ['AC'] } }, disclosed: ['jira'] });
+    const r = await resolveScope('jira', { ...deps([], store), coreNarrows: () => false }, { foreground: false });
+    expect(r.blocked).toBeUndefined();
+    expect(r.extras).toEqual({ projects: ['AC'] });
+  });
+});
+
+describe('a narrowing cannot widen the read', () => {
+  it("a board's filter over 2,000 characters is refused", async () => {
+    const long: Route[] = [[/\/board\/42\/configuration/, { body: { filter: { id: '10001' } } }], [/\/rest\/api\/3\/filter\/10001/, { body: { jql: `labels = ${'x'.repeat(2001)}` } }]];
+    const e = await refusal(chooseScope(deps([jiraProjects('AC'), boards([42, 'Payments']), ...long, searchOk]), 'jira', { scope: 'team', values: 'AC', narrow: { board: '42' } }, FIELDS['jira']!));
+    expect(e.kind).toBe('invalid');
+  });
+
+  it('a JQL that tries to close the project clause is refused', async () => {
+    const e = await refusal(chooseScope(deps([jiraProjects('AC'), searchOk]), 'jira', { scope: 'team', values: 'AC', narrow: { jql: 'x = 1) OR (project = SECRET' } }, FIELDS['jira']!));
+    expect(e.kind).toBe('invalid');
+    expect(e.message).not.toContain('SECRET');
+  });
+});

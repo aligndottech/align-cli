@@ -131,6 +131,7 @@ async function set(input: Record<string, unknown>, deps: ScopeDeps, agent: strin
   let change: SetInput;
   if (scope === 'yours') {
     if (given.length > 0) throw new Error(`${SCOPE_TOOL} takes either scope "yours" or a value to read, not both.`);
+    if (input['board'] !== undefined || input['linear_projects'] !== undefined) throw new Error(`${SCOPE_TOOL} takes either scope "yours" or a board or linear_projects to read, not both.`);
     change = { scope: 'yours' };
   } else if (wanted === undefined) {
     // Zoom, Slack, Notion, Teams: setScope refuses with the honest reason for that source.

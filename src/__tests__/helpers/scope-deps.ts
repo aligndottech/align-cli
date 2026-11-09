@@ -53,7 +53,8 @@ export function makeDeps(dbPath: string | undefined, over: Partial<ScopeDeps> & 
   const r = routes(over.table ?? []);
   const store = over.store ?? memStore();
   return {
-    dbPath, now: () => NOW, isTty: () => true, cwdRepo: async () => undefined, cwdGitlabProject: async () => undefined, fetch: r.fetch, ...over, store, calls: r.calls,
+    // coreNarrows: the installed connector-core's own answer is checked by connector-core-narrowing-contract.test.ts; here it is a given.
+    dbPath, now: () => NOW, isTty: () => true, cwdRepo: async () => undefined, cwdGitlabProject: async () => undefined, fetch: r.fetch, coreNarrows: () => true, ...over, store, calls: r.calls,
   } as TestDeps;
 }
 

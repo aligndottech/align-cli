@@ -14,6 +14,7 @@
  */
 import { vendorFetch } from './helpers/vendor-fetch.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type * as ScopeConnect from '../lib/scope-connect.js';
 
 const mockMultiselect = vi.hoisted(() => vi.fn().mockResolvedValue([]));
 const mockPassword = vi.hoisted(() => vi.fn().mockResolvedValue('pasted-token'));
@@ -99,7 +100,7 @@ vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => { stderr.push
 // Counted, not replaced. fetchUnderScope asks the scope step again; setup calls it from outside the module, so the count is real.
 const decideSpy = vi.hoisted(() => ({ calls: 0 }));
 vi.mock('../lib/scope-connect.js', async (orig) => {
-  const real = await orig<typeof import('../lib/scope-connect.js')>();
+  const real = await orig<typeof ScopeConnect>();
   return { ...real, fetchUnderScope: (...a: Parameters<typeof real.fetchUnderScope>) => { decideSpy.calls++; return real.fetchUnderScope(...a); } };
 });
 const mockProve = vi.hoisted(() => vi.fn(async () => 'ok' as 'ok' | 'refused' | 'unknown'));

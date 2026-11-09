@@ -337,3 +337,15 @@ export async function proveToken(source: string, fields: Record<string, string>,
     return 'unknown';
   }
 }
+
+/**
+ * Does the installed connector-core apply a narrowing? An older one accepts the option and ignores it, which would read the
+ * whole project or team. Asked of the builder itself, not of a version number.
+ */
+export function connectorCoreNarrows(): boolean {
+  try {
+    return buildJiraJql({ projects: ['P'], jql: 'x = 1' } as Parameters<typeof buildJiraJql>[0]).includes('AND (x = 1)');
+  } catch {
+    return false;
+  }
+}

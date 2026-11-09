@@ -158,5 +158,6 @@ describe('the align_scope tool narrows', () => {
     await expect(runScopeTool({ action: 'set', source: 'linear', teams: ['ENG'], board: '1' }, env(), deps, { agent: 'a' })).rejects.toThrow(/board/);
     await expect(runScopeTool({ action: 'set', source: 'jira', projects: ['AC'], linear_projects: ['x'] }, env(), deps, { agent: 'a' })).rejects.toThrow(/linear_projects/);
     await expect(runScopeTool({ action: 'set', source: 'jira', projects: ['AC'], jql: 'labels = x' }, env(), deps, { agent: 'a' })).rejects.toThrow(/unknown propert/);
+    await expect(runScopeTool({ action: 'set', source: 'jira', scope: 'yours', board: '42' }, env(), deps, { agent: 'a' })).rejects.toThrow(/board/);
   });
 });
