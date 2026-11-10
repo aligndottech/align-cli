@@ -1,4 +1,5 @@
 import { resolveEnv } from '../lib/resolve-env.js';
+import { resolveMcpEnvironment } from '../lib/mcp-env.js';
 import type { Command } from 'commander';
 import pkg from '../../package.json' with { type: 'json' };
 const { version } = pkg;
@@ -776,8 +777,8 @@ Claude Code config (~/.claude.json or workspace .mcp.json):
       // Local mode serves every tool this server exposes, so a no-account user who ran
       // `align local start` is routed there rather than at an anonymous cloud gateway -
       // otherwise the agent's very first call 401s. A logged-in user is never redirected.
-      const resolvedEnv = resolveEnv(opts.env, { preferLocalEmbedded: true });
-      const env = config.getEnvironment(resolvedEnv);
+      // A machine with nothing set up serves the local graph too, not an anonymous cloud gateway.
+      const { name: resolvedEnv, env } = resolveMcpEnvironment(opts.env, config);
       const client = createGatewayClient(env);
 
       // Fail closed BEFORE the server ever connects - a bound that silently does
