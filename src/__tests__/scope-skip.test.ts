@@ -140,20 +140,26 @@ describe('the second question starts on the board or project named like this rep
     teams: { nodes: [{ id: 't-1', key: 'ENG', name: 'Eng' }], pageInfo: {} },
     team: { projects: { nodes: [{ id: 'p-1', name: 'Auth service' }, { id: 'p-2', name: 'Billing' }], pageInfo: {} } },
   } } }];
-  const run = async (repo: string[]): Promise<string> => {
-    const selected: string[] = [];
+  const run = async (repo: string[]): Promise<string[]> => {
+    const selected: string[][] = [];
     const s = setup({ repo, table: [linear], picks: ['ENG'] });
-    s.ctx.prompts.select = async (_m, _o, initial) => { selected.push(initial); return initial; };
+    s.ctx.prompts.select = async (_m, _o, initial) => initial;
+    const first = s.ctx.prompts.multiselect;
+    s.ctx.prompts.multiselect = async (m, o, initial, req) => {
+      if (!m.startsWith('Which projects of')) return first(m, o, initial, req);
+      selected.push(initial);
+      return initial;
+    };
     await decideConnectScope('linear', { token: 'x' }, s.ctx);
     return selected[0]!;
   };
   it('exactly one project named like the repo is where the cursor starts (two repos, two answers)', async () => {
-    expect(await run(['billing-api'])).toBe('p-2');
-    expect(await run(['auth-service'])).toBe('p-1');
+    expect(await run(['billing-api'])).toEqual(['p-2']);
+    expect(await run(['auth-service'])).toEqual(['p-1']);
   });
   it('no match, or two matches, starts on all of the team', async () => {
-    expect(await run(['fastify'])).toBe(':all');
-    expect(await run(['auth-service-billing'])).toBe(':all');
+    expect(await run(['fastify'])).toEqual([':all']);
+    expect(await run(['auth-service-billing'])).toEqual([':all']);
   });
 });
 

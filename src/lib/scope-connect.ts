@@ -282,14 +282,25 @@ export async function decideConnectScope(source: string, tokens: Record<string, 
     }
     if (parts.length === 0) return undefined;
     const ALL = ':all';
-    const previous = before?.by === 'board' ? before.id : before?.by === 'projects' && before.ids.length === 1 ? before.ids[0]! : undefined;
-    // The cursor starts on what was chosen before; else on the one board or project named like this repo; else on all of it.
     const named = matchRepoNames(parts.map((x) => ({ key: x.name, name: x.name })), ctx.repoNames?.() ?? []);
+    if (src === 'linear') {
+      // Linear: several projects of the team. The whole team is first; the cursor starts on what was chosen before, else on the
+      // project named like this repo, else on the whole team. The whole team beats projects ticked beside it (the wider read is
+      // what a person who ticked it asked for), and nothing ticked or a cancel reads it too: today's behaviour.
+      const earlier = before?.by === 'projects' ? before.ids.filter((id) => parts.some((x) => x.id === id)) : [];
+      const byName = named.length === 1 ? parts.filter((x) => x.name === named[0]).map((x) => x.id) : [];
+      const initial = earlier.length > 0 ? earlier : byName.length > 0 ? byName : [ALL];
+      const picks = await ctx.prompts.multiselect(`Which projects of ${label} should Align read? Or the whole team.`, [{ value: ALL, label: `The whole team ${label}` }, ...parts.map((x) => ({ value: x.id, label: x.name }))], initial, { required: false });
+      if (picks === null || picks.includes(ALL) || picks.length === 0) return undefined;
+      return { projects: picks };
+    }
+    const previous = before?.by === 'board' ? before.id : undefined;
+    // The cursor starts on what was chosen before; else on the one board named like this repo; else on all of it.
     const byName = named.length === 1 ? parts.find((x) => x.name === named[0]) : undefined;
     const initial = previous !== undefined && parts.some((x) => x.id === previous) ? previous : byName?.id ?? ALL;
     const answer = await ctx.prompts.select!(`Read all of ${label}, or one ${what}?`, [{ value: ALL, label: `All of ${label}` }, ...parts.map((x) => ({ value: x.id, label: x.name }))], initial);
     if (answer === null || answer === ALL) return undefined;
-    return src === 'jira' ? { board: answer } : { projects: [answer] };
+    return { board: answer };
   }
 }
 
