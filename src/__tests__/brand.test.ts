@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { banner, BRAND, commandIntro, LOGO_ROWS, LOGO_WIDTH, logoLines, TAGLINE_ACCENT, TAGLINE_LINES } from '../lib/brand.js';
+import { banner, BRAND, commandIntro, MARK, TAGLINE_ACCENT, TAGLINE_LINES } from '../lib/brand.js';
 
 const ESC = '\x1b';
 // eslint-disable-next-line no-control-regex -- ESC is the thing under test here
@@ -13,83 +13,48 @@ describe('BRAND palette', () => {
   });
 });
 
-describe('logoLines', () => {
-  it('renders the mark at the declared size', () => {
-    expect(logoLines({ color: false })).toHaveLength(LOGO_ROWS);
+describe('the header', () => {
+  // Tom, 10 Nov: the 7-row block A looked bad next to Claude Code and Codex. The header is
+  // now a teal triangle, the name and version, and the tagline: three rows, no pixel art.
+  const plain = (o: Partial<Parameters<typeof banner>[0]> = {}) =>
+    strip(banner({ version: '1.2.3', color: false, ...o })).split('\n');
+
+  it('is three rows: mark, name and version, then the two tagline lines', () => {
+    expect(plain()).toEqual([
+      `${MARK}  Align® v1.2.3`,
+      '   Your AI agents know the code.',
+      "   They don't know the company.",
+    ]);
   });
 
-  it('renders every row at an identical display width', () => {
-    // Ragged rows would break any lockup that puts text to the right of the mark,
-    // and the defect is invisible until someone looks at a real terminal.
-    const widths = new Set(logoLines({ color: false }).map((l) => strip(l).length));
-    expect([...widths]).toEqual([LOGO_WIDTH]);
+  it('indents the tagline three columns, under the name and in line with the prompt rail below', () => {
+    // The setup prompts draw "│  " down the left, so their text starts at column 3.
+    const [first, second] = plain();
+    expect((first as string).indexOf('Align')).toBe(3);
+    expect((second as string).indexOf('Your')).toBe(3);
   });
 
-  it('emits no escape sequences when colour is off', () => {
-    // NO_COLOR, a pipe, or a dumb terminal must get plain text.
-    expect(logoLines({ color: false }).join('')).not.toContain(ESC);
+  it('paints the mark teal and leaves it plain with colour off', () => {
+    const out = banner({ version: '1.2.3', color: true, truecolor: true, dark: true });
+    expect(out.split('\n')[0]).toContain(`\x1b[38;2;67;182;172m${MARK}`);
+    expect(banner({ version: '1.2.3', color: false })).not.toContain(ESC);
   });
 
-  it('emits 24-bit colour when truecolor is available', () => {
-    const out = logoLines({ color: true, truecolor: true }).join('');
-    expect(out).toContain(ESC);
-    expect(out).toMatch(/38;2;/);
+  it('uses 256 colours when truecolor is not available', () => {
+    expect(banner({ version: '1.2.3', color: true, truecolor: false, dark: true })).toMatch(/38;5;79m/);
   });
 
-  it('uses the teal brand colour for the crossbar', () => {
-    // 67,182,172 is #43b6ac. Positive control that the palette reaches the output.
-    expect(logoLines({ color: true, truecolor: true }).join('')).toContain('38;2;67;182;172');
+  it('sets the name bold and the version dim', () => {
+    const first = banner({ version: '1.2.3', color: true, truecolor: true, dark: true }).split('\n')[0] as string;
+    expect(first).toContain('\x1b[1mAlign®');
+    expect(first).toContain('\x1b[2mv1.2.3');
   });
 
-  it('renders the mark WHITE on a dark background, never navy', () => {
-    // Tom: the dark navy will not show on a dark terminal. F 4 R is the white knockout,
-    // so the terminal mark follows it. Navy is 2,40,99 and must be absent when dark.
-    const dark = logoLines({ color: true, truecolor: true, dark: true }).join('');
-    expect(dark).toContain('38;2;255;255;255');
-    expect(dark).not.toContain('38;2;2;40;99');
-  });
-
-  it('style "teal" actually paints the mark teal, with no white left in it', () => {
-    // Shipped once with the option wired to nothing: 'white' and 'teal' produced
-    // byte-identical output and every other test still passed. Only comparing the two
-    // caught it, so the comparison is the test.
-    const teal = logoLines({ color: true, truecolor: true, style: 'teal' }).join('');
-    expect(teal).toContain('38;2;67;182;172');
-    expect(teal).not.toContain('38;2;255;255;255');
-  });
-
-  it('each style produces a DIFFERENT rendering', () => {
-    // 'solid' was dropped: the sprite is drawn solid now, so that style rendered
-    // identically to 'teal' and was a synonym pretending to be a choice.
-    const render = (style: 'white' | 'teal') =>
-      logoLines({ color: true, truecolor: true, style }).join('');
-    expect(render('white')).not.toEqual(render('teal'));
-  });
-
-  it('uses navy on a light background', () => {
-    const light = logoLines({ color: true, truecolor: true, dark: false }).join('');
-    expect(light).toContain('38;2;2;40;99');
-  });
-
-  it('colours every visible glyph cell and none of the background ones', () => {
-    // GLYPHS (the shape) and COLOURS (the mask) are two parallel private arrays; a
-    // cell where one names a block and the other names a space would print an
-    // uncoloured glyph (default terminal fg, off the brand palette) silently, since
-    // nothing else reads these arrays together. logoLines wraps every coloured
-    // character individually as `${fg}${ch}${RESET}` and leaves a background
-    // character bare, so counting RESETs per row against non-space characters in the
-    // plain render catches a mismatch either way without needing to import the
-    // private arrays.
-    const plainRows = logoLines({ color: false });
-    const colouredRows = logoLines({ color: true, truecolor: true });
-    // eslint-disable-next-line no-control-regex -- ESC is the thing under test here
-    const RESET_COUNT = (s: string) => (s.match(/\x1b\[0m/g) ?? []).length;
-
-    for (let y = 0; y < plainRows.length; y++) {
-      const plain = plainRows[y] as string;
-      const nonSpaceCount = [...plain].filter((ch) => ch !== ' ').length;
-      expect(RESET_COUNT(colouredRows[y] as string), `row ${y}`).toBe(nonSpaceCount);
-    }
+  it('writes the tagline white on a dark terminal and navy on a light one', () => {
+    const line = (dark: boolean) => banner({ version: '1.2.3', color: true, truecolor: true, dark }).split('\n')[1] as string;
+    expect(line(true)).toContain('38;2;255;255;255');
+    expect(line(true)).not.toContain('38;2;2;40;99');
+    expect(line(false)).toContain('38;2;2;40;99');
   });
 });
 
@@ -97,17 +62,13 @@ describe('banner', () => {
   it('shows the wordmark and the registered mark, not TM', () => {
     // Align is a REGISTERED trademark, so the correct symbol is the R one.
     const out = strip(banner({ version: '0.25.0', color: false }));
-    expect(out).toContain('ALIGN');
+    expect(out).toContain('Align');
     expect(out).toContain('®');
     expect(out).not.toContain('™');
   });
 
   it('shows the version', () => {
     expect(strip(banner({ version: '0.25.0', color: false }))).toContain('0.25.0');
-  });
-
-  it('sets the mark beside the wordmark, so the lockup is only the mark height', () => {
-    expect(strip(banner({ version: '0.25.0', color: false })).split('\n')).toHaveLength(LOGO_ROWS);
   });
 
   it('carries the LIVE positioning line, not the retired tagline', () => {
@@ -135,8 +96,7 @@ describe('the headline follows align-frontend, not a flat teal block', () => {
   it('renders the first headline line in the heading colour, not teal', () => {
     const line = lineWith('know the code');
     expect(line).toContain(WHITE);
-    // The mark shares this row, and the mark is white on dark, so teal here could only
-    // come from the text.
+    // The teal mark is on the row above, so teal here could only come from the text.
     expect(line).not.toContain(TEAL);
   });
 
