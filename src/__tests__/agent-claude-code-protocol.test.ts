@@ -13,6 +13,12 @@ describe('buildArgs', () => {
       '--setting-sources', 'user']);
     expect(a.join(' ')).not.toContain('bypassPermissions');
   });
+  it('loads project and local settings too only for a trusted folder', () => {
+    const args = buildArgs([], true);
+    expect(args[args.indexOf('--setting-sources') + 1]).toBe('user,project,local');
+    expect(buildArgs([], false)[buildArgs([], false).indexOf('--setting-sources') + 1]).toBe('user');
+    expect(buildArgs(['--model', 'haiku'], true).slice(-2)).toEqual(['--model', 'haiku']);
+  });
   it('appends extra args last', () => {
     expect(buildArgs(['--model', 'haiku']).slice(-2)).toEqual(['--model', 'haiku']);
   });

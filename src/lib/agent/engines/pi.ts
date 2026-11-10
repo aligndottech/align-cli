@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 // Types only. The engine ships outside the npm install (a one-time download on first use, see
 // pi-sdk.ts), so nothing here may load it at import time; the SDK is handed in instead.
@@ -30,13 +32,17 @@ const BUILTIN_TOOLS = ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls'];
 const READ_TOOLS = new Set(['read', 'grep', 'find', 'ls']);
 
 /**
- * The loader the Align engine runs on. A repository is untrusted input: Pi would otherwise load
- * `<cwd>/.pi/extensions`, skills, prompt templates and themes, run them with the user's full
- * permissions, and read `<cwd>/.pi/settings.json` for more. So none of that is discovered. The
- * settings are in-memory as well, so no project or home settings file reaches the session (the
- * hostile-repo test shows noExtensions already covers the settings route; this is the second
- * lock). Context files (AGENTS.md, CLAUDE.md) stay on: they are text, and the agent should
- * follow a repo's own notes.
+ * The loader the Align engine runs on. Pi would otherwise load `<cwd>/.pi/extensions`, skills,
+ * prompt templates and themes, run them with the user's full permissions, and read
+ * `<cwd>/.pi/settings.json` for more. Extensions are code, so they are NEVER discovered. The
+ * settings are in-memory as well, so no project or home settings file reaches the session (loading
+ * project settings could name extensions elsewhere in the repo).
+ *
+ * Skills and prompt templates are text the model reads. The user's own (`~/.pi/agent/skills`) always
+ * load, as do `~/.claude/skills` and `~/.agents/skills`. The repo's (`.pi/skills`, `.claude/skills`, `.agents/skills` and `.pi/prompts`, under the folder whose trust matched) load only when `trustedDir` is set, meaning the user already
+ * accepted Claude Code's trust prompt for this folder. Pi's own discovery is off (`noSkills`,
+ * `noPromptTemplates`) and the wanted folders go in as explicit paths, so the repo/user split
+ * stays ours. Context files (AGENTS.md, CLAUDE.md) stay on in both modes.
  */
 /** The parts of Pi's SDK the engine uses. */
 export type PiSdk = Pick<typeof PiCodingAgent, 'DefaultResourceLoader' | 'ModelRuntime' | 'createAgentSession' | 'SessionManager' | 'SettingsManager'>;
@@ -47,7 +53,19 @@ export function createAlignResourceLoader(o: {
   agentDir: string;
   systemPrompt?: string;
   extensionFactories?: ExtensionFactory[];
+  /** Where the user's `.pi/agent/skills` lives. Default: the real home. */
+  home?: string;
+  /** The folder whose trust Claude Code recorded. Undefined means untrusted, and no repo skills or prompts load. */
+  trustedDir?: string;
 }): DefaultResourceLoader {
+  const present = (paths: string[]): string[] => paths.filter((p) => existsSync(p));
+  const home = o.home ?? homedir();
+  // Pi reads the Agent Skills layout (a folder holding SKILL.md with name and description), which is
+  // also what Claude Code uses, so those folders are read too. Skills are text: Pi parses their
+  // frontmatter and never runs them.
+  const userSkills = [join(home, '.pi', 'agent', 'skills'), join(home, '.claude', 'skills'), join(home, '.agents', 'skills')];
+  const dir = o.trustedDir;
+  const repoSkills = dir === undefined ? [] : [join(dir, '.pi', 'skills'), join(dir, '.claude', 'skills'), join(dir, '.agents', 'skills')];
   return new o.sdk.DefaultResourceLoader({
     cwd: o.cwd,
     agentDir: o.agentDir,
@@ -56,6 +74,8 @@ export function createAlignResourceLoader(o: {
     noSkills: true,
     noPromptTemplates: true,
     noThemes: true,
+    additionalSkillPaths: present([...userSkills, ...repoSkills]),
+    additionalPromptTemplatePaths: present(dir === undefined ? [] : [join(dir, '.pi', 'prompts')]),
     systemPrompt: o.systemPrompt,
     extensionFactories: o.extensionFactories,
   });
@@ -131,7 +151,7 @@ export interface PiEngineDeps {
 }
 
 export async function createPiEngine(
-  opts: { cwd: string; stateDir: string; model: ResolvedPiModel; tools: GraphToolSpec[] },
+  opts: { cwd: string; stateDir: string; model: ResolvedPiModel; tools: GraphToolSpec[]; trustedDir?: string },
   deps: PiEngineDeps,
 ): Promise<AgentEngine> {
   const { sdk } = deps;
@@ -169,6 +189,7 @@ export async function createPiEngine(
     sdk,
     cwd: opts.cwd,
     agentDir,
+    trustedDir: opts.trustedDir,
     systemPrompt: ALIGN_AGENT_SYSTEM_PROMPT,
     extensionFactories: [createToolGate(() => broker, opts.cwd)],
   });
