@@ -10,6 +10,18 @@ import { recordFunnelStage } from './usage-telemetry.js';
 export type PersonalImportItem = BatchIngestItem;
 
 const BATCH_SIZE = 20;
+
+/**
+ * ALI-2088: one warning per distinct reason, not one per batch. When all 38 batches fail
+ * because Align is not set up, the user needs that instruction once, where they can see it.
+ * A reason seen once keeps its batch number.
+ */
+function failureLines(failures: Array<{ batch: number; message: string }>): string[] {
+  const byMessage = new Map<string, number[]>();
+  for (const f of failures) byMessage.set(f.message, [...(byMessage.get(f.message) ?? []), f.batch]);
+  return [...byMessage].map(([message, batches]) =>
+    batches.length === 1 ? `Batch ${batches[0]}: ${message}` : `${batches.length} batches failed: ${message}`);
+}
 const BATCH_CONCURRENCY = 3;
 
 // Cap TOTAL concurrent /ingest/batch calls across all imports running in
@@ -144,7 +156,7 @@ export async function runPersonalImport(
   let total = 0;
   let relatedCount = 0;
   let done = 0;
-  const failures: string[] = [];
+  const failures: Array<{ batch: number; message: string }> = [];
   const spinner = opts.quiet ? null : ora(`Importing 0/${batches.length} batches...`).start();
 
   type BatchResult = Awaited<ReturnType<typeof client.ingestBatch>>;
@@ -180,7 +192,7 @@ export async function runPersonalImport(
       }
       for (const s of r.value.snapshots) relatedCount += s.analysis?.relatedDecisions?.length ?? 0;
     } else {
-      failures.push(`Batch ${i + 1}: ${(r.reason as Error).message}`);
+      failures.push({ batch: i + 1, message: (r.reason as Error).message });
     }
   }
 
@@ -207,7 +219,7 @@ export async function runPersonalImport(
       ? chalk.yellow(` (${failures.length} batch${failures.length > 1 ? 'es' : ''} failed)`)
       : '';
     console.log(`  ${chalk.green('✓')} ${opts.label}: ${total} decision${total === 1 ? '' : 's'}${conn}${failNote}`);
-    for (const f of failures) p.log.warn(f);
+    for (const line of failureLines(failures)) p.log.warn(line);
     return total;
   }
 
@@ -222,7 +234,7 @@ export async function runPersonalImport(
     spinner!.succeed(`Imported ${total} decisions from ${opts.label}${knownNote}`);
   } else {
     spinner!.warn(`Imported ${total} decisions (${failures.length} batch${failures.length > 1 ? 'es' : ''} failed)`);
-    for (const f of failures) p.log.warn(f);
+    for (const line of failureLines(failures)) p.log.warn(line);
   }
 
   if (relatedCount > 0) {
