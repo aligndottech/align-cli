@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.70.0](https://github.com/aligndottech/align-cli/compare/cli-v0.69.0...cli-v0.70.0) (2026-11-10)
+
+
+### Features
+
+* refuse shell file writes, narrow connector reads to a board or project, background setup reads ([#536](https://github.com/aligndottech/align-cli/issues/536)) ([216458b](https://github.com/aligndottech/align-cli/commit/216458bcb88ced586394a88fae921c29a227f1ae))
+
+
+### Bug Fixes
+
+* **agent:** Claude Code no longer killed if the first prompt takes over 20s ([#534](https://github.com/aligndottech/align-cli/issues/534)) ([d4d4256](https://github.com/aligndottech/align-cli/commit/d4d42568cce42aac81e756c596febcb3af708c49))
+
 ## [0.69.0](https://github.com/aligndottech/align-cli/compare/cli-v0.68.1...cli-v0.69.0) (2026-11-09)
 
 
