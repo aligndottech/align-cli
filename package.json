@@ -1,6 +1,6 @@
 {
   "name": "@aligndottech/cli",
-  "version": "0.72.1",
+  "version": "0.72.2",
   "mcpName": "io.github.aligndottech/cli",
   "type": "module",
   "description": "Your AI agents know the code. They don't know the company. A local decision graph from your git history and tools, checked by your coding agent before it edits.",
