@@ -94,6 +94,7 @@ export const SYNC_REPO_ENV = 'ALIGN_SYNC_REPO';
 /** A git call that hangs (a stalled network mount, a lock) must not hang the scope store with it. */
 const GIT_TIMEOUT_MS = 5000;
 
+/** The repo identity of a folder (its remote, else its top-level path), read synchronously with a timeout on each git call. Null outside a git repo. */
 export function currentRepoIdentitySync(opts: { cwd?: string } = {}): string | null {
   const git = (...args: string[]): string | null => {
     try {

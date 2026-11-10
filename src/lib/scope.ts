@@ -18,11 +18,11 @@
 import fs from 'node:fs';
 import { CAPTURE_SOURCES } from './capture-sources.js';
 import {
-  checkJiraJql, connectorCoreNarrows, type FetchLike, findConfluenceSpace, findJiraProject, findLinearTeam, githubRepoIsPublic, githubRepoVisibility, gitlabProjectVisibility, jiraBoardFilterJql,
-  listConfluenceSpaces, listJiraBoards, listJiraProjects, listLinearProjects, listLinearTeams, ScopeLookupError,
+  checkJiraJql, connectorCoreNarrows, type FetchLike, findConfluencePage, findConfluenceSpace, findJiraProject, findLinearTeam, findNotionPage, githubRepoIsPublic, githubRepoVisibility, gitlabProjectVisibility, jiraBoardFilterJql,
+  listConfluenceSpaces, listJiraBoards, listJiraProjects, listLinearProjects, listLinearTeams, listNotionPages, ScopeLookupError,
 } from './scope-choices.js';
 import {
-  type ActiveScope, describeScopeKey, describeTeamScope, disclosureText, fetchOptsFor, FIXED_SCOPES, type Narrowing, normaliseScopeValues, SCOPED_SOURCES, type ScopedSource,
+  type ActiveScope, CONFLUENCE_PAGE_ID, describeScopeKey, describeTeamScope, disclosureText, fetchOptsFor, FIXED_SCOPES, type Narrowing, normaliseScopeValues, SCOPED_SOURCES, type ScopedSource,
   type ScopeFetchOpts, scopeKeyOf, ScopeValueError, type StoredScope, YOURS_KEY,
 } from './scope-values.js';
 import { adoptScope, readRows } from './sync/sync-state.js';
@@ -109,15 +109,19 @@ const isScoped = (source: string): source is ScopedSource => (SCOPED_SOURCES as 
 /** What a skipped source says, and the command that undoes it. */
 export const skippedText = (source: string): string => `${labelOf(source)} is skipped in this repo, so nothing was read. To read it: align connect --source ${source}`;
 
-function yours(origin: ResolvedScope['origin'], note?: string): ResolvedScope {
-  return { scope: 'yours', scopeKey: YOURS_KEY, extras: {}, label: YOURS_LABEL, origin, ...(note !== undefined ? { note } : {}) };
+/** Notion has no "only yours": with no pages chosen it reads everything shared with the integration, which is its yours scope. */
+const yoursLabel = (source?: string): string => (source === 'notion' ? FIXED_SCOPES['notion']!.text : YOURS_LABEL);
+
+/** The narrower scope: the person's own items (for Notion, everything shared with the integration). */
+function yours(origin: ResolvedScope['origin'], note?: string, source?: string): ResolvedScope {
+  return { scope: 'yours', scopeKey: YOURS_KEY, extras: {}, label: yoursLabel(source), origin, ...(note !== undefined ? { note } : {}) };
 }
 
 /** A team scope ready to read, or blocked when it carries a narrowing the installed connector-core cannot apply. */
 function team(source: ScopedSource, values: string[], labels: string[], origin: ResolvedScope['origin'], deps: ScopeDeps, foreground: boolean, narrow?: Narrowing): ResolvedScope {
   // A narrowing this CLI cannot apply would read the whole project: nothing is read instead.
   if (narrow !== undefined && !narrows(deps)) {
-    return { ...yours(origin), blocked: `${labelOf(source)} is set to read ${describeTeamScope(source, labels, narrow)}, which this version of Align cannot narrow, so nothing was read. ${UPDATE_TO_NARROW}` };
+    return { ...yours(origin, undefined, source), blocked: `${labelOf(source)} is set to read ${describeTeamScope(source, labels, narrow)}, which this version of Align cannot narrow, so nothing was read. ${UPDATE_TO_NARROW}` };
   }
   const scopeKey = scopeKeyOf(source, labels, narrow);
   return {
@@ -166,7 +170,8 @@ export async function resolveScope(source: string, deps: ScopeDeps, o: { foregro
 }
 
 async function resolveFrom(source: ScopedSource, stored: StoredScope | ActiveScope | null, deps: ScopeDeps, o: { foreground: boolean }): Promise<ResolvedScope> {
-  if (stored?.kind === 'skip') return { ...yours('chosen'), skipped: skippedText(source) };
+  if (stored?.kind === 'skip') return { ...yours('chosen', undefined, source), skipped: skippedText(source) };
+  if (stored?.kind === 'unreadable') return { ...yours('chosen', undefined, source), blocked: `The saved ${labelOf(source)} choice could not be read, so nothing was read. Choose again: align connect --source ${source}` };
   if (stored?.kind === 'team') return team(source, stored.values, stored.labels, 'chosen', deps, o.foreground, stored.narrow);
   if (source === 'confluence') {
     return {
@@ -174,6 +179,7 @@ async function resolveFrom(source: ScopedSource, stored: StoredScope | ActiveSco
       blocked: CONFLUENCE_NEEDS_SPACES,
     };
   }
+  if (source === 'notion') return yours(stored?.kind === 'yours' ? 'chosen' : 'default', undefined, source);
   if (stored?.kind === 'yours') return yours('chosen');
   if (source === 'github' || source === 'gitlab') return autoDetected(source, deps, o.foreground);
   return yours('default', `Reading only your own items. To read a team's: align connect --source ${source} ${WIDEN_FLAG[source] ?? ''}`.trim());
@@ -213,7 +219,7 @@ async function autoDetected(source: 'github' | 'gitlab', deps: ScopeDeps, foregr
 /** `unattended`: a command line nobody was at (no terminal, --json): like an agent's, a widening it asks for waits for a person. */
 export type ChangedBy = { via: 'cli'; unattended?: boolean } | { via: 'mcp'; agent: string };
 /** `narrow` narrows a team scope to one part: a Jira `board` (id or exact name) or `jql` inside one project, or Linear `projects` inside one team. */
-export type SetInput = { scope: 'yours' } | { scope: 'team'; values: unknown; narrow?: { board?: unknown; jql?: unknown; projects?: unknown } };
+export type SetInput = { scope: 'yours' } | { scope: 'team'; values: unknown; narrow?: { board?: unknown; jql?: unknown; projects?: unknown; ancestors?: unknown } };
 
 /** A change that was refused. The message is written for the person and never carries a value that was refused. */
 export class ScopeRefusal extends Error {
@@ -245,7 +251,11 @@ interface Verified { values: string[]; labels: string[]; narrow?: Narrowing }
 /** Checks the values (and any narrowing) against what the token can see. Throws ScopeRefusal and never prints a refused value back. */
 async function verify(source: ScopedSource, raw: unknown, deps: ScopeDeps, fields: Record<string, string>, narrow?: NonNullable<Extract<SetInput, { scope: 'team' }>['narrow']>): Promise<Verified> {
   // Refused before any request: only Jira and Linear have parts to narrow to.
-  if (narrow !== undefined && source !== 'jira' && source !== 'linear') throw new ScopeRefusal(`${labelOf(source)} has no part to narrow to. Nothing was changed.`, 'invalid');
+  if (narrow !== undefined && source !== 'jira' && source !== 'linear' && source !== 'confluence') throw new ScopeRefusal(`${labelOf(source)} has no part to narrow to. Nothing was changed.`, 'invalid');
+  // Refused before any request: a board, filter or projects mean nothing to Confluence, which narrows by pages.
+  if (source === 'confluence' && narrow !== undefined && (narrow.board !== undefined || narrow.jql !== undefined || narrow.projects !== undefined)) {
+    throw new ScopeRefusal('Confluence is narrowed by pages, not by a board, a JQL filter or projects. Nothing was changed.', 'invalid');
+  }
   const base = await verifyValues(source, raw, deps, fields);
   if (narrow === undefined) return base;
   try {
@@ -262,6 +272,22 @@ const MAX_JQL = 2000;
 async function verifyNarrowing(source: ScopedSource, base: Verified, n: NonNullable<Extract<SetInput, { scope: 'team' }>['narrow']>, deps: ScopeDeps, fields: Record<string, string>): Promise<Narrowing> {
   const refuse = (m: string, kind: ScopeRefusal['kind'] = 'invalid'): never => { throw new ScopeRefusal(`${m} Nothing was changed.`, kind); };
   if (!narrows(deps)) refuse(`This version of Align cannot narrow a read to one part. ${UPDATE_TO_NARROW}`);
+  if (source === 'confluence') {
+    if (n.board !== undefined || n.jql !== undefined || n.projects !== undefined) refuse('Confluence is narrowed by pages, not by a board, a JQL filter or projects.');
+    let wanted: string[];
+    try { wanted = [...new Set(listOfText(n.ancestors))]; } catch { return refuse('Confluence pages are their ids (digits).'); }
+    if (wanted.length === 0 || wanted.length > 20) refuse('Name between 1 and 20 Confluence pages.');
+    if (wanted.some((w) => !CONFLUENCE_PAGE_ID.test(w))) refuse('A Confluence page id is digits: the number in the page\'s URL.');
+    const titles: string[] = [];
+    for (const id of wanted) {
+      const hit = await findConfluencePage(fields, id, deps.fetch);
+      if (hit === undefined) refuse('Your Confluence token cannot see one of the pages you gave (the value is not printed back).', 'not_visible');
+      titles.push(hit!.title);
+    }
+    const order = wanted.map((id, i) => ({ id, title: titles[i]! })).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    return { by: 'ancestors', ids: order.map((x) => x.id), names: order.map((x) => x.title) };
+  }
+  if (n.ancestors !== undefined) refuse('Pages narrow a Confluence space, not this source.');
   if (source === 'jira') {
     if (n.projects !== undefined) refuse('Jira is narrowed by a board or a JQL filter, not by projects.');
     if (n.board !== undefined && n.jql !== undefined) refuse('Give a board or a JQL filter, not both.');
@@ -353,6 +379,19 @@ async function verifyValues(source: ScopedSource, raw: unknown, deps: ScopeDeps,
         }
         return { values: given, labels: given };
       }
+      case 'notion': {
+        const listed = await listNotionPages(fields, deps.fetch);
+        const names = new Map(listed.items.map((x) => [x.id, x.name]));
+        const found: string[] = [];
+        let missing = 0;
+        for (const id of given) {
+          // A page past the first two lists is asked for directly: absence from a cut-off list is not "cannot see".
+          const name = names.get(id) ?? (await findNotionPage(fields, id, deps.fetch))?.name;
+          if (name === undefined) missing++; else found.push(name);
+        }
+        if (missing > 0) throw new ScopeRefusal(`Your Notion token cannot see ${missing} of the pages you gave (the values are not printed back). Share them with the integration in Notion, then try again. Nothing was changed.`, 'not_visible');
+        return { values: given, labels: given, narrow: { by: 'pages', ids: given, names: found } };
+      }
       case 'linear': {
         const listed = await listLinearTeams(fields, deps.fetch);
         const found = given.map((g) => listed.items.find((t) => t.id === g || t.key === g));
@@ -404,7 +443,7 @@ export async function chooseScope(deps: ScopeDeps, source: string, input: SetInp
     if (source === 'confluence') {
       throw new ScopeRefusal('Confluence has no "only yours" scope: it reads the spaces you choose. Name them: align connect --source confluence --spaces ENG,OPS', 'no_yours');
     }
-    return { source, scope: 'yours', scopeKey: YOURS_KEY, label: YOURS_LABEL, values: [], labels: [] };
+    return { source, scope: 'yours', scopeKey: YOURS_KEY, label: yoursLabel(source), values: [], labels: [] };
   }
   const v = await verify(source, input.values, deps, fields, input.narrow);
   const scopeKey = scopeKeyOf(source, v.labels, v.narrow);
@@ -501,7 +540,7 @@ export async function viewScopes(deps: ScopeDeps): Promise<ScopeView[]> {
   for (const source of VIEW_ORDER) {
     if (!deps.store.fields(source)?.['token']) continue;
     const fixed = FIXED_SCOPES[source];
-    if (fixed) {
+    if (fixed && !isScoped(source)) {
       out.push({ source, kind: fixed.scope, scope_key: YOURS_KEY, label: fixed.text, can_set: false, origin: 'fixed' });
       continue;
     }
@@ -517,6 +556,8 @@ export async function viewScopes(deps: ScopeDeps): Promise<ScopeView[]> {
       push({ source, kind: 'team', scope_key: scopeKeyOf(source as ScopedSource, stored.labels, stored.narrow), label: describeTeamScope(source as ScopedSource, stored.labels, stored.narrow), values: stored.labels, can_set: true, origin: 'chosen' });
     } else if (source === 'confluence') {
       push({ source, kind: 'unset', scope_key: YOURS_KEY, label: 'no spaces chosen, so nothing is read', can_set: true, origin: 'default' });
+    } else if (source === 'notion') {
+      push({ source, kind: 'yours', scope_key: YOURS_KEY, label: yoursLabel(source), can_set: true, origin: stored?.kind === 'yours' ? 'chosen' : 'default' });
     } else if (stored?.kind === 'yours') {
       push({ source, kind: 'yours', scope_key: YOURS_KEY, label: YOURS_LABEL, can_set: true, origin: 'chosen' });
     } else {

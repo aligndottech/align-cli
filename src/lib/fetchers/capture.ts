@@ -75,6 +75,9 @@ export type WindowedOpts = {
   spaces?: string[];
   /** Jira only: narrows the projects to one board's filter or a person's JQL (connector-core 0.14). Linear narrows with `projects`. */
   jql?: string;
+  /** Notion page or database ids, and Confluence page ids, to read only those and what is under them (connector-core 0.15). */
+  pages?: string[];
+  ancestors?: string[];
 };
 
 export interface CaptureFetchResult {

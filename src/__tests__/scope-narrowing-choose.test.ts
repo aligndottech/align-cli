@@ -140,7 +140,7 @@ describe('a committed narrowing', () => {
 });
 
 describe('a source with no parts', () => {
-  it('Confluence cannot be narrowed', async () => {
+  it('Confluence is not narrowed by a board (it takes pages)', async () => {
     const e = await refusal(chooseScope(deps([]), 'confluence', { scope: 'team', values: 'ENG', narrow: { board: '1' } }, FIELDS['confluence']!));
     expect(e.kind).toBe('invalid');
   });

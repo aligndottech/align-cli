@@ -192,7 +192,7 @@ export async function runPersonalImport(
       }
       for (const s of r.value.snapshots) relatedCount += s.analysis?.relatedDecisions?.length ?? 0;
     } else {
-      failures.push({ batch: i + 1, message: (r.reason as Error).message });
+      failures.push({ batch: i + 1, message: r.reason instanceof Error ? r.reason.message : String(r.reason) });
     }
   }
 

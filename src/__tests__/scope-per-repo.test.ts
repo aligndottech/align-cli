@@ -80,6 +80,19 @@ describe('scope is stored per repo', () => {
     expect(configScopeStore(cfg, () => B).getScope('jira')).toEqual({ kind: 'yours' });
   });
 
+  it('a damaged or unknown per-machine entry in a repo with no choice reads as yours, never as "no choice" (which widens GitHub from the folder)', () => {
+    cfg.setConnectorScope('local', 'linear', { kind: 'yours' });
+    // Overwrite the per-machine entries with text a team, narrowed or skip record never is.
+    const raw = (source: string, text: string): void => cfg.setConnectorToken('local', `${source}:scope`, text);
+    raw('linear', '{not json');
+    raw('jira', JSON.stringify({ kind: 'mystery' }));
+    for (const source of ['linear', 'jira']) expect(configScopeStore(cfg, () => B).getScope(source), source).toEqual({ kind: 'yours' });
+    // Positive control: a readable team, narrowed or skip entry is still not applied in a repo that has none of its own.
+    raw('confluence', JSON.stringify({ kind: 'narrowed', values: ['ENG'], labels: ['ENG'], narrow: { by: 'ancestors', ids: ['1'], names: ['A'] } }));
+    raw('gitlab', JSON.stringify({ kind: 'skip' }));
+    for (const source of ['confluence', 'gitlab']) expect(configScopeStore(cfg, () => B).getScope(source), source).toBeNull();
+  });
+
   it('skip is never stored without a repo identity (it would switch the source off everywhere)', () => {
     expect(() => configScopeStore(cfg, () => null).saveScope('linear', { kind: 'skip' })).toThrow(/repo/);
     expect(cfg.getConnectorScope('local', 'linear')).toBeNull();

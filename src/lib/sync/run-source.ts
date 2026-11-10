@@ -28,6 +28,7 @@ import {
 import { HOT_THREAD_DAYS, mergePartialThread, selectHotThreads } from './threads.js';
 import { ascendingByUpdated, finishRun, inheritedWindowSince, later, newestUpdated, nextWindow, PERSISTENT_HOLE_RUNS, plausible } from './window.js';
 
+/** What one source's sync run ended as, for the report and the status line. */
 export type SourceState = SyncStatus | 'locked' | 'backfill_running' | 'recent' | 'not_connected' | 'manual' | 'skipped';
 
 export interface SourceOutcome {

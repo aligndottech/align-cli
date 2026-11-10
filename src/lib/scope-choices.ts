@@ -11,6 +11,7 @@
  * it was not handed.
  */
 import { buildJiraJql } from '@aligndottech/connector-core';
+import { CONFLUENCE_PAGE_ID } from './scope-values.js';
 
 export type FetchLike = typeof fetch;
 type Init = NonNullable<Parameters<typeof fetch>[1]>;
@@ -124,6 +125,103 @@ export async function listConfluenceSpaces(fields: Record<string, string>, f: Fe
     if (next !== undefined && items.length >= max) { truncated = true; break; }
   }
   return { items, truncated };
+}
+
+/** The top-level pages of the given Confluence spaces, as `KEY: title`, for the picker that narrows a space to some pages. */
+export async function listConfluenceTopLevelPages(fields: Record<string, string>, spaceKeys: string[], f: FetchLike, o: { max?: number } = {}): Promise<Listed<{ id: string; name: string }>> {
+  const max = o.max ?? 100;
+  const host = hostOf('Confluence', fields['domain']);
+  const headers = atlassianHeaders(fields);
+  const found = asRecord(await get('Confluence', `https://${host}/wiki/api/v2/spaces?keys=${spaceKeys.map(encodeURIComponent).join(',')}&limit=250`, headers, f));
+  const items: Array<{ id: string; name: string }> = [];
+  let truncated = false;
+  for (const sp of Array.isArray(found['results']) ? found['results'] : []) {
+    const id = asRecord(sp)['id'];
+    const key = text(asRecord(sp)['key']);
+    if ((typeof id !== 'string' && typeof id !== 'number') || !CONFLUENCE_PAGE_ID.test(String(id)) || key === undefined) continue;
+    const page = asRecord(await get('Confluence', `https://${host}/wiki/api/v2/spaces/${String(id)}/pages?depth=root&limit=${max}`, headers, f));
+    for (const v of Array.isArray(page['results']) ? page['results'] : []) {
+      const pid = asRecord(v)['id'];
+      const title = text(asRecord(v)['title']);
+      if ((typeof pid === 'string' || typeof pid === 'number') && CONFLUENCE_PAGE_ID.test(String(pid)) && title !== undefined) items.push({ id: String(pid), name: `${key}: ${title}` });
+    }
+    if (text(asRecord(page['_links'])['next']) !== undefined) truncated = true;
+  }
+  return { items: items.slice(0, max), truncated: truncated || items.length > max };
+}
+
+/** One Confluence page by id: its title, or undefined when the token cannot read it. A refused token is an error, not "no". */
+export async function findConfluencePage(fields: Record<string, string>, id: string, f: FetchLike): Promise<{ title: string } | undefined> {
+  if (!CONFLUENCE_PAGE_ID.test(id)) return undefined;
+  const host = hostOf('Confluence', fields['domain']);
+  const headers = atlassianHeaders(fields);
+  let res: Response;
+  try {
+    res = await f(`https://${host}/wiki/api/v2/pages/${id}`, { headers, redirect: 'manual', signal: AbortSignal.timeout(TIMEOUT_MS) });
+  } catch {
+    throw new ScopeLookupError('Could not reach Confluence to check a page.', 'unreachable');
+  }
+  if (res.status === 404) return undefined;
+  if (res.status === 401 || res.status === 403) throw new ScopeLookupError('Confluence refused the saved token. Reconnect: align connect confluence', 'auth');
+  if (!res.ok) throw new ScopeLookupError(`Confluence answered ${res.status} when checking a page.`, 'unreachable');
+  try { return { title: text(asRecord(JSON.parse(await readCapped(res, MAX_BODY_BYTES)))['title']) ?? id }; } catch { return { title: id }; }
+}
+
+/** The headers every Notion request here carries: the saved token and the API version. */
+function notionHeaders(fields: Record<string, string>): Record<string, string> {
+  const token = fields['token'];
+  if (!token) throw new ScopeLookupError('The Notion connection has no token saved. Reconnect: align connect notion', 'unsupported');
+  return { Authorization: `Bearer ${token}`, 'Notion-Version': '2022-06-28', 'Content-Type': 'application/json' };
+}
+
+/** A page's title is its one "title" property; a database's is its own `title`. Untitled ones are called so. */
+function notionTitle(v: unknown): string {
+  const r = asRecord(v);
+  const plain = (rich: unknown): string => (Array.isArray(rich) ? rich.map((t) => text(asRecord(t)['plain_text']) ?? '').join('') : '').trim();
+  const direct = plain(r['title']);
+  if (direct !== '') return direct;
+  for (const prop of Object.values(asRecord(r['properties']))) {
+    if (asRecord(prop)['type'] === 'title') { const t = plain(asRecord(prop)['title']); if (t !== '') return t; }
+  }
+  return 'Untitled';
+}
+
+/** The pages and databases the Notion integration can see, newest edit first: titles and ids only. At most two pages of 100 are read. */
+export async function listNotionPages(fields: Record<string, string>, f: FetchLike, o: { max?: number } = {}): Promise<Listed<{ id: string; name: string; kind: 'page' | 'database' }>> {
+  const max = o.max ?? 200;
+  const headers = notionHeaders(fields);
+  const items: Array<{ id: string; name: string; kind: 'page' | 'database' }> = [];
+  let cursor: string | undefined;
+  let truncated = false;
+  for (let pages = 0; ; pages++) {
+    if (pages >= 2) { truncated = true; break; }
+    const body = asRecord(await get('Notion', 'https://api.notion.com/v1/search', headers, f, { method: 'POST', body: JSON.stringify({ page_size: 100, sort: { direction: 'descending', timestamp: 'last_edited_time' }, ...(cursor !== undefined ? { start_cursor: cursor } : {}) }) }));
+    for (const v of Array.isArray(body['results']) ? body['results'] : []) {
+      const id = text(asRecord(v)['id']);
+      const kind = asRecord(v)['object'];
+      if (id !== undefined && (kind === 'page' || kind === 'database')) items.push({ id, name: notionTitle(v), kind });
+    }
+    cursor = text(body['next_cursor']);
+    if (body['has_more'] !== true || cursor === undefined) break;
+  }
+  return { items: items.slice(0, max), truncated: truncated || items.length > max };
+}
+
+/** One page or database by id, for an id a truncated list did not show. Its title, or undefined when the token cannot see it. */
+export async function findNotionPage(fields: Record<string, string>, id: string, f: FetchLike): Promise<{ name: string } | undefined> {
+  const headers = notionHeaders(fields);
+  for (const kind of ['pages', 'databases']) {
+    let res: Response;
+    try {
+      res = await f(`https://api.notion.com/v1/${kind}/${encodeURIComponent(id)}`, { headers, redirect: 'manual', signal: AbortSignal.timeout(TIMEOUT_MS) });
+    } catch {
+      throw new ScopeLookupError('Could not reach Notion to check a page.', 'unreachable');
+    }
+    if (res.status === 401 || res.status === 403) throw new ScopeLookupError('Notion refused the saved token. Reconnect: align connect notion', 'auth');
+    if (res.ok) { try { return { name: notionTitle(JSON.parse(await readCapped(res, MAX_BODY_BYTES))) }; } catch { return { name: 'Untitled' }; } }
+    if (res.status !== 404 && res.status !== 400) throw new ScopeLookupError(`Notion answered ${res.status} when checking a page.`, 'unreachable');
+  }
+  return undefined;
 }
 
 const DIGITS = /^\d{1,12}$/;

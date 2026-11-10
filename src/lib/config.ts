@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { mergeWrittenConfig, type WrittenConfig } from './safe-config-write.js';
 import { STORABLE_PROVIDERS, type StoredProviderId } from './llm-providers.js';
-import type { ActiveScope, Narrowing, StoredScope } from './scope-values.js';
+import { type ActiveScope, CONFLUENCE_PAGE_ID, type Narrowing, NOTION_ID, type StoredScope } from './scope-values.js';
 
 import { asDestinationName, type TeamDestinationName, validateDestinationName } from './destination-name.js';
 import { assertTransport } from './destination-trust.js';
@@ -376,6 +376,7 @@ export function createConfigStore() {
     // first and falls back to the per-machine `<env>:<source>:scope` written before choices were per repo, so an old "yours" still applies
     // in a repo with no choice of its own, but only when that entry is yours (never a team or a skip). Absent or null `repo` is the per-machine entry. `forgetConnector` removes every one of them
     // (they all start with `<env>:<source>:`), and none is a `:field:` key, so no fetch is handed one as a credential.
+    /** The scope stored for a source: this repo's own entry, else a per-machine yours. Null when nothing applies, so the caller's default does. */
     getConnectorScope(env: EnvName, connectorKey: string, repo?: string | null): StoredScope | null {
       const tokens = getTokens();
       const own = repo ? tokens[scopeKey(env, connectorKey, repo)] : undefined;
@@ -383,7 +384,9 @@ export function createConfigStore() {
       if (raw === undefined) return null;
       // The per-machine entry is a fallback for YOURS only. A team or skip chosen per machine, before choices were per repo, must not
       // apply in a repo that has none of its own: that is how a team picked in one clone was read into every other.
-      if (repo && own === undefined && topLevelKind(raw) !== 'yours') return null;
+      // Only a readable team, narrowed or skip entry is withheld. A damaged or unknown one falls through to the yours reading below (the
+      // narrower scope): null would mean "no choice", which widens GitHub and GitLab from the folder.
+      if (repo && own === undefined && ['team', 'narrowed', 'skip'].includes(topLevelKind(raw) as string)) return null;
       try {
         const v = JSON.parse(raw) as { kind?: unknown; values?: unknown; labels?: unknown };
         if (v.kind === 'yours') return { kind: 'yours' };
@@ -393,7 +396,8 @@ export function createConfigStore() {
         // "narrowed" is a team scope with a narrowing: stored under its own kind so an older CLI reads it as yours, never as the
         // whole project. A narrowing that does not parse is yours too.
         const narrow = v.kind === 'narrowed' ? narrowingOf((v as { narrow?: unknown }).narrow) : undefined;
-        if (v.kind === 'narrowed' && narrow === undefined) return { kind: 'yours' };
+        // Notion's yours is everything shared, WIDER than any narrowing: an unreadable one must not fall back to it.
+        if (v.kind === 'narrowed' && narrow === undefined) return connectorKey === 'notion' ? { kind: 'unreadable' } : { kind: 'yours' };
         if ((v.kind === 'team' || narrow !== undefined) && strings(v.values) && strings(v.labels)) {
           const n = narrow !== undefined ? { narrow } : {};
           const p = (v as { pending?: { previous?: unknown } }).pending;
@@ -404,15 +408,17 @@ export function createConfigStore() {
           const previous: ActiveScope | null = prev === null || prev === undefined ? null
             : (prev.kind === 'team' || prevNarrow !== undefined) && strings(prev.values) && strings(prev.labels)
               ? { kind: 'team', values: prev.values, labels: prev.labels, ...(prevNarrow !== undefined ? { narrow: prevNarrow } : {}) }
-              : prev?.kind === 'skip' ? { kind: 'skip' } : { kind: 'yours' };
+              : prev?.kind === 'skip' ? { kind: 'skip' } : prev?.kind === 'narrowed' && connectorKey === 'notion' ? { kind: 'unreadable' } : { kind: 'yours' };
           return { kind: 'team', values: v.values, labels: v.labels, ...n, pending: { previous } };
         }
       } catch { /* damaged: falls through to yours */ }
       return { kind: 'yours' };
     },
+    /** Save a source's scope under this repo, or per machine when `repo` is absent. A team narrowed to one part is written as kind "narrowed". */
     setConnectorScope(env: EnvName, connectorKey: string, scope: StoredScope, repo?: string | null) {
       store.set('connectorTokens', { ...getTokens(), [scopeKey(env, connectorKey, repo)]: JSON.stringify(onDisk(scope)) });
     },
+    /** Remove the scope stored for this repo (or the per-machine one when `repo` is absent). Other repos keep theirs. */
     clearConnectorScope(env: EnvName, connectorKey: string, repo?: string | null) {
       const { [scopeKey(env, connectorKey, repo)]: _gone, ...kept } = getTokens();
       store.set('connectorTokens', kept);
@@ -719,5 +725,14 @@ function narrowingOf(raw: unknown): Narrowing | undefined {
   if (n['by'] === 'board' && typeof n['id'] === 'string' && /^\d{1,12}$/.test(n['id']) && text(n['name']) && text(n['jql'])) return { by: 'board', id: n['id'], name: n['name'], jql: n['jql'] };
   if (n['by'] === 'jql' && text(n['jql'])) return { by: 'jql', jql: n['jql'] };
   if (n['by'] === 'projects' && list(n['ids']) && list(n['names']) && n['ids'].length === n['names'].length) return { by: 'projects', ids: n['ids'], names: n['names'] };
+  if ((n['by'] === 'pages' || n['by'] === 'ancestors') && list(n['ids']) && list(n['names']) && n['ids'].length === n['names'].length) {
+    // Ids are checked with the patterns that admitted them, and a bad one is dropped with its name, never echoed.
+    const ok = n['by'] === 'pages' ? NOTION_ID : CONFLUENCE_PAGE_ID;
+    const ids = n['ids'] as string[];
+    const names = n['names'] as string[];
+    const keep = ids.map((_, i) => i).filter((i) => ok.test(ids[i]!));
+    if (keep.length === 0) return undefined;
+    return { by: n['by'], ids: keep.map((i) => ids[i]!), names: keep.map((i) => names[i]!) };
+  }
   return undefined;
 }
