@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.72.2](https://github.com/aligndottech/align-cli/compare/cli-v0.72.1...cli-v0.72.2) (2026-11-10)
+
+
+### Bug Fixes
+
+* **mcp:** a machine with nothing set up serves the local graph ([#548](https://github.com/aligndottech/align-cli/issues/548)) ([b05bd64](https://github.com/aligndottech/align-cli/commit/b05bd64735fe678d50b59081f34c1692acc2d2f5))
+
 ## [0.72.1](https://github.com/aligndottech/align-cli/compare/cli-v0.72.0...cli-v0.72.1) (2026-11-10)
 
 
