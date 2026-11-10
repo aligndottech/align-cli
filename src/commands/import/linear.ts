@@ -1,6 +1,7 @@
 import type { Command } from 'commander';
 import { subcommandOpts } from '../../lib/command-opts.js';
 import * as p from '@clack/prompts';
+import { sayIfCapped } from '../../lib/capped-read.js';
 import { createConfigStore, type EnvName } from '../../lib/config.js';
 import { createGatewayClient } from '../../lib/gateway-client.js';
 import { resolveImportEnv } from '../../lib/resolve-env.js';
@@ -63,6 +64,7 @@ export function registerImportLinearCommand(importCmd: Command): void {
         const fetched = await fetchLinearItems({ token, ...fetchWindow('linear', window), limit: parseInt(opts.limit, 10) });
         const { items } = fetched;
         spinner.stop(`Found ${items.length} items`);
+        sayIfCapped({ source: 'linear', read: items.length, limit: parseInt(opts.limit, 10) });
         const importResult: { stored?: number; failedBatches?: number } = {};
         await runPersonalImport(items, client, { result: importResult, label: 'Linear', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'linear' } });
         console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.linear, fetched, windowLabel(window.days), importResult)])}\n`);

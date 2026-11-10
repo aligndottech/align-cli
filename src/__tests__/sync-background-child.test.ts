@@ -48,7 +48,8 @@ describe('syncChildEnv: an allow-list, not a copy', () => {
 describe('startSyncChild passes the reduced environment to the starter', () => {
   it('the starter receives no secret and the sources and delay in argv', async () => {
     const start = vi.fn(async () => ({ ok: true, pid: 9 }));
-    await startSyncChild(['github'], { delaySeconds: 20, start, env: { ...KEPT, ...SECRETS } });
+    // repo: null, because the repo hand-over has its own test (scope-per-repo.test.ts) and this one is about what the child is NOT given.
+    await startSyncChild(['github'], { delaySeconds: 20, start, env: { ...KEPT, ...SECRETS }, repo: null });
     const call = start.mock.calls[0] as unknown as [string, string[], unknown, unknown, string, Record<string, string>];
     expect(call[1]).toEqual(['sync', '--background', '--delay', '20', 'github']);
     expect(call[5]).toEqual(KEPT);

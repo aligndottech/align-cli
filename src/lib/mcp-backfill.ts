@@ -29,7 +29,9 @@ import { SYNC_CEILINGS, SYNC_WINDOW_DEFAULT_DAYS } from './import-defaults.js';
 import { parseSince } from './since.js';
 import { lockHolder } from './sync/lock.js';
 import { KNOWN_SOURCES } from './sync/source-ids.js';
-import { syncChildEnv } from './sync/spawn-background.js';
+import { configScopeStore } from './scope-real.js';
+import { skippedText } from './scope.js';
+import { syncChildEnvForRepo } from './sync/spawn-background.js';
 import { readSyncStatus, recordWindowSince } from './source-sync-state.js';
 
 export const BACKFILL_TOOL = 'align_backfill';
@@ -69,6 +71,8 @@ export interface BackfillDeps {
   now(): Date;
   isConnected(source: string): boolean;
   needsReauth(source: string): boolean;
+  /** Did the person skip this source in this repo? Absent: no. A backfill of it would read what they chose not to. */
+  isSkipped?(source: string): boolean;
   /** Is a `align sync` of this source running? The two read and write the same history, so one waits for the other. */
   syncRunning?(source: string): boolean;
   recordWindow(source: string, since: string | null, agent: string): void;
@@ -107,6 +111,7 @@ export function defaultBackfillDeps(env: EnvironmentConfig): BackfillDeps {
     now: () => new Date(),
     isConnected: (source) => Boolean(config.getConnectorFields('local', source)?.['token']),
     needsReauth: (source) => readSyncStatus(need(), source).needsReauth,
+    isSkipped: (source) => configScopeStore(config).getScope(source)?.kind === 'skip',
     syncRunning: (source) => lockHolder(`sync-${source}`) !== undefined,
     recordWindow: (source, since, agent) => recordWindowSince(need(), source, since, agent),
     reserve: (source) => {
@@ -120,7 +125,7 @@ export function defaultBackfillDeps(env: EnvironmentConfig): BackfillDeps {
     start: async (source, argv) => {
       const dir = backfillDir();
       if (!dir) return { ok: false };
-      return startBackfillChild(source, argv, statusPath(dir, source), undefined, 'mcp', syncChildEnv(process.env));
+      return startBackfillChild(source, argv, statusPath(dir, source), undefined, 'mcp', syncChildEnvForRepo(process.env));
     },
   };
 }
@@ -173,6 +178,9 @@ export async function runBackfill(
         started: false,
         text: `${source} is not connected, so nothing was started. Connecting needs a token only the person can supply. Ask them to run: align connect ${source}`,
       };
+    }
+    if (deps.isSkipped?.(source)) {
+      return { started: false, text: skippedText(source) };
     }
     if (source === 'teams') {
       // Decision 21: a Graph token lasts about an hour, so a background child would hold a dead one.

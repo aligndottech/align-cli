@@ -57,6 +57,7 @@ import { launchesAfterWizard } from '../lib/launch/launch.js';
 import { PROVIDER_LABEL, STORABLE_PROVIDERS } from '../lib/llm-providers.js';
 import type { LaunchAgentId } from '../lib/launch/registry/types.js';
 import { firstDecision } from '../lib/first-decision.js';
+import { sayIfCapped } from '../lib/capped-read.js';
 
 // ---------------------------------------------------------------------------
 // Source definitions
@@ -1093,8 +1094,16 @@ export async function connectLocalSources(o: ConnectLocalSourcesOptions): Promis
         foreground = foreground.filter((x) => x !== r);
         continue;
       }
-      decided.set(r.source.id, decision);
       config.saveConnectorFields('local', r.source.id, r.tokens);
+      if (decision.skipped) {
+        // Skipped in this repo: remembered, and no background read is started for it.
+        decision.commit();
+        p.log.info(`Skipped ${r.source.label} in this repo. To read it: align connect --source ${r.source.id}`);
+        results.push({ id: r.source.id, label: r.source.label, found: 0, imported: 0 });
+        foreground = foreground.filter((x) => x !== r);
+        continue;
+      }
+      decided.set(r.source.id, decision);
       decision.commit();
       afterSourceConnected(localEnv.localDbPath, r.source.id, (id) => Boolean(config.getConnectorFields('local', id)?.['token']));
       saved.push(r);
@@ -1123,6 +1132,13 @@ export async function connectLocalSources(o: ConnectLocalSourcesOptions): Promis
       const startSpinner = () => spinner.start(`Fetching from ${source.label}...`);
       const prior = decided.get(source.id);
       const fetched = prior ? await fetchWithDecision(source, tokens, window, prior, startSpinner) : await fetchUnderScope(source, tokens, window, scopeCtx, startSpinner);
+      if (fetched.report.skippedInRepo) {
+        // Chosen: nothing was read, so there is no capture line and no count to print. The token is still saved: the source is connected.
+        config.saveConnectorFields('local', source.id, tokens);
+        spinner.stop(`Skipped ${source.label} in this repo. To read it: align connect --source ${source.id}`);
+        results.push({ id: source.id, label: source.label, found: 0, imported: 0 });
+        continue;
+      }
       sourceCs = capture.add(toCaptureSource(source, fetched, windowLabel(window.days)));
       const { items } = fetched;
       // Saved only once the fetch it unlocked has succeeded. A token that never worked is not
@@ -1132,6 +1148,7 @@ export async function connectLocalSources(o: ConnectLocalSourcesOptions): Promis
       config.saveConnectorFields('local', source.id, tokens);
       afterSourceConnected(localEnv.localDbPath, source.id, (id) => Boolean(config.getConnectorFields('local', id)?.['token']));
       spinner.stop(`Found ${items.length} items`);
+      sayIfCapped({ source: source.id, read: items.length, ...(fetched.report.complete !== undefined ? { complete: fetched.report.complete } : {}) });
       let imported = 0;
       if (items.length) {
         imported = await runPersonalImport(items, localClient, { exitOnTotalFailure: false,

@@ -14,6 +14,7 @@ import os from 'node:os';
 import { backfillChildCommand, type ChildCaller, startBackfillChild } from '../backfill-state.js';
 import { CHILD_ENV_KEYS, CHILD_ENV_SECRETS, childEnvValue } from '../launch/mcp-child-env.js';
 import { PROVIDER_ENV_VARS } from '../llm-providers.js';
+import { currentRepoIdentitySync, SYNC_REPO_ENV } from '../repo-identity.js';
 import { inCi } from '../telemetry-ci.js';
 
 /** `--delay 0`: an on-demand run (the person or their agent just asked) has no agent start-up to stay out of the way of. */
@@ -56,12 +57,21 @@ export function syncChildEnv(env: Record<string, string | undefined>): Record<st
   return out;
 }
 
+/** The reduced env plus the repo the child is started for (default: this folder's). The one place both background starters get it from. */
+export function syncChildEnvForRepo(env: Record<string, string | undefined>, repo?: string | null): Record<string, string> {
+  const id = repo !== undefined ? repo : currentRepoIdentitySync();
+  return { ...syncChildEnv(env), ...(id ? { [SYNC_REPO_ENV]: id } : {}) };
+}
+
 export function startSyncChild(
   sources: readonly string[],
-  o: { delaySeconds?: number; start?: typeof startBackfillChild; env?: Record<string, string | undefined>; caller?: ChildCaller } = {},
+  o: { delaySeconds?: number; start?: typeof startBackfillChild; env?: Record<string, string | undefined>; caller?: ChildCaller; repo?: string | null } = {},
 ): Promise<{ ok: boolean; pid?: number }> {
   const argv = syncChildArgv(sources, o);
   // The child runs from the home directory, never the folder it was started in: scope is decided by the sync layer,
   // and an unattended run must not read a repo's remote and widen itself to that repo's team.
-  return (o.start ?? startBackfillChild)('sync', argv, undefined, backfillChildCommand(argv), o.caller ?? 'mcp', syncChildEnv(o.env ?? process.env), os.homedir());
+  // The folder is not passed, but the repo is: a scope is chosen per repo, and the child must read the one the person chose here. It is only
+  // a key into the saved choices; it widens nothing (a waiting agent choice still waits, and no choice reads yours).
+  const env = syncChildEnvForRepo(o.env ?? process.env, o.repo);
+  return (o.start ?? startBackfillChild)('sync', argv, undefined, backfillChildCommand(argv), o.caller ?? 'mcp', env, os.homedir());
 }

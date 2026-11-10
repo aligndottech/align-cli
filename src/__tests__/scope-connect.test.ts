@@ -137,12 +137,13 @@ describe('GitHub', () => {
 });
 
 describe('Jira', () => {
-  it('interactive: lists what the token can see, preselects the cited keys it can see, and the answer is the scope', async () => {
+  it('interactive: lists what the token can see after the skip option, preselects skip (cited keys no longer count), and the answer is the scope', async () => {
     const s = setup({ interactive: true, cited: ['ALI', 'GONE', 'OPS'], table: [jiraProjects('ALI', 'BETA', 'OPS')], picks: ['OPS', 'BETA'] });
     const d = await decideConnectScope('jira', TOKENS.jira, s.ctx);
     expect(s.asked).toHaveLength(1);
-    expect(s.asked[0]!.options.map((x) => x.value)).toEqual(['ALI', 'BETA', 'OPS']);
-    expect(s.asked[0]!.initial).toEqual(['ALI', 'OPS']);
+    // ALI-2089: skip is offered first and preselected when no name matches the repo; the graph's cited keys span every repo, so they no longer preselect.
+    expect(s.asked[0]!.options.map((x) => x.value)).toEqual([':skip', 'ALI', 'BETA', 'OPS']);
+    expect(s.asked[0]!.initial).toEqual([':skip']);
     expect(s.asked[0]!.required).toBe(false);
     expect(s.asked[0]!.message).toContain('only the items you are involved in');
     expect(d).toMatchObject({ scope: 'team', extras: { resolved: true, projects: ['BETA', 'OPS'] }, label: "everyone's items in Jira projects BETA, OPS" });
@@ -258,11 +259,11 @@ describe('a truncated project list', () => {
 });
 
 describe('Linear', () => {
-  it('interactive: team keys are offered, the cited ones preselected, and the choice reaches the fetcher as ids', async () => {
+  it('interactive: team keys are offered after the skip option, and the choice reaches the fetcher as ids', async () => {
     const s = setup({ interactive: true, cited: ['ENG', 'GONE'], table: [teams('ENG', 'OPS')], picks: ['ENG'] });
     const d = await decideConnectScope('linear', TOKENS.linear, s.ctx);
-    expect(s.asked[0]!.options.map((x) => x.value)).toEqual(['ENG', 'OPS']);
-    expect(s.asked[0]!.initial).toEqual(['ENG']);
+    expect(s.asked[0]!.options.map((x) => x.value)).toEqual([':skip', 'ENG', 'OPS']);
+    expect(s.asked[0]!.initial).toEqual([':skip']);
     expect(d).toMatchObject({ scope: 'team', extras: { teams: ['id-ENG'] }, label: "everyone's items in Linear team ENG" });
   });
 
@@ -512,7 +513,7 @@ describe('consent: only a person widens (security review)', () => {
     d.commit();
     expect(store.scopes['jira']).toMatchObject({ pending: { previous: null } });
     expect(store.disclosed.size).toBe(0);
-    expect(cancel.asked[0]!.initial).toEqual([]);
+    expect(cancel.asked[0]!.initial).toEqual([':skip']);
     // Cancelling is not an answer to "read it now?": no such question is asked.
     expect(cancel.confirmed).toEqual([]);
     expect(cancel.said.join('\n')).toContain('Your agent proposed');

@@ -5,6 +5,7 @@
  * commits too. This module is the one place identity is computed, so a decision's
  * import-time stamp and a `--repo <name>` filter can never drift apart.
  */
+import { execFileSync } from 'node:child_process';
 import { getRemoteUrl, getRepoRoot, isGitRepo } from './git.js';
 
 /**
@@ -80,6 +81,26 @@ export async function currentRepoIdentity(opts: { cwd?: string } = {}): Promise<
   const fromRemote = repoFromRemoteUrl(remote);
   if (fromRemote) return fromRemote;
   return getRepoRoot(opts);
+}
+
+/** Set on a background sync child: the repo it was started for. The child runs from the home directory, so the folder cannot say. */
+export const SYNC_REPO_ENV = 'ALIGN_SYNC_REPO';
+
+/**
+ * `currentRepoIdentity`, read synchronously, for the callers that cannot await (the scope store is a sync seam). Same answer by the same
+ * steps: not a git repo is null, a recognised remote is `host/owner/repo`, anything else is the absolute repo root.
+ * scope-per-repo.test.ts holds the two to each other.
+ */
+export function currentRepoIdentitySync(opts: { cwd?: string } = {}): string | null {
+  const git = (...args: string[]): string | null => {
+    try {
+      return execFileSync('git', args, { ...(opts.cwd ? { cwd: opts.cwd } : {}), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null;
+    } catch {
+      return null;
+    }
+  };
+  if (git('rev-parse', '--git-dir') === null) return null;
+  return repoFromRemoteUrl(git('remote', 'get-url', 'origin')) ?? git('rev-parse', '--show-toplevel');
 }
 
 /**
