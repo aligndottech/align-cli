@@ -12,6 +12,12 @@
       "registryType": "npm",
       "identifier": "@aligndottech/cli",
       "version": "0.72.0",
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "mcp"
+        }
+      ],
       "transport": {
         "type": "stdio"
       }

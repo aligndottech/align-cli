@@ -43,6 +43,13 @@ describe('MCP registry record parity (server.json <-> package.json)', () => {
     expect(server.packages[0].transport).toEqual({ type: 'stdio' });
   });
 
+  it('starts the MCP server, not the setup wizard', () => {
+    // Directories (mcprush and others) build their install command from this record:
+    // `npx -y @aligndottech/cli <packageArguments>`. With no arguments that is bare `align`,
+    // which off a terminal prints "not set up yet" to stdout and never answers initialize.
+    expect(server.packages[0].packageArguments).toEqual([{ type: 'positional', value: 'mcp' }]);
+  });
+
   it('is bumped by release-please, not by hand', () => {
     // Both version fields must be listed as extra-files JSONPaths, or the next
     // release bumps package.json and leaves server.json describing the old one.
