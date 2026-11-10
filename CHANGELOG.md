@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.72.1](https://github.com/aligndottech/align-cli/compare/cli-v0.72.0...cli-v0.72.1) (2026-11-10)
+
+
+### Bug Fixes
+
+* the registry record starts the MCP server, not bare align ([#546](https://github.com/aligndottech/align-cli/issues/546)) ([de0c875](https://github.com/aligndottech/align-cli/commit/de0c875b532eb02ff1af17cbe130f48043bbc01e))
+
 ## [0.72.0](https://github.com/aligndottech/align-cli/compare/cli-v0.71.0...cli-v0.72.0) (2026-11-10)
 
 
