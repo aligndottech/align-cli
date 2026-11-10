@@ -38,7 +38,7 @@ export const SCOPE_TOOL_SCHEMA = {
     'action "set" changes one source; offer it when the user asks to include their team\'s items, or to go back to only their own. A Jira project can be narrowed to one board, and a Linear team to some of its projects. ' +
     'Widening re-reads that source\'s history on its next sync (a few minutes; the reply says how far back). ' +
     'It deletes nothing and reads other people\'s items onto this machine only. A team change you make WAITS: nothing reads it, in the background or via align_sync, until a person runs `align sync <source>` at a terminal, which shows what it reads and asks (default No). Tell them so, with the reply\'s disclosure sentence in your own words. That prompt is a speed bump, not proof of consent: an agent with shell access could answer it from a pseudo-terminal, and you must never do that. Narrowing to their own items is immediate. ' +
-    'Zoom is only the user\'s own; Slack, Notion and Teams already read all their token can see. ' +
+    'Zoom is only the user\'s own; Slack and Teams already read all their token can see, and so does Notion unless the person picked pages. ' +
     'It never takes a token or key: for a source that is not connected, or whose saved token was refused, the reply gives the exact `align connect <source>` command for the user to run themselves. Do not ask the user to paste a token into the chat.',
   inputSchema: {
     type: 'object',
@@ -134,7 +134,9 @@ async function set(input: Record<string, unknown>, deps: ScopeDeps, agent: strin
     if (input['board'] !== undefined || input['linear_projects'] !== undefined) throw new Error(`${SCOPE_TOOL} takes either scope "yours" or a board or linear_projects to read, not both.`);
     change = { scope: 'yours' };
   } else if (wanted === undefined) {
-    // Zoom, Slack, Notion, Teams: setScope refuses with the honest reason for that source.
+    // Notion's pages are picked from a list at a terminal, never named by an agent.
+    if (source === 'notion') throw new Error(`${SCOPE_TOOL} cannot choose Notion pages. The person picks them: align connect --source notion. Scope "yours" reads everything shared with the integration.`);
+    // Zoom, Slack, Teams: setScope refuses with the honest reason for that source.
     change = { scope: 'team', values: [] };
   } else {
     if (input[wanted] === undefined) throw new Error(`${SCOPE_TOOL} for ${source} needs "${wanted}" to name what to read, or scope "yours" to go back to the user's own items.`);

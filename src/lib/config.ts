@@ -719,5 +719,6 @@ function narrowingOf(raw: unknown): Narrowing | undefined {
   if (n['by'] === 'board' && typeof n['id'] === 'string' && /^\d{1,12}$/.test(n['id']) && text(n['name']) && text(n['jql'])) return { by: 'board', id: n['id'], name: n['name'], jql: n['jql'] };
   if (n['by'] === 'jql' && text(n['jql'])) return { by: 'jql', jql: n['jql'] };
   if (n['by'] === 'projects' && list(n['ids']) && list(n['names']) && n['ids'].length === n['names'].length) return { by: 'projects', ids: n['ids'], names: n['names'] };
+  if ((n['by'] === 'pages' || n['by'] === 'ancestors') && list(n['ids']) && list(n['names']) && n['ids'].length === n['names'].length) return { by: n['by'], ids: n['ids'], names: n['names'] };
   return undefined;
 }

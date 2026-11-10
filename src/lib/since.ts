@@ -104,5 +104,7 @@ export function windowExtras(o?: FetchExtras): FetchExtras {
     ...(o?.projectId !== undefined ? { projectId: o.projectId } : {}),
     ...(o?.spaces !== undefined ? { spaces: o.spaces } : {}),
     ...(o?.jql !== undefined ? { jql: o.jql } : {}),
+    ...(o?.pages !== undefined ? { pages: o.pages } : {}),
+    ...(o?.ancestors !== undefined ? { ancestors: o.ancestors } : {}),
   };
 }

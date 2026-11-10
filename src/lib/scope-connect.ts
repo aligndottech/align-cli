@@ -25,7 +25,7 @@ import { type ChangedBy, type Choice, chooseScope, commitScope, CONFLUENCE_NEEDS
 import { matchRepoNames } from './scope-repo-match.js';
 import { citedProjectKeys } from './scope-defaults.js';
 import { realScopeDeps, scopeRepoKey } from './scope-real.js';
-import { listConfluenceSpaces, listJiraBoards, listJiraProjects, listLinearProjects, listLinearTeams, ScopeLookupError } from './scope-choices.js';
+import { listConfluenceSpaces, listConfluenceTopLevelPages, listJiraBoards, listJiraProjects, listLinearProjects, listLinearTeams, listNotionPages, ScopeLookupError } from './scope-choices.js';
 import { describeTeamScope, disclosureText, fetchOptsFor, FIXED_SCOPES, type Narrowing, SCOPED_SOURCES, type ScopedSource } from './scope-values.js';
 import { CAPTURE_SOURCES } from './capture-sources.js';
 import type { FetchExtras, SyncWindow } from './since.js';
@@ -34,6 +34,8 @@ export interface ScopeFlags {
   scope?: string; repo?: string; projects?: string; teams?: string; gitlabProject?: string; spaces?: string;
   /** Narrow one Jira project to a board (id or exact name) or a JQL filter, or one Linear team to some of its projects. */
   board?: string; jql?: string; linearProjects?: string;
+  /** Notion: read only these pages (ids). Confluence, with --spaces: read only the trees under these pages (ids). */
+  notionPages?: string; confluencePages?: string;
   /** The `--since` the person actually gave, as the lower bound it read back to (null: `all`). Not a scope flag: it only sets a NEW scope row's window. */
   windowSince?: string | null;
 }
@@ -83,15 +85,18 @@ export const SKIP_VALUE = ':skip';
 
 const labelOf = (source: string): string => (CAPTURE_SOURCES as Record<string, { label: string }>)[source]?.label ?? source;
 const isScoped = (source: string): source is ScopedSource => (SCOPED_SOURCES as readonly string[]).includes(source);
-const VALUE_FLAG = { github: 'repo', jira: 'projects', linear: 'teams', gitlab: 'gitlabProject', confluence: 'spaces' } as const;
-const FLAG_NAME = { repo: '--repo', projects: '--projects', teams: '--teams', gitlabProject: '--gitlab-project', spaces: '--spaces' } as const;
-const FLAG_FOR = { repo: 'GitHub', projects: 'Jira', teams: 'Linear', gitlabProject: 'GitLab', spaces: 'Confluence' } as const;
-const WHAT = { jira: 'Jira projects', linear: 'Linear teams', confluence: 'Confluence spaces' } as const;
+const VALUE_FLAG = { github: 'repo', jira: 'projects', linear: 'teams', gitlab: 'gitlabProject', confluence: 'spaces', notion: 'notionPages' } as const;
+const FLAG_NAME = { repo: '--repo', projects: '--projects', teams: '--teams', gitlabProject: '--gitlab-project', spaces: '--spaces', notionPages: '--notion-pages' } as const;
+const FLAG_FOR = { repo: 'GitHub', projects: 'Jira', teams: 'Linear', gitlabProject: 'GitLab', spaces: 'Confluence', notionPages: 'Notion' } as const;
+const WHAT = { jira: 'Jira projects', linear: 'Linear teams', confluence: 'Confluence spaces', notion: 'Notion pages' } as const;
+/** What a narrowing flag's `needs` flag names, for "to say which ...". */
+const NEEDS_WHAT = { projects: 'project', teams: 'team', spaces: 'space' } as const;
 /** The flags that narrow one project or team, the source each belongs to, and the value flag each needs. */
 const NARROW_FLAG = {
   board: { name: '--board', source: 'jira', needs: 'projects' },
   jql: { name: '--jql', source: 'jira', needs: 'projects' },
   linearProjects: { name: '--linear-projects', source: 'linear', needs: 'teams' },
+  confluencePages: { name: '--confluence-pages', source: 'confluence', needs: 'spaces' },
 } as const;
 
 /** Checked before any prompt or request. Returns the sentence to print with exit 2, or undefined when the flags are usable. */
@@ -103,18 +108,18 @@ export function checkScopeFlags(source: string | undefined, flags: ScopeFlags): 
     const { name, source: owner, needs } = NARROW_FLAG[k];
     if (source !== owner) return `${name} is for ${labelOf(owner)}.`;
     if (flags.scope === 'yours') return `Pass either --scope yours or ${name}, not both.`;
-    if (flags[needs] === undefined) return `${name} needs ${FLAG_NAME[needs]}, to say which ${owner === 'jira' ? 'project' : 'team'} it narrows.`;
+    if (flags[needs] === undefined) return `${name} needs ${FLAG_NAME[needs]}, to say which ${NEEDS_WHAT[needs]} it narrows.`;
   }
   if (source === undefined) return 'Scope flags (--scope, --repo, --projects, --teams, --gitlab-project, --spaces) need --source <id> to say which source they are for.';
   const fixed = FIXED_SCOPES[source];
-  if (fixed) return `${labelOf(source)} reads ${fixed.text}. There is no scope to choose for it.`;
+  if (fixed && !isScoped(source)) return `${labelOf(source)} reads ${fixed.text}. There is no scope to choose for it.`;
   if (!isScoped(source)) return 'That source has no scope to choose.';
   if (flags.scope !== undefined && flags.scope !== 'yours' && flags.scope !== 'team') return '--scope takes yours or team.';
   const wrong = valueFlags.find((k) => VALUE_FLAG[source] !== k);
   if (wrong !== undefined) return `${FLAG_NAME[wrong]} is for ${FLAG_FOR[wrong]}; ${labelOf(source)} takes ${FLAG_NAME[VALUE_FLAG[source]]}.`;
   const given = valueFlags.length > 0;
   if (flags.scope === 'yours' && given) return `Pass either --scope yours or ${FLAG_NAME[VALUE_FLAG[source]]}, not both.`;
-  if (flags.scope === 'team' && !given && source !== 'github' && source !== 'gitlab') return `--scope team needs ${FLAG_NAME[VALUE_FLAG[source]]} to say which ${source === 'confluence' ? 'spaces' : source === 'jira' ? 'projects' : 'teams'}.`;
+  if (flags.scope === 'team' && !given && source !== 'github' && source !== 'gitlab') return `--scope team needs ${FLAG_NAME[VALUE_FLAG[source]]} to say which ${source === 'confluence' ? 'spaces' : source === 'jira' ? 'projects' : source === 'notion' ? 'pages' : 'teams'}.`;
   return undefined;
 }
 
@@ -122,7 +127,7 @@ function flagInput(source: ScopedSource, flags: ScopeFlags): SetInput | undefine
   if (flags.scope === 'yours') return { scope: 'yours' };
   const value = flags[VALUE_FLAG[source]];
   if (value === undefined) return undefined;
-  const narrow = { ...(flags.board !== undefined ? { board: flags.board } : {}), ...(flags.jql !== undefined ? { jql: flags.jql } : {}), ...(flags.linearProjects !== undefined ? { projects: flags.linearProjects } : {}) };
+  const narrow = { ...(flags.board !== undefined ? { board: flags.board } : {}), ...(flags.jql !== undefined ? { jql: flags.jql } : {}), ...(flags.linearProjects !== undefined ? { projects: flags.linearProjects } : {}), ...(flags.confluencePages !== undefined ? { ancestors: flags.confluencePages } : {}) };
   return { scope: 'team', values: value, ...(Object.keys(narrow).length > 0 ? { narrow } : {}) };
 }
 
@@ -228,6 +233,7 @@ export async function decideConnectScope(source: string, tokens: Record<string, 
   const confluence = source === 'confluence';
   // Without a person there is no picker and no guess from cited keys: the stored choice, else yours (with how to widen).
   if (!person) return resolved();
+  if (source === 'notion') return pickNotionPages();
 
   const listed = await list();
   if (listed === undefined) return resolved();
@@ -264,7 +270,69 @@ export async function decideConnectScope(source: string, tokens: Record<string, 
     const narrowed = await askForPart(source, choice.values[0]!, choice.labels[0]!, inForce?.kind === 'team' ? inForce.narrow : undefined);
     if (narrowed !== undefined) return fromChoice(await chooseScope(deps, source, { scope: 'team', values: picked, narrow: narrowed }, tokens));
   }
+  if (choice.scope === 'team' && confluence) {
+    const narrowed = await askForConfluencePages(choice.values, inForce?.kind === 'team' ? inForce.narrow : undefined);
+    if (narrowed !== undefined) return fromChoice(await chooseScope(deps, source, { scope: 'team', values: picked, narrow: narrowed }, tokens));
+  }
   return fromChoice(choice);
+
+  /**
+   * Notion has no list of named places like Jira's: it reads what the integration was shared. So the picker lists the pages and
+   * databases it can see, and nothing ticked keeps that (today's read). Pages whose title shares a whole word with this repo are preselected.
+   */
+  async function pickNotionPages(): Promise<ScopeDecision> {
+    let listed: Awaited<ReturnType<typeof listNotionPages>>;
+    try { listed = await listNotionPages(tokens, deps.fetch); } catch (e) {
+      if (!(e instanceof ScopeLookupError)) throw e;
+      tell(`Could not list your Notion pages: ${e.message} Reading everything shared with your integration.`);
+      return resolved();
+    }
+    if (listed.truncated) tell(`Only the ${listed.items.length} most recently edited Notion pages are listed. To pick one that is not shown: align connect --source notion --notion-pages IDS`);
+    const ids = listed.items.map((x) => x.id);
+    const before = stored?.kind === 'team' && stored.pending ? stored.pending.previous : stored;
+    const waiting = stored?.kind === 'team' && stored.pending ? stored : undefined;
+    if (waiting) tell(`Your agent proposed Notion scope ${describeTeamScope('notion', waiting.labels, waiting.narrow)}. It is not read until you pick it here.`);
+    const inRepo = ctx.inRepo?.() ?? true;
+    const matched = matchRepoNames(listed.items.map((x) => ({ key: x.id, name: x.name })), ctx.repoNames?.() ?? []);
+    // No match preselects nothing: Enter keeps reading everything shared, as before this question existed.
+    const initial = before?.kind === 'team' ? before.values.filter((v) => ids.includes(v)) : before?.kind === 'skip' ? [SKIP_VALUE] : before?.kind === 'yours' ? [] : matched;
+    const picked = await ctx.prompts.multiselect(
+      'Which Notion pages should Align read, with the pages under them? Pick none to read everything shared with your integration.',
+      [...(inRepo ? [{ value: SKIP_VALUE, label: `None, skip ${labelOf('notion')} in this repo` }] : []), ...listed.items.map((x) => ({ value: x.id, label: x.name, hint: x.kind }))],
+      initial, { required: false },
+    );
+    if (picked === null) {
+      const k = await kept();
+      if (k.blocked !== undefined) throw blocked(k.blocked);
+      return fromResolved(k);
+    }
+    if (picked.includes(SKIP_VALUE) && !inRepo) throw blocked('Skipping a source is chosen for one repo, and this folder is not in a git repo. Pick pages, or none to read everything shared with your integration.');
+    if (picked.includes(SKIP_VALUE)) return skipDecision(() => { deps.store.saveScope(source, { kind: 'skip' }); });
+    return fromChoice(await chooseScope(deps, source, picked.length === 0 ? { scope: 'yours' } : { scope: 'team', values: picked }, tokens));
+  }
+
+  /**
+   * "Read the whole space, or only under some pages?" asked after Confluence spaces were chosen. The whole space is first and where the
+   * cursor starts, unless pages were chosen before. Undefined: the whole space (today's read). A list that cannot be read is said.
+   */
+  async function askForConfluencePages(spaces: string[], before: Narrowing | undefined): Promise<{ ancestors: string[] } | undefined> {
+    let parts: Array<{ id: string; name: string }>;
+    try { parts = (await listConfluenceTopLevelPages(tokens, spaces, deps.fetch)).items; } catch (e) {
+      if (!(e instanceof ScopeLookupError)) throw e;
+      tell(`Could not list the pages in ${spaces.join(', ')}: ${e.message} Reading the whole ${spaces.length === 1 ? 'space' : 'spaces'}.`);
+      return undefined;
+    }
+    if (parts.length === 0) return undefined;
+    const ALL = ':all';
+    const earlier = before?.by === 'ancestors' ? before.ids.filter((id) => parts.some((x) => x.id === id)) : [];
+    const picks = await ctx.prompts.multiselect(
+      `Which pages of ${spaces.join(', ')} should Align read, with the pages under them? Or the whole ${spaces.length === 1 ? 'space' : 'spaces'}.`,
+      [{ value: ALL, label: `The whole ${spaces.length === 1 ? 'space' : 'spaces'} ${spaces.join(', ')}` }, ...parts.map((x) => ({ value: x.id, label: x.name }))],
+      earlier.length > 0 ? earlier : [ALL], { required: false },
+    );
+    if (picks === null || picks.includes(ALL) || picks.length === 0) return undefined;
+    return { ancestors: picks };
+  }
 
   /**
    * "Read all of AC, or one board?" (Linear: one project). All of it is first and where the cursor starts, unless a part was

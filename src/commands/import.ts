@@ -176,7 +176,7 @@ interface ConnectGroupOpts {
   from?: string; to?: string; approve: boolean;
   source?: string; token?: string; yes?: boolean; json?: boolean; since?: string;
   scope?: string; repo?: string; projects?: string; teams?: string; gitlabProject?: string; spaces?: string;
-  board?: string; jql?: string; linearProjects?: string;
+  board?: string; jql?: string; linearProjects?: string; notionPages?: string; confluencePages?: string;
 }
 
 /** The L4 scope flags that were given, as the connect flow takes them. Omitted keys stay omitted. */
@@ -191,6 +191,8 @@ function scopeFlagsOf(o: ConnectGroupOpts): ScopeFlags {
   if (o.board !== undefined) flags.board = o.board;
   if (o.jql !== undefined) flags.jql = o.jql;
   if (o.linearProjects !== undefined) flags.linearProjects = o.linearProjects;
+  if (o.notionPages !== undefined) flags.notionPages = o.notionPages;
+  if (o.confluencePages !== undefined) flags.confluencePages = o.confluencePages;
   return flags;
 }
 
@@ -255,6 +257,8 @@ export function registerImportCommand(program: Command): void {
     .option('--board <id|name>', 'With --source jira and one --projects key: read only the issues on this board')
     .option('--jql <filter>', 'With --source jira and one --projects key: read only issues matching this JQL, inside that project')
     .option('--linear-projects <names>', 'With --source linear and one --teams key: read only these projects (names or ids, comma separated)')
+    .option('--notion-pages <ids>', 'With --source notion: read only these pages or databases and what is under them (ids, comma separated)')
+    .option('--confluence-pages <ids>', 'With --source confluence and --spaces: read only these pages and their descendants (page ids, comma separated)')
     .option('--all', 'Scan all connected connectors')
     .option('--channel <id>', 'Slack channel ID (single-connector only)')
     .option('--project <key>', 'Project key (Jira prefix or GitHub org/repo)')

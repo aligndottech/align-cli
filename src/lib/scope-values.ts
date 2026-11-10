@@ -11,11 +11,15 @@ import { createHash } from 'node:crypto';
  */
 
 /** The sources that can read a NAMED team scope. Everything else reads a fixed scope (FIXED_SCOPES). */
-export const SCOPED_SOURCES = ['github', 'jira', 'linear', 'gitlab', 'confluence'] as const;
+export const SCOPED_SOURCES = ['github', 'jira', 'linear', 'gitlab', 'confluence', 'notion'] as const;
 export type ScopedSource = (typeof SCOPED_SOURCES)[number];
 
 /** The option each fetcher takes for a team scope. GitHub's is `repo` + `scope`, set elsewhere. Jira `jql` and Linear `projects` narrow (connector-core 0.14). */
-export interface ScopeFetchOpts { projects?: string[]; teams?: string[]; projectId?: string; spaces?: string[]; jql?: string }
+export interface ScopeFetchOpts {
+  projects?: string[]; teams?: string[]; projectId?: string; spaces?: string[]; jql?: string;
+  /** Notion page or database ids, and Confluence page ids: read only these and what is under them (connector-core 0.15). */
+  pages?: string[]; ancestors?: string[];
+}
 
 /**
  * A team scope narrowed to one part: a Jira board (its filter, read at choice time and kept) or the person's own JQL, always inside
@@ -25,7 +29,11 @@ export interface ScopeFetchOpts { projects?: string[]; teams?: string[]; project
 export type Narrowing =
   | { by: 'board'; id: string; name: string; jql: string }
   | { by: 'jql'; jql: string }
-  | { by: 'projects'; ids: string[]; names: string[] };
+  | { by: 'projects'; ids: string[]; names: string[] }
+  /** Notion: only these pages or databases and what is under them. The ids are also the scope's values. */
+  | { by: 'pages'; ids: string[]; names: string[] }
+  /** Confluence: only these pages and their descendants, inside the chosen spaces. */
+  | { by: 'ancestors'; ids: string[]; names: string[] };
 
 export class ScopeValueError extends Error {
   constructor(message: string) {
@@ -60,6 +68,9 @@ const LINEAR_KEY = /^[A-Z][A-Z0-9]{0,9}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const GITLAB_ID = /^\d{1,12}$/;
 const GITLAB_PATH = /^[A-Za-z0-9_.-]{1,100}(?:\/[A-Za-z0-9_.-]{1,100})+$/;
+const NOTION_ID = /^(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
+/** A Confluence page id: digits. */
+export const CONFLUENCE_PAGE_ID = /^\d{1,19}$/;
 const CONFLUENCE_SPACE = /^~?[A-Za-z0-9_.-]{1,32}$/;
 
 /** A segment that is only dots (`.`, `..`) would walk out of the path it is placed in. */
@@ -121,6 +132,15 @@ export function normaliseScopeValues(source: ScopedSource, raw: unknown): string
         return v;
       });
       break;
+    case 'notion':
+      values = given.map((v) => {
+        const id = v.toLowerCase();
+        if (!NOTION_ID.test(id)) throw new ScopeValueError('A Notion page id is 32 letters and digits (a-f, 0-9), with or without dashes: the end of the page\'s URL.');
+        // One spelling per page, so the same page chosen twice is one value.
+        const hex = id.replace(/-/g, '');
+        return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+      });
+      break;
   }
   const unique = [...new Set(values)].sort(codeUnit);
   if (unique.length > MAX_VALUES) throw new ScopeValueError(`Name at most ${MAX_VALUES} values.`);
@@ -136,6 +156,9 @@ export function scopeKeyOf(source: ScopedSource, labels: string[], narrow?: Narr
   if (narrow === undefined) return base;
   if (narrow.by === 'board') return `${base}#board=${narrow.id}`;
   if (narrow.by === 'jql') return `${base}#jql=${createHash('sha256').update(narrow.jql).digest('hex').slice(0, 12)}`;
+  // Notion's pages ARE its values, so they are already in the base key.
+  if (narrow.by === 'pages') return base;
+  if (narrow.by === 'ancestors') return `${base}#ancestors=${[...narrow.ids].sort(codeUnit).join(',')}`;
   return `${base}#projects=${[...narrow.ids].sort(codeUnit).join(',')}`;
 }
 
@@ -150,6 +173,7 @@ export function scopeLabel(source: ScopedSource, labels: string[]): string {
     case 'linear': return `${plural(labels.length, 'Linear team', 'Linear teams')} ${list}`;
     case 'gitlab': return `the GitLab project ${list}`;
     case 'confluence': return `${plural(labels.length, 'Confluence space', 'Confluence spaces')} ${list}`;
+    case 'notion': return `${plural(labels.length, 'Notion page', 'Notion pages')} ${list}`;
   }
 }
 
@@ -171,6 +195,11 @@ export function describeScopeKey(source: string, scopeKey: string, scope: 'yours
   const part = scopeKey.split('#')[1];
   if (part?.startsWith('board=')) return `issues on Jira board ${part.slice('board='.length)} in ${place}`;
   if (part?.startsWith('jql=')) return `issues matching your filter in ${place}`;
+  if (part?.startsWith('ancestors=')) {
+    const n = part.slice('ancestors='.length).split(',').length;
+    return `pages under ${n} ${plural(n, 'page', 'pages')} in ${place}`;
+  }
+  if (source === 'notion') return `the ${place} and the pages under them`;
   if (part?.startsWith('projects=')) {
     const n = part.slice('projects='.length).split(',').length;
     return `issues in ${n} ${plural(n, 'Linear project', 'Linear projects')} of ${place}`;
@@ -184,16 +213,19 @@ export function describeTeamScope(source: ScopedSource, labels: string[], narrow
   if (narrow?.by === 'board') return `issues on the ${narrow.name} board in ${place}`;
   if (narrow?.by === 'jql') return `issues matching your filter in ${place}`;
   if (narrow?.by === 'projects') return `issues in ${plural(narrow.names.length, 'Linear project', 'Linear projects')} ${[...narrow.names].sort(codeUnit).join(', ')} of ${place}`;
+  if (narrow?.by === 'pages') return `the ${plural(narrow.names.length, 'Notion page', 'Notion pages')} ${[...narrow.names].sort(codeUnit).join(', ')} and the pages under them`;
+  if (narrow?.by === 'ancestors') return `pages under ${[...narrow.names].sort(codeUnit).join(', ')} in ${place}`;
   return describeScopeKey(source, scopeKeyOf(source, labels), 'team');
 }
 
 /** What to hand each fetcher for a team scope. GitHub's repo travels as `repo`, not here. */
 export function fetchOptsFor(source: ScopedSource, values: string[], narrow?: Narrowing): ScopeFetchOpts {
   switch (source) {
-    case 'jira': return { projects: values, ...(narrow && narrow.by !== 'projects' ? { jql: narrow.jql } : {}) };
+    case 'jira': return { projects: values, ...(narrow?.by === 'board' || narrow?.by === 'jql' ? { jql: narrow.jql } : {}) };
     case 'linear': return { teams: values, ...(narrow?.by === 'projects' ? { projects: narrow.ids } : {}) };
     case 'gitlab': return { projectId: values[0]! };
-    case 'confluence': return { spaces: values };
+    case 'confluence': return { spaces: values, ...(narrow?.by === 'ancestors' ? { ancestors: narrow.ids } : {}) };
+    case 'notion': return { pages: values };
     case 'github': return {};
   }
 }
@@ -204,6 +236,8 @@ export function disclosureText(source: ScopedSource, labels: string[], narrow?: 
   const tail = `They stay on this machine. To read only your own: align connect --source ${source} --scope yours`;
   if (narrow?.by === 'board') return `Importing issues on the ${narrow.name} board in ${place} that your token can read. Only ${labels.join(', ')} is read, even if the board shows other projects. ${tail}`;
   if (narrow?.by === 'jql') return `Importing issues matching your filter in ${place} that your token can read. Only ${labels.join(', ')} is read. ${tail}`;
+  if (narrow?.by === 'pages') return `Importing the ${plural(narrow.names.length, 'Notion page', 'Notion pages')} ${[...narrow.names].sort(codeUnit).join(', ')} and the pages under them that your token can read. They stay on this machine. To read everything shared with your integration: align connect --source notion --scope yours`;
+  if (narrow?.by === 'ancestors') return `Importing pages under ${[...narrow.names].sort(codeUnit).join(', ')} in ${place} that your token can read. ${tail}`;
   if (narrow?.by === 'projects') return `Importing issues in ${plural(narrow.names.length, 'Linear project', 'Linear projects')} ${[...narrow.names].sort(codeUnit).join(', ')} of ${place} that your token can read. ${tail}`;
   return `Importing items from everyone in ${place} that your token can read. ${tail}`;
 }
@@ -223,7 +257,10 @@ export function discloseTeamScope(
   return true;
 }
 
-/** Sources with no named scope to pick. Slack, Notion and Teams already read all the token can see; Zoom cannot read more. */
+/**
+ * Sources with no named scope to pick. Slack and Teams already read all the token can see; Zoom cannot read more. Notion is
+ * ALSO a scoped source (pages): its entry here is the words for reading everything shared, which is what it reads with no pages chosen.
+ */
 export const FIXED_SCOPES: Record<string, { scope: 'yours' | 'team'; text: string }> = {
   slack: { scope: 'team', text: "everyone's threads in the channels your token is in" },
   notion: { scope: 'team', text: 'every page shared with your integration' },
