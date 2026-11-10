@@ -25,6 +25,7 @@ export function renderOutcome(o: SourceOutcome): string[] {
     case 'not_connected':
     case 'needs_reauth':
     case 'manual':
+    case 'skipped':
     case 'locked':
     case 'backfill_running':
     case 'recent':

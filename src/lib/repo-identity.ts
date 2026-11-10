@@ -91,10 +91,13 @@ export const SYNC_REPO_ENV = 'ALIGN_SYNC_REPO';
  * steps: not a git repo is null, a recognised remote is `host/owner/repo`, anything else is the absolute repo root.
  * scope-per-repo.test.ts holds the two to each other.
  */
+/** A git call that hangs (a stalled network mount, a lock) must not hang the scope store with it. */
+const GIT_TIMEOUT_MS = 5000;
+
 export function currentRepoIdentitySync(opts: { cwd?: string } = {}): string | null {
   const git = (...args: string[]): string | null => {
     try {
-      return execFileSync('git', args, { ...(opts.cwd ? { cwd: opts.cwd } : {}), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null;
+      return execFileSync('git', args, { ...(opts.cwd ? { cwd: opts.cwd } : {}), encoding: 'utf8', timeout: GIT_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null;
     } catch {
       return null;
     }

@@ -383,7 +383,7 @@ export function createConfigStore() {
       if (raw === undefined) return null;
       // The per-machine entry is a fallback for YOURS only. A team or skip chosen per machine, before choices were per repo, must not
       // apply in a repo that has none of its own: that is how a team picked in one clone was read into every other.
-      if (repo && own === undefined && !/"kind"\s*:\s*"yours"/.test(raw)) return null;
+      if (repo && own === undefined && topLevelKind(raw) !== 'yours') return null;
       try {
         const v = JSON.parse(raw) as { kind?: unknown; values?: unknown; labels?: unknown };
         if (v.kind === 'yours') return { kind: 'yours' };
@@ -703,6 +703,11 @@ function onDisk(scope: StoredScope | ActiveScope): Record<string, unknown> {
   if (scope.kind !== 'team') return scope;
   const pending = 'pending' in scope && scope.pending ? { pending: { previous: scope.pending.previous === null ? null : onDisk(scope.pending.previous) } } : {};
   return { ...scope, ...pending, kind: scope.narrow ? 'narrowed' : 'team' };
+}
+
+/** The top-level `kind` of a stored scope, or undefined when it is not JSON (a nested `previous.kind` is not it). */
+function topLevelKind(raw: string): unknown {
+  try { return (JSON.parse(raw) as { kind?: unknown } | null)?.kind; } catch { return undefined; }
 }
 
 /** A stored narrowing, or undefined when any part of it does not parse. */

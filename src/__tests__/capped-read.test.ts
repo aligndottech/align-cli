@@ -41,9 +41,15 @@ describe('cappedNote', () => {
     expect(note).toContain(`align connect --source ${source} --since 30d`);
     expect(cappedNote({ source, read: cap - 1 })).toBeUndefined();
   });
-  it('a limit the person gave is the cap that was hit', () => {
-    expect(cappedNote({ source: 'linear', read: 50, limit: 50 })).toContain('the cap is 50');
+  it('a limit the person gave is said as theirs: it stopped there, and there may be more', () => {
+    const note = cappedNote({ source: 'linear', read: 50, limit: 50 })!;
+    expect(note).toContain('stopped at the limit you gave (50)');
+    expect(note).toContain('there may be more');
+    expect(note).not.toMatch(/the most Linear reads|the cap is|has more than this/);
     expect(cappedNote({ source: 'linear', read: 49, limit: 50 })).toBeUndefined();
+  });
+  it('a limit at or above the ceiling is the connector cap, worded as before', () => {
+    expect(cappedNote({ source: 'linear', read: 2000, limit: 5000 })).toContain('the most Linear reads in one run (the cap is 2,000)');
   });
   it('a fetcher that did not reach the end says more is there, without naming a cap it did not hit', () => {
     const note = cappedNote({ source: 'linear', read: 300, complete: false });

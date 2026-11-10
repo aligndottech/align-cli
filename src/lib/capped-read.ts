@@ -17,12 +17,16 @@ const commas = (n: number): string => n.toLocaleString('en-US');
  */
 export function cappedNote(o: { source: string; read: number; limit?: number; complete?: boolean }): string | undefined {
   if (!WINDOWED.has(o.source)) return undefined;
-  const cap = o.limit ?? SYNC_CEILINGS[o.source as keyof typeof SYNC_CEILINGS];
+  const ceiling = SYNC_CEILINGS[o.source as keyof typeof SYNC_CEILINGS];
+  // A limit the person gave below the connector's ceiling is their cap, not the connector's.
+  const theirs = o.limit !== undefined && o.limit < ceiling;
+  const cap = theirs ? o.limit! : ceiling;
   const label = (CAPTURE_SOURCES as Record<string, { label: string }>)[o.source]?.label ?? o.source;
   const shorter = `To read a shorter, newer window instead: align connect --source ${o.source} --since 30d`;
   // Only where a sync resumes a cut window (CUT_KINDS_BY_SOURCE) does it read further back; elsewhere it re-reads the same newest items.
   const more = o.source in CUT_KINDS_BY_SOURCE ? `To read further back: align sync ${o.source}. ${shorter}` : shorter;
   const left = o.source in CUT_KINDS_BY_SOURCE ? '' : ' The oldest items were left out.';
+  if (o.read >= cap && theirs) return `Read ${commas(o.read)} items and stopped at the limit you gave (${commas(cap)}), so there may be more.${left} ${more}`;
   if (o.read >= cap) return `Read ${commas(o.read)} items, the most ${label} reads in one run (the cap is ${commas(cap)}), so ${label} has more than this.${left} ${more}`;
   // Not a claim that more exist: a permission or time skip also ends a read early.
   if (o.complete === false) return `Read ${commas(o.read)} items, but the read stopped before the end, so some items may not have been read.${left} ${more}`;

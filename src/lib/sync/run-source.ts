@@ -28,7 +28,7 @@ import {
 import { HOT_THREAD_DAYS, mergePartialThread, selectHotThreads } from './threads.js';
 import { ascendingByUpdated, finishRun, inheritedWindowSince, later, newestUpdated, nextWindow, PERSISTENT_HOLE_RUNS, plausible } from './window.js';
 
-export type SourceState = SyncStatus | 'locked' | 'backfill_running' | 'recent' | 'not_connected' | 'manual';
+export type SourceState = SyncStatus | 'locked' | 'backfill_running' | 'recent' | 'not_connected' | 'manual' | 'skipped';
 
 export interface SourceOutcome {
   source: string;
@@ -144,7 +144,7 @@ async function run(source: string, tokens: Record<string, string>, env: SyncEnv,
   // A source that must not be read until the person acts (Confluence with no spaces): no request, no row, the command to run.
   if (scope.blocked !== undefined) return none(source, 'manual', scope.blocked);
   // Skipped in this repo by the person: no request, no row, and how to undo it.
-  if (scope.skipped !== undefined) return none(source, 'manual', scope.skipped);
+  if (scope.skipped !== undefined) return none(source, 'skipped', scope.skipped);
   if (scope.activates && scope.disclosure !== undefined) {
     // An agent's waiting scope offered to a person: it is read only after an explicit Yes. Anything else reads what was in force.
     env.announce?.(source, scope.disclosure);
@@ -152,7 +152,7 @@ async function run(source: string, tokens: Record<string, string>, env: SyncEnv,
     if (yes) env.markDisclosed?.(source, scope.scopeKey);
     else scope = await env.scopeOf(source, { trigger: 'background' });
     if (scope.blocked !== undefined) return none(source, 'manual', scope.blocked);
-    if (scope.skipped !== undefined) return none(source, 'manual', scope.skipped);
+    if (scope.skipped !== undefined) return none(source, 'skipped', scope.skipped);
   } else if (scope.disclosure !== undefined && env.announce) {
     env.announce(source, scope.disclosure);
     env.markDisclosed?.(source, scope.scopeKey);

@@ -109,6 +109,15 @@ describe('a run under a scope', () => {
     expect(renderOutcome(out)[0]).toContain('Confluence: Confluence reads only the spaces you choose');
   });
 
+  it('a source skipped in this repo has its own state, reads nothing, and says how to undo it', async () => {
+    h.env.scopeOf = async () => ({ scopeKey: 'yours', scope: 'yours', skipped: 'Linear is skipped in this repo, so nothing was read. To read it: align connect --source linear' });
+    h.script({ items: [] });
+    const out = await syncSource('linear', h.env);
+    expect(out).toMatchObject({ state: 'skipped', read: 0 });
+    expect(h.fetchCalls).toHaveLength(0);
+    expect(renderOutcome(out)[0]).toContain('align connect --source linear');
+  });
+
   it('the scope note is part of the outcome and is printed', async () => {
     h.env.scopeOf = async () => ({ scopeKey: 'yours', scope: 'yours', note: 'Your GitHub token cannot see o/r, so only items you are involved in were imported. Reconnect with repo access: align connect github' });
     h.script({ items: [] });

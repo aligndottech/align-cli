@@ -72,6 +72,14 @@ describe('scope is stored per repo', () => {
     expect(configScopeStore(cfg, () => null).getScope('linear')).toEqual(TEAM);
   });
 
+  it('a per-machine pending team whose previous choice was yours is not a yours fallback (only the top-level kind counts)', () => {
+    cfg.setConnectorScope('local', 'linear', { ...TEAM, pending: { previous: { kind: 'yours' } } });
+    expect(configScopeStore(cfg, () => B).getScope('linear')).toBeNull();
+    // Positive control: the same shape with a top-level yours does fall back.
+    cfg.setConnectorScope('local', 'jira', { kind: 'yours' });
+    expect(configScopeStore(cfg, () => B).getScope('jira')).toEqual({ kind: 'yours' });
+  });
+
   it('skip is never stored without a repo identity (it would switch the source off everywhere)', () => {
     expect(() => configScopeStore(cfg, () => null).saveScope('linear', { kind: 'skip' })).toThrow(/repo/);
     expect(cfg.getConnectorScope('local', 'linear')).toBeNull();

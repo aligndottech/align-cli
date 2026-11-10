@@ -1135,7 +1135,8 @@ export async function connectLocalSources(o: ConnectLocalSourcesOptions): Promis
       if (fetched.report.skippedInRepo) {
         // Chosen: nothing was read, so there is no capture line and no count to print. The token is still saved: the source is connected.
         config.saveConnectorFields('local', source.id, tokens);
-        spinner.stop(`Skipped ${source.label} in this repo. To read it: align connect --source ${source.id}`);
+        // The spinner has not started yet (startSpinner runs only when a fetch begins), so stop() would print nothing: say it directly.
+        if (!quiet) p.log.info(`Skipped ${source.label} in this repo. To read it: align connect --source ${source.id}`);
         results.push({ id: source.id, label: source.label, found: 0, imported: 0 });
         continue;
       }
