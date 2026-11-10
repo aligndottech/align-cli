@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.72.0](https://github.com/aligndottech/align-cli/compare/cli-v0.71.0...cli-v0.72.0) (2026-11-10)
+
+
+### Features
+
+* **brand:** a three-row text header in place of the pixel A ([#541](https://github.com/aligndottech/align-cli/issues/541)) ([7f8cb44](https://github.com/aligndottech/align-cli/commit/7f8cb44644a7b0e26867d865914862add3d4aa6d))
+
 ## [0.71.0](https://github.com/aligndottech/align-cli/compare/cli-v0.70.0...cli-v0.71.0) (2026-11-10)
 
 
