@@ -1,22 +1,15 @@
 /**
  * Align brand rendering for the terminal.
  *
- * The mark is a small 'A' glyph, not the vector Align mark: a deliberate
- * brand-direction change, not a correction of the prior chevron art. It went through
- * two mascot attempts first - a robot head, then an alien head -
- * both of which Tom read as a skull on sight, in the robot's case through two
- * different eye treatments (background-void eyes, then filled teal eyes: the
- * shape - two separate bilateral marks - was the cue, not the colour). A plain
- * geometric 'A' sidesteps the whole class of problem by not having a face to misread.
- * It is authored at terminal resolution using only block and half-block glyphs - no
- * shading characters (▓▒░), which read as dithered noise rather than a crisp
- * silhouette at this size, and no quadrant characters, which were tried for the
- * original triangular mark in 0.26.2 and render blurry and inset in many terminal
- * fonts.
+ * The header is text, not pixel art: a teal triangle, the name and version, then the
+ * tagline, three rows in all, the way Claude Code and Codex open. Tom, 10 Nov 2026: the
+ * 7-row block 'A' looked bad beside them. Before that the CLI went through a chevron,
+ * a robot head and an alien head (both read as skulls), and that block 'A'. Every pixel
+ * version failed the same way: a terminal cell is too coarse to draw a logo, and a font
+ * glyph renders sharp in every terminal. U+25B2 is the A's silhouette.
  *
- * On a dark terminal the navy strokes are rendered WHITE, following the brand pack's
- * own knockout variant (F 4 R): navy on a dark background is invisible, which is why
- * that variant exists. The teal stays teal in both, as it does in the artwork.
+ * On a dark terminal navy text is rendered WHITE, following the brand pack's knockout
+ * variant (F 4 R): navy on a dark background is invisible. Teal stays teal on both.
  */
 
 export const BRAND = {
@@ -33,8 +26,8 @@ const TEAL_256 = 79;
 const NAVY_256 = 24;
 const WHITE_256 = 231;
 
-export const LOGO_WIDTH = 10;
-export const LOGO_ROWS = 7;
+/** The mark: one glyph, in brand teal. */
+export const MARK = '▲';
 
 /**
  * The live positioning line, taken from align-frontend's hero (src/lib/seo.ts).
@@ -52,74 +45,15 @@ export const TAGLINE_LINES = [
  */
 export const TAGLINE_ACCENT = "don't know the company.";
 
-/**
- * The 'A' mark: an apex that widens into a triangle, a full-width teal crossbar, and
- * two legs with an open counter between them - a plain geometric letterform, chosen
- * specifically because it has no face and so nothing on it can be misread
- * as eyes. Tom: "kinda look like A or rocket" - the crossbar reads as a fuel-line
- * stripe and the legs as fins/landing legs, which is a fair reading and not a
- * contradiction of the brief.
- *
- * Built from a 5-column LEFT HALF mirrored into the full 10-column row
- * (`half + reverse(half)`), so left/right symmetry holds by construction instead of
- * by eye - the original (20-wide) triangular mark's hand-balanced string got four
- * rows wrong before this technique was adopted.
- *
- * A half-block terminal cell packs two pixel-rows into one glyph, and can only carry
- * ONE colour: whichever pixel-row is present sets both the glyph (█/▀/▄) and the
- * colour. So no cell may have a non-background colour on both its top and bottom
- * pixel-row where those two colours differ. Every row-pair here uses an identical
- * half pattern for both its pixel-rows, so the shape is clash-free without a
- * hand-patched exception the way the original triangular mark's feet row needed one.
- *
- * Row budget: `banner()` places `ALIGN®`, the two tagline lines, and the version at
- * `right[textTop]`..`right[textTop + 2]` and `right[textTop + 4]`; brand.test.ts
- * asserts the two tagline rows are never teal from the mark, only from text. At
- * `LOGO_ROWS=7` (`textTop=1`) that's rows 2 and 3 - this mark keeps its only teal
- * (the apex tip and the crossbar) on rows 0 and 4, both outside that pair. A future
- * resize must keep every teal cell off whichever rows map to the tagline.
- *
- * GLYPHS holds the shape, COLOURS names each cell's brand colour ('N' navy/white-
- * knockout, 'T' teal, ' ' none); the two must agree cell for cell (space iff space).
- * Both constants are private, so brand.test.ts checks this through the public
- * `logoLines` output instead of importing them directly: every visible glyph
- * character must carry a colour escape, and every space must carry none.
- */
-const GLYPHS: readonly string[] = [
-  '    ██    ',
-  '   ████   ',
-  '  ██████  ',
-  ' ████████ ',
-  '██████████',
-  '██      ██',
-  '█        █',
-];
-
-const COLOURS: readonly string[] = [
-  '    TT    ',
-  '   NNNN   ',
-  '  NNNNNN  ',
-  ' NNNNNNNN ',
-  'TTTTTTTTTT',
-  'NN      NN',
-  'N        N',
-];
-
-/** Which brand colour the mark's strokes take. The pack ships a teal-only variant
- * (F 2 R) as well as the white knockout (F 4 R), so both are on-brand.
- *
- * A third 'solid' style used to swap in a filled sprite. The mark is drawn solid now, so
- * it had nothing left to offer and was removed rather than kept as a synonym. */
-export type MarkStyle = 'white' | 'teal';
+/** The setup prompts draw "│  " down the left, so their text starts at column 3. */
+const INDENT = '   ';
 
 export interface RenderOptions {
-  /** Mark styling; defaults to 'white'. */
-  style?: MarkStyle;
   /** Emit ANSI at all. Defaults to "stdout is a TTY and NO_COLOR is unset". */
   color?: boolean;
   /** Use 24-bit colour. Defaults to reading COLORTERM. */
   truecolor?: boolean;
-  /** Dark terminal background, which decides whether the mark is white or navy. */
+  /** Dark terminal background, which decides whether text is white or navy. */
   dark?: boolean;
 }
 
@@ -140,7 +74,7 @@ function resolveTruecolor(o: RenderOptions): boolean {
 function resolveDark(o: RenderOptions): boolean {
   if (typeof o.dark === 'boolean') return o.dark;
   // COLORFGBG is "fg;bg"; a bg of 0-6 or 8 means a dark background. Absent on most
-  // terminals, and dark is the safer default: a white mark on an unexpectedly light
+  // terminals, and dark is the safer default: white text on an unexpectedly light
   // background is faint, whereas navy on an unexpectedly dark one is unreadable.
   const fgbg = process.env['COLORFGBG'];
   if (fgbg) {
@@ -160,39 +94,10 @@ function bg(rgb: [number, number, number], c256: number, truecolor: boolean): st
 
 const RESET = '\x1b[0m';
 
-/** The mark, one string per terminal row, all exactly LOGO_WIDTH cells wide. */
-export function logoLines(opts: RenderOptions = {}): string[] {
-  const color = resolveColor(opts);
-  const truecolor = resolveTruecolor(opts);
-  const style = opts.style ?? 'white';
-  const markRgb = resolveDark(opts) ? WHITE_RGB : NAVY_RGB;
-  const mark256 = resolveDark(opts) ? WHITE_256 : NAVY_256;
-  const strokeRgb = style === 'white' ? markRgb : TEAL_RGB;
-  const stroke256 = style === 'white' ? mark256 : TEAL_256;
-
-  return GLYPHS.map((row, y) => {
-    if (!color) return row;
-    const mask = COLOURS[y] ?? '';
-    let out = '';
-    for (let x = 0; x < row.length; x++) {
-      const ch = row[x] as string;
-      const c = mask[x];
-      if (c === 'N') out += `${fg(strokeRgb, stroke256, truecolor)}${ch}${RESET}`;
-      else if (c === 'T') out += `${fg(TEAL_RGB, TEAL_256, truecolor)}${ch}${RESET}`;
-      else out += ch;
-    }
-    return out;
-  });
-}
-
 export interface BannerOptions extends RenderOptions {
   version: string;
 }
 
-/**
- * The full lockup: the mark on the left, wordmark and tagline to its right, so the
- * whole thing is only as tall as the mark (LOGO_ROWS) rather than stacking.
- */
 /** Split the second headline line into its plain lead and its accented tail. */
 function splitAccent(line: string): [string, string] {
   const i = line.indexOf(TAGLINE_ACCENT);
@@ -201,38 +106,29 @@ function splitAccent(line: string): [string, string] {
   return i < 0 ? ['', line] : [line.slice(0, i), line.slice(i)];
 }
 
+/** The header: mark, name and version on one row, the tagline on the two below. */
 export function banner(opts: BannerOptions): string {
   const color = resolveColor(opts);
   const truecolor = resolveTruecolor(opts);
   const dim = color ? '\x1b[2m' : '';
   const bold = color ? '\x1b[1m' : '';
-  const tealFg = color ? fg(TEAL_RGB, TEAL_256, truecolor) : '';
-  // The headline takes the mark colour, which is white on dark and navy on light,
-  // so it reads against whichever ground the terminal has.
-  const headline = color
-    ? fg(resolveDark(opts) ? WHITE_RGB : NAVY_RGB, resolveDark(opts) ? WHITE_256 : NAVY_256, truecolor)
-    : '';
+  const teal = color ? fg(TEAL_RGB, TEAL_256, truecolor) : '';
+  // The headline takes the heading colour, white on dark and navy on light, so it reads
+  // against whichever ground the terminal has.
+  const dark = resolveDark(opts);
+  const headline = color ? fg(dark ? WHITE_RGB : NAVY_RGB, dark ? WHITE_256 : NAVY_256, truecolor) : '';
   const reset = color ? RESET : '';
-
-  const right: string[] = new Array(LOGO_ROWS).fill('');
-  // Registered, not TM: Align is a registered trademark.
-  // Centre the text block against the mark's height instead of pinning rows: the
-  // sprite has changed height three times and hardcoded indices drifted each time.
-  const textTop = Math.max(0, Math.floor((LOGO_ROWS - 4) / 2));
-  right[textTop] = `${bold}ALIGN®${reset}`;
-  // Match the site: the headline is the heading colour and only the accent span is teal.
-  right[textTop + 1] = `${headline}${TAGLINE_LINES[0]}${reset}`;
   const [lead, accent] = splitAccent(TAGLINE_LINES[1]);
-  right[textTop + 2] = `${headline}${lead}${reset}${tealFg}${accent}${reset}`;
-  // Version only. A graph label ('local graph', 'personal cloud') cannot go here:
-  // both callers print the banner BEFORE they know which graph is in play, so any
-  // such line would be a guess, and guessing 'local' at a cloud user implies their
-  // data stayed on the machine when it did not.
-  const meta = `v${opts.version}`;
-  right[textTop + 4] = `${dim}${meta}${reset}`;
 
-  const mark = logoLines(opts);
-  return mark.map((m, i) => (right[i] ? `${m}   ${right[i]}` : m)).join('\n');
+  // Registered, not TM: Align is a registered trademark. Version only: a graph label
+  // ('local graph', 'personal cloud') cannot go here, because both callers print this
+  // BEFORE they know which graph is in play, and guessing 'local' at a cloud user
+  // implies their data stayed on the machine when it did not.
+  return [
+    `${teal}${MARK}${reset}  ${bold}Align®${reset} ${dim}v${opts.version}${reset}`,
+    `${INDENT}${headline}${TAGLINE_LINES[0]}${reset}`,
+    `${INDENT}${headline}${lead}${reset}${teal}${accent}${reset}`,
+  ].join('\n');
 }
 
 /** One consistent intro chip for every command, in brand teal. */
@@ -251,6 +147,6 @@ export function commandIntro(label: string, opts: RenderOptions = {}): string {
  */
 export function printBanner(opts: BannerOptions): boolean {
   if (!process.stdout.isTTY) return false;
-  process.stdout.write(`${banner(opts)  }\n`);
+  process.stdout.write(`${banner(opts)}\n`);
   return true;
 }
