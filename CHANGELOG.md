@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.72.3](https://github.com/aligndottech/align-cli/compare/cli-v0.72.2...cli-v0.72.3) (2026-11-10)
+
+
+### Bug Fixes
+
+* **test:** give the mcp routing test's config fake the team-destination methods ([#550](https://github.com/aligndottech/align-cli/issues/550)) ([ca0f736](https://github.com/aligndottech/align-cli/commit/ca0f736666d60099950e191739db2a1ef3c22949))
+
 ## [0.72.2](https://github.com/aligndottech/align-cli/compare/cli-v0.72.1...cli-v0.72.2) (2026-11-10)
 
 
