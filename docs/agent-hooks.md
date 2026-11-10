@@ -14,15 +14,21 @@ file got written.
 
 ## What each host can actually do
 
-"Can block" below always means the same narrow thing: opt-in via `--block-on-critical`, only
+"Can block" below means the narrow thing: opt-in via `--block-on-critical`, only
 on a `critical` conflict, and only on a **retry** of a change a background adjudicator already
-judged. See "Blocking is opt-in, everywhere" for why.
+judged. One other deny exists, a ratified deterministic rule, and it is not opt-in. See
+"Blocking is opt-in, everywhere" for both.
 
 Two kinds of file appear in the second column. A **project** file lives in the repo you ran
 `align` in, is committed, and covers the whole team. A **user** file lives under your
 home directory, is written by `align` / `align mcp --setup` next to that host's MCP
-entry, covers every project on this machine, and comes out again with `align mcp --remove`
-. The vendor docs for each host are linked from the row.
+entry, covers every project on this machine, and comes out again with `align mcp --remove`.
+The vendor docs for each host are linked from the row.
+
+Setup lists every file first, with user-wide files under their own heading, and asks before
+writing. With no terminal it writes nothing unless you pass `--approve`. `align use --undo` takes
+back what align wrote in the project and in the Codex and Cursor files. `align mcp --remove` takes
+out the agent entries and the user hook files, and does not touch project files.
 
 | Host | File `align` writes | Pre-edit check | Non-blocking context to the model | Can block | Payload fixture |
 |---|---|---|---|---|---|
@@ -120,7 +126,7 @@ your search space is right").
 |---|---|---|---|---|
 | **Claude Code** | yes - `SessionStart` | yes - `hookSpecificOutput.additionalContext` | **yes** | code.claude.com/docs/en/hooks, fetched directly, 2026-09-09 |
 | **Gemini CLI** | yes - `SessionStart` | likely, but the exact shape is disputed across Gemini's own docs pages (see below) | no - schema unresolved | geminicli.com/docs/hooks/reference/ and /writing-hooks/ |
-| **Codex CLI** | yes - `SessionStart`, `UserPromptSubmit` | yes per docs - `hookSpecificOutput.additionalContext`, same shape as Claude Code | no - needs a new TOML-safe config writer this repo doesn't have yet | learn.chatgpt.com/docs/hooks (redirected from developers.openai.com/codex/hooks) |
+| **Codex CLI** | yes - `SessionStart`, `UserPromptSubmit` | yes per docs - `hookSpecificOutput.additionalContext`, same shape as Claude Code | no - no Codex session writer exists yet | learn.chatgpt.com/docs/hooks (redirected from developers.openai.com/codex/hooks) |
 | **pi** | `session_start` exists but is side-effect only (cannot inject); `before_agent_start` fires per-turn and CAN inject a message / modify the system prompt | only per-turn, not per-session | no - see "pi: real, but per-turn" below | github.com/earendil-works/pi, `packages/coding-agent/docs/extensions.md`, fetched raw |
 | **Cursor** | yes, documented - `sessionStart` + `additional_context` | documented yes, but see "Cursor: documented, unreliable" below | no | cursor.com/docs/hooks (official) + 3 open forum bug reports, Sep 2026 |
 | **OpenCode** | **no** - verified absent | - | no | opencode.ai/docs/plugins/, full hook list read; only `experimental.session.compacting` injects text, and only into the compaction prompt, not a live turn |
@@ -177,12 +183,12 @@ learn.chatgpt.com/docs/hooks (the docs.openai.com and github.com/openai/codex/do
 copies did not surface the hooks reference directly - this is one source, not
 cross-confirmed). This is genuinely promising and contradicts nothing this file already says
 about Codex: the pre-edit row in the table above is about `PreToolUse` on
-`apply_patch`, which is tool interception, not session lifecycle. What is missing is infrastructure, not evidence: Codex reads
-hooks from `hooks.json` or an inline `[hooks]` table in `.codex/config.toml`, this repo has no
-TOML parser dependency today (`grep -n "toml" package.json` - no hits), and a hand-rolled TOML
-merge is exactly the kind of "looks fine, corrupts someone's file" risk `writeClaudeCodeHook`'s
-JSON-parse-or-throw guard exists to avoid for JSON. A real follow-up, not a shrug: add a TOML
-dependency, write `writeCodexSessionHook` following the same merge-and-preserve shape as the
+`apply_patch`, which is tool interception, not session lifecycle. What is missing is a writer, not evidence: Codex reads
+hooks from `hooks.json` or an inline `[hooks]` table in `.codex/config.toml`. The repo now depends on
+`smol-toml`, so a TOML parser is no longer the blocker, but no Codex SessionStart writer exists
+yet. A hand-rolled TOML merge is exactly the kind of "looks fine, corrupts someone's file" risk `writeClaudeCodeHook`'s
+JSON-parse-or-throw guard exists to avoid for JSON. A real follow-up, not a shrug: write
+`writeCodexSessionHook` on top of `smol-toml`, following the same merge-and-preserve shape as the
 JSON writers, with the same "throw on unparseable existing config" guard.
 
 ### pi: real, but per-turn, not per-session
@@ -282,9 +288,12 @@ without saying what the caller does with it.
 
 ## Blocking is opt-in, everywhere
 
-Default behaviour on every host is: surface the finding, never deny the edit. `--block-on-critical`
-is the only path that denies, and only on a `critical` conflict, and never after the edit has
-already landed.
+Default behaviour on every host is: surface the finding, never deny the edit on a model's
+judgement. Two things can deny. `--block-on-critical` denies a retry, only on a `critical`
+conflict, and never after the edit has already landed. A ratified deterministic rule (an email
+address, a card number, a known credential format, once your team has accepted the matching
+starter rule) denies the first attempt with no flag, because a person ratified it and a computed
+match proves it. See [check.md](check.md).
 
 How a deny can happen at all: the hook asks for a verdict itself, but a model-backed one usually
 does not fit its window. With the flag set, a hook whose retrieval found related decisions, and

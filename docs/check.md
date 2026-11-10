@@ -3,9 +3,12 @@
 Check your current changes against the decision graph.
 
 ```bash
-align check          # the staged diff (falls back to the HEAD diff when nothing is staged)
+align check          # the staged diff, else the HEAD diff, else (clean branch) the branch vs its base
 align check --all    # the full working-tree diff vs HEAD
 ```
+
+On a clean branch with nothing staged or uncommitted, `align check` reviews the branch against its
+detected base and says so. That fallback does not apply under `--ci` or `--hook`.
 
 ## Exit codes
 
@@ -25,9 +28,10 @@ repository also exits `1`.
 |------|----------|
 | (default) | Human-readable output. Exits `1` on any conflict. |
 | `--hook` | Pre-commit mode. Silent when there's no context, only fails on **critical** conflicts. |
-| `--advisory` | Agent hook mode. **Always exits 0**, emits a verdict when one arrives in time (a conflict names the decision and its link), the related decisions with a "could not check in time" line when it does not, or an explicit "could not check" notice, in the host's hook shape (<code>--format claude&#124;gemini&#124;pi&#124;opencode&#124;text</code>). Fail-open. |
+| `--advisory` | Agent hook mode. **Always exits 0**, emits a verdict when one arrives in time (a conflict names the decision and its link), the related decisions with a "could not check in time" line when it does not, or an explicit "could not check" notice, in the host's hook shape (<code>--format claude&#124;codex&#124;cursor&#124;copilot&#124;gemini&#124;pi&#124;opencode&#124;text</code>). Fail-open. |
 | `--advisory --block-on-critical` | Opt-in deferred adjudication. See below. |
 | `--ci` | JSON to stdout, and the exit contract above. **Pass `--base`** or there is nothing to diff. |
+| `--json` | Same output and exit codes as `--ci`. |
 
 `--advisory` detects pre versus post from the hook payload on stdin.
 
@@ -42,8 +46,9 @@ a ratified rule is a person saying "enforce this". The message names the rule an
 thing found, never the value. No ratified rule means no deny. This deny does not need `--block-on-critical`: it rests on a rule a person ratified plus a computed match, not on a model's judgement. If the user confirms an edit is intended, set `ALIGN_RULES_ACK=1` for that session.
 
 The tenant's rules are fetched only when the text matches, so an ordinary edit costs no extra
-request. If they cannot be read (offline, local mode, timeout) the edit proceeds and stderr says
-the check was skipped. Semantic parts of a rule (a name in free text, a pasted contract) are not
+request. If they cannot be read (offline, timeout) the edit proceeds and stderr says
+the check was skipped. In local mode there are no starter rules, so nothing is checked and
+nothing is printed. Semantic parts of a rule (a name in free text, a pasted contract) are not
 matched here. Those wait for `--hook`, the git pre-commit check, which refuses a commit on a
 critical conflict, lets a warning through, and never blocks when the check could not run.
 

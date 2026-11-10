@@ -23,6 +23,9 @@ the only Windows values it recognises are the ones Git Bash, MSYS and Cygwin rep
 has no `sh` to pipe into, so **that line does not run in PowerShell at all**. Use npm below, or
 download the file by hand.
 
+It installs to `/usr/local/bin` if that is writable, else `~/.local/bin`. Set `ALIGN_INSTALL_DIR`
+to choose another directory. It tells you if the directory is not on your `PATH`.
+
 ## npm
 
 ```bash
@@ -58,7 +61,7 @@ on that platform, and it tells you so rather than guessing.
 ## After installing
 
 ```bash
-align                # set up, then see your graph and what to do next
+align                # set up, then open Align's agent on your graph
 align mcp --setup    # find your AI clients, then wire the ones you pick
 ```
 

@@ -178,10 +178,13 @@ picks one. [Setting one up](docs/configuration.md#ai-provider).
 
 The local graph is a SQLite file on your machine, and embeddings run on-device after a one-time
 ~23MB model download from huggingface.co. In local-only mode your decisions and code never go to
-Align. If you set an AI key or run Ollama, `align ask` sends your question plus the titles and
-summaries of the decisions it found, and `align check` sends up to 2,000 characters of the proposed
-change, to your provider and not to Align (the MCP check does the same). Ollama counts as yours, wherever
-`OLLAMA_HOST` points. Team graphs are hosted by Align, or self-hosted,
+Align, unless you send them yourself with `align share`. The first run in a github.com repo reads
+that repo's recent merged pull requests from api.github.com without asking, and tools you connect
+are read with your own tokens. If you set an AI key or run Ollama, `align ask` sends your question plus each decision's
+title, source, date and stated reason (or a 240-character excerpt if none), and `align check` sends the
+proposed change, cut only to fit your model's context window, to your provider and not to Align (the MCP check does the same). Ollama counts as yours, wherever
+`OLLAMA_HOST` points. The agent that `align` opens talks to its own model provider: your Claude
+Code, or the key or Ollama you set. Team graphs are hosted by Align, or self-hosted,
 so the team can share them.
 
 Local-only mode sends anonymous usage counts. It tells you once before the first one and sends

@@ -34,6 +34,7 @@ and there is a section for them below.
 | `align_get_decision_rationale` | Why one decision was made, from its own record |
 | `align_get_topic_timeline` | Team graph only. How the decisions on one topic changed over time |
 | `align_get_decision_timeline` | Team graph only. One decision's history: what it replaced and what replaced it |
+| `align_stale_code` | Code in the current repo still built on a decision a later one replaced, with line ranges per file. Confirmed links only, unless `include_ai` is set. Run it inside the repo; needs full git history |
 | `align_share` | Local only. Asks to share one ratified decision with your team. It returns an approval link for you to open; the agent cannot approve it |
 | `align_share_status` | Local only. Finishes a share once you have approved it |
 
@@ -60,8 +61,9 @@ config that fails for every macOS and Linux checkout.
 spawn the bare `align` it contains, so run `align mcp --setup` as well - the per-machine entry it
 writes is wrapped. `align` says so on Windows when it finds no global agent config.
 
-**Claude Desktop** - `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
-or `~/.config/Claude/claude_desktop_config.json` (Linux):
+**Claude Desktop** - `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS),
+`~/.config/Claude/claude_desktop_config.json` (Linux) or
+`%APPDATA%\Claude\claude_desktop_config.json` (Windows):
 
 ```json
 {
@@ -114,8 +116,7 @@ Run `align mcp --setup --env local` instead and the args are `["mcp", "--env", "
 Reload the VS Code window afterwards, then open Copilot Chat in agent mode and look for
 `align` in its tools picker.
 
-**On Windows the entry is wrapped, and `align mcp --setup` writes it that way for you**
-. An npm global install puts `align.cmd` on your `PATH`, and a Windows process spawn
+**On Windows the entry is wrapped, and `align mcp --setup` writes it that way for you.** An npm global install puts `align.cmd` on your `PATH`, and a Windows process spawn
 resolves a `.cmd` only through a shell, so `"command": "align"` names something VS Code cannot
 launch and you get `ENOENT` against a file Align wrote. `cmd` is a real executable, so this
 starts whether or not the client uses a shell of its own:
@@ -147,9 +148,46 @@ then restart pi. `align` writes `~/.pi/agent/mcp.json`, or `$PI_CODING_AGENT_DIR
 }
 ```
 
+pi blocks a repo's MCP servers until you trust the project, and Align's entry counts as one.
+Accept pi's trust prompt or Align's tools won't load.
+
 `directTools` matters. The adapter is lazy by default and hides every server behind a single
 proxy tool the agent has to search first, which defeats the "check alignment *before* the edit"
 instruction.
+
+**Windsurf** - `~/.codeium/windsurf/mcp_config.json`, same format as Claude Code above.
+
+**Gemini CLI** - `~/.gemini/settings.json`, same `mcpServers` format as Claude Code above.
+
+**Zed** - `~/.config/zed/settings.json`. The key is `context_servers`, and the entry needs
+`"source": "custom"` or Zed drops it:
+
+```json
+{
+  "context_servers": {
+    "align": { "source": "custom", "command": "align", "args": ["mcp"] }
+  }
+}
+```
+
+**Codex** - `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.align]
+command = "align"
+args = ["mcp"]
+```
+
+**OpenCode** - `~/.config/opencode/opencode.json` (under `$XDG_CONFIG_HOME` if you set it). The
+key is `mcp`, and the command and its arguments are one array:
+
+```json
+{
+  "mcp": {
+    "align": { "type": "local", "command": ["align", "mcp"] }
+  }
+}
+```
 
 ## JetBrains IDEs: Rider, IntelliJ IDEA and the rest
 

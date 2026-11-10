@@ -7,14 +7,21 @@ provider** - there is no Align-managed fallback, in either cloud or local mode. 
 required: without one, `align ask` prints a ranked list of matching decisions instead of a
 synthesised paragraph.
 
-**Inside a coding agent you don't need a key at all** - the agent writes the answers from what
-the MCP tools return. A provider only matters for `align ask` in the terminal. Setup does not
-ask for one.
+**Inside Claude Code, Cursor, Codex and the other agents Align connects to, you don't need a
+key** - the agent writes the answers from what the MCP tools return. A provider matters for
+`align ask` in the terminal, for `align check` outside an agent, and for Align's own agent (the
+one bare `align` opens). That agent runs on a key or Ollama, or on your own Claude Code if you
+have it.
+
+Setup asks once for a model, only when none is available and only on a terminal. You can skip
+it. It then asks whether to work out, in the background, which decisions replaced which, using
+that model.
 
 The first time `align ask` has no provider at all (no env key, no saved key, no running Ollama)
 on a terminal, it offers one before answering:
 
-- **Use a key I already have** - Anthropic, OpenAI, OpenRouter, Gemini, Groq, Mistral or xAI.
+- **Use a key I already have** - any provider named under (2). Keys
+  already exported in your shell are listed first.
   The key is pasted into a masked prompt, saved in the CLI's config file (mode 0600, beside your
   connector tokens) and never printed. An OpenRouter key is used through the OpenAI-compatible
   slot below, with `https://openrouter.ai/api/v1` and `openai/gpt-4o-mini` as the defaults.
@@ -67,7 +74,8 @@ screen. `align ai --provider <id>` also warns when the chosen provider has no ke
 ### The default order
 
 Exported credentials first (an `ALIGN_LLM_BASE_URL` endpoint, then the named keys in the order
-under (2)), then saved ones in the same order, then Ollama. Named providers are tried in the
+under (2), then an exported `OPENROUTER_API_KEY`), then saved ones (a saved OpenRouter key, then
+the named keys in the same order), then Ollama. Named providers are tried in the
 order listed under (2) below, so with both GROQ_API_KEY and
 GEMINI_API_KEY set, Groq answers and Gemini is only reached if Groq is unavailable (a bad key,
 say - not on a plain rate limit, see the warning under (2)).
@@ -120,10 +128,10 @@ straight away, as before.
 | `minimax` | `MINIMAX_API_KEY` (Anthropic-style API) | `MiniMax-M2.7` |
 | `kimi-coding` | `KIMI_API_KEY` (Anthropic-style API) | `kimi-for-coding` |
 | `vercel-ai-gateway` | `AI_GATEWAY_API_KEY` (Anthropic-style API) | `openai/gpt-4o-mini` |
+| `openrouter` | `OPENROUTER_API_KEY` (model: `ALIGN_OPENROUTER_MODEL`) | `openai/gpt-4o-mini` |
 
 The three Anthropic-style entries send the key as Anthropic's `x-api-key` header. That each of
 them accepts it has not been checked against a live endpoint.
-| `openrouter` | `OPENROUTER_API_KEY` (model: `ALIGN_OPENROUTER_MODEL`) | `openai/gpt-4o-mini` |
 
 Cloudflare Workers AI and Azure OpenAI need an account id or a per-resource endpoint, so they
 have no fixed entry: point `ALIGN_LLM_BASE_URL` at them instead.
@@ -146,7 +154,8 @@ have no fixed entry: point `ALIGN_LLM_BASE_URL` at them instead.
 `OLLAMA_HOST`. It needs a general-purpose model from a recognised family installed: `llama`,
 `mistral`, `gemma`, `phi`, `qwen` or `deepseek-r`. The installed version is read from Ollama
 itself, so a new release of any of those works the day it ships. Families are tried in the order
-above, and within the first one you have installed, the newest wins.
+`qwen`, `llama`, `mistral`, `gemma`, `phi`, `deepseek-r`. Within the first one you have installed,
+the newest version wins, then the larger model, then the name.
 
 Ollama won't answer from a model outside those families, or from one tuned for a different job
 (any tag containing `coder`, `code`, `math`, `embed`, `guard`, `vision`, `uncensored` or
@@ -174,6 +183,7 @@ command. `--env` belongs after the command name.
 ```bash
 align env set preview             # stick to preview for this machine
 align env get                     # show current default
+align env list                    # every environment and team destination (see align join)
 align search "auth" --env local   # one-off override on any command
 ```
 
@@ -189,7 +199,7 @@ align search "auth" --env local   # one-off override on any command
 | `ALIGN_ENV` | Default environment (`prod`, `preview`, `local`) |
 | `ALIGN_GATEWAY_URL` | Override gateway URL (self-hosted) |
 | `ALIGN_TENANT_ID` | Override tenant ID (self-hosted / CI). Against `preview` or `prod` it needs `ALIGN_TOKEN` set too: a tenant on its own authenticates nothing, and the CLI refuses rather than sending it |
-| `ALIGN_TELEMETRY` | Set it to anything other than `1`/`true`/`yes`/`on` to send no usage events at all (empty counts as unset, so leaves them on). Cloud mode reports one `cli.command` event per invocation to the same gateway - the command name, nothing else. Local mode sends nothing either way |
+| `ALIGN_TELEMETRY` | Set it to anything other than `1`/`true`/`yes`/`on` to send no usage events at all (empty counts as unset, so leaves them on). `DO_NOT_TRACK=1` does the same. Local mode also sends anonymous usage counts by default, after a one-time notice in a terminal. [Telemetry](telemetry.md) lists every event and field |
 | `ALIGN_DEBUG` | Set to any value to print the full stack trace when the CLI crashes with an unexpected error |
 | `ANTHROPIC_API_KEY` | Anthropic API key for `align ask` synthesis |
 | `OPENAI_API_KEY` | OpenAI API key for `align ask` synthesis |
@@ -200,10 +210,13 @@ align search "auth" --env local   # one-off override on any command
 | `ALIGN_LLM_BASE_URL` | Any OpenAI-compatible endpoint. Outranks the named keys above |
 | `ALIGN_LLM_API_KEY` | Bearer token for `ALIGN_LLM_BASE_URL` |
 | `ALIGN_LLM_MODEL` | Model name for `ALIGN_LLM_BASE_URL` (default `gpt-4o-mini`) |
-| `ALIGN_LLM_PROVIDER` | The provider `align ask` tries first: `anthropic`, `openai`, `openrouter`, `gemini`, `groq`, `mistral`, `grok`, `custom` or `ollama`. Beats the one saved by `align ai` |
+| `ALIGN_LLM_PROVIDER` | The provider `align ask` tries first: any provider id on this page (`anthropic`, `openai`, `groq`, `deepseek` ...), `openrouter`, `custom` or `ollama`. Beats the one saved by `align ai` |
 | `ALIGN_LLM_TIMEOUT_MS` | How long to wait for a model. Defaults to 15s for a hosted API and 5 minutes for one on your own machine or network, because a large quantised model on CPU takes minutes and there is no cost pressure to give up early on hardware you own. Set it if even that is not enough |
 | `OLLAMA_HOST` | Ollama host (default `http://localhost:11434`). Your own machine by default; point it at a shared box and local relationship typing goes there instead |
 | `ALIGN_OLLAMA_MODEL` | Use this Ollama model, whatever family it's from |
+| `ALIGN_AGENT_MODEL` | The model Align's own agent uses, as `provider/model-id` (for example `anthropic/claude-sonnet-5-5`). The provider needs an API key; subscription sign-ins are refused |
+| `ALIGN_NO_SYNC` | Set to any value to stop the background refresh for one shell. It never starts in CI or with no terminal either |
+| `ALIGN_NO_LAUNCH` | Set to any value so bare `align` does not open an agent |
 | `ALIGN_INGEST_CONCURRENCY` | Concurrent ingest batch requests during imports (default `6`) |
 | `PI_CODING_AGENT_DIR` | Where `align mcp --setup` writes pi's `mcp.json`, if pi keeps its config somewhere non-standard |
 

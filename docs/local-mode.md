@@ -10,7 +10,9 @@
   for a new team, a call (`align share` with no login prints the booking link).
 - **Local-only** (`align --local`). **No account, and no Align servers.** The graph,
   embeddings and search all live in a SQLite database on your machine, and the CLI never sends
-  your decisions, your code, or any file content to us. It sends anonymous usage counts, and
+  your decisions, your code, or any file content to us. The one deliberate exception is
+  `align share`, which sends only what you choose to share with your team, after a preview and
+  your own yes. It sends anonymous usage counts, and
   tells you so once, before the first one; `align telemetry off` or `DO_NOT_TRACK=1` stops all
   of it. See Telemetry below, and [every field](telemetry.md).
 
@@ -21,20 +23,38 @@ start local and move to cloud later.
 
 Worth knowing before you point it at work content.
 
-- The embedding model downloads once from huggingface.co (~23MB), and the native runtime for your OS (npm install only, 10-18MB) once from a GitHub release, on the first import. Both are checked against SHA-256 values built into the CLI before they are kept, and cached under `$XDG_CACHE_HOME/align-cli` (`~/.cache/align-cli`, or `%LOCALAPPDATA%\align-cli` on Windows), never inside the install.
+- The embedding model downloads once from huggingface.co (~23MB), and the native runtime for your OS (npm install only, about 20MB to download and up to about 46MB unpacked) once from a GitHub release, on the first import. Both are checked against SHA-256 values built into the CLI before they are kept, and cached under `$XDG_CACHE_HOME/align-cli` (`~/.cache/align-cli`, or `%LOCALAPPDATA%\align-cli` on Windows), never inside the install.
+- **The first run in a repo whose origin is on github.com reads that repo's recent merged pull
+  requests** from api.github.com. It does not ask first. It needs no token: without one it reads
+  up to 300 PRs. If your `gh` login is found and GitHub confirms its token cannot write, Align
+  uses it and reads up to 1,000, with a 10 second limit overall. The repo's owner and name are in
+  that request to GitHub. Only PRs whose description states a reason are stored. Nothing goes to
+  Align.
 - `align connect <tool>` calls that tool's API, read-only, with the token you pasted. That's what
-  an import is. The data goes from your tool to your machine. None of it goes to Align.
-- **Only when an AI provider is available** (an API key in your environment, or a running
-  Ollama, which needs no key) three surfaces call **your own provider**:
-  - `align ask` sends your question plus the titles and summaries of the decisions it retrieved,
-    up to `--limit`, default 8.
-  - `align check` and the MCP tool `align_check_alignment` send up to 2,000 characters of the
-    proposed change, paired with one retrieved decision at a time.
+  an import is. The data goes from your tool to your machine. None of it goes to Align. Choosing
+  what to read (a Jira project, a Linear project, Confluence spaces, Notion pages, whether a
+  GitHub repo is public) makes read-only calls to the same APIs.
+- **After you connect a tool, Align re-reads it in the background** when you start `align`, with
+  the same saved token. It starts one refresh per source at most every 15 minutes, about 20 seconds
+  after launch, only in a terminal and never in CI. It says so once. `align sync --off` turns it
+  off, and so does `ALIGN_NO_SYNC`.
+- **Only when an AI provider is available** (an API key in your environment or saved by
+  `align ai`, a custom `ALIGN_LLM_BASE_URL` endpoint, or a running Ollama, which needs no key)
+  three surfaces call **your own provider**:
+  - `align ask` sends your question plus, for each decision it retrieved (up to `--limit`,
+    default 8), the title, source, date and the stated reason. If no reason is stated it sends a
+    240-character excerpt instead.
+  - `align check` and the MCP tool `align_check_alignment` send the proposed change, cut only to
+    fit your model's context window, paired with one retrieved decision at a time.
   - The editor hook never does by default. It's retrieval only, provider or no provider. Adding
     `--block-on-critical` to your hook line opts that hook into background adjudication on the
     same terms as `align check`, roughly once per edit where retrieval found something.
 - Ollama runs on your own machine by default, so those calls stay local, unless you've pointed
   `OLLAMA_HOST` at another box.
+- **Bare `align` opens a coding agent, and that agent talks to its own model provider.** It runs
+  either Align's engine on your key or Ollama, or your own Claude Code. What the agent reads and
+  writes in that session goes to that provider, not to Align. Typed relationships (below),
+  `align sync --classify` and `align local relink` also call your provider.
 - With no provider available at all, nothing goes to any AI provider. Retrieval is on-device, so
   the editor hook still surfaces related decisions, and nothing ever goes to Align. The network
   surface is then the one-time model download and whatever imports you run.
@@ -55,7 +75,9 @@ is listed on its own page, and a test keeps that page true.
   the CLI version, your OS on the first run, the command name (never its arguments), and on a
   handful of milestone pings (setup finished, an import finishing, an agent wired up or
   opened, the first useful answer) which milestone it was, plus a count and the agent's name
-  for a session import. Never code, decision text, or file, repo or org names.
+  for a session import, the agent's name when `align` opens it, and for each source a sync
+  finishes, the kind of source (such as `github`), how many items it stored, how it went and
+  what started it. Never code, decision text, or file, repo or org names.
 - **Nothing is sent from CI**, and the notice is not shown there. Nothing is ever sent by the
   commands align's hooks run (`align check --hook`, `align check --advisory`,
   `align context inject`). `align mcp`, or a run inside an agent `align` opened, does not show the notice, so it
@@ -73,7 +95,8 @@ is listed on its own page, and a test keeps that page true.
 
 ## How the local graph behaves
 
-- Seeds from your git history out of the box. Other sources connect by pasting a **read-only
+- Seeds from your git history, the repo's ADRs, CLAUDE.md and AGENTS.md, and (for a GitHub
+  origin) recent merged PR descriptions that state a reason, out of the box. No token needed. Other sources connect by pasting a **read-only
   personal token you create yourself**. Add `--env local` to any `align connect <tool>` run.
 - **Why your own token, by design.** This is your personal graph, so the credential is
   yours too: you choose its scope (read-only), you can see exactly what it grants, and you
@@ -162,10 +185,11 @@ is listed on its own page, and a test keeps that page true.
 | What | Where (Linux / macOS / Windows) |
 |---|---|
 | The decision graph: `local.db` plus its `local.db-wal` and `local.db-shm` files | `~/.align/` (on every platform) |
-| Settings and the read-only tokens you pasted: `config.json` | the same folder |
+| Settings and the read-only tokens you pasted: `config.json`. It also holds any AI provider key you saved with `align ai` and your per-repo choices of what to read from each connected tool (project keys, page ids and names, "skip in this repo"), keyed by the repo's identity | the same folder |
 | Short-lived state: sync locks, share requests waiting for approval, the last check | `~/.local/state/align-cli/` (Linux and macOS) / `%LOCALAPPDATA%\align-cli\` |
 | Editor-hook scratch files: recent check verdicts and which decisions were just shown | `align-<your user id>/` in the system temp folder (`$TMPDIR` or `/tmp`) |
-| The embedding model (public, not your data), standalone binary only | `~/.cache/align-cli/models/` / `%LOCALAPPDATA%\align-cli\models\` |
+| The embedding model (public, not your data), on both installs, and the native runtime on npm installs | `~/.cache/align-cli/models/` / `%LOCALAPPDATA%\align-cli\models\` |
+| Files `align` writes to start your agent | `~/.cache/align-cli/launch/` (`$XDG_CACHE_HOME`, or the OS cache folder) |
 
 `XDG_CONFIG_HOME` moves the first two rows on Linux. `XDG_STATE_HOME` and `XDG_CACHE_HOME` move the state
 and the model cache on Linux and macOS. The graph holds the title
@@ -200,6 +224,11 @@ the folder up anyway, run `tmutil removeexclusion <folder>` and delete `CACHEDIR
 back: the `.backup-exclusion-done` file next to them records that it already did this once. Both steps are
 best effort and never stop a command.
 
+**Files outside those folders.** The setup wizard asks before it writes your coding agent's
+config (the MCP entry, hooks and rules, including a `.mcp.json` in the repo). `align context sync`
+writes `.align/decisions.md` in the repo. Align remembers each file it wrote into another tool's
+config, and `align use --undo` restores them.
+
 **How to delete everything.** `align local reset` deletes the graph and the saved tokens. To remove every
 trace, also delete the folders in the table above, for example on Linux:
 
@@ -211,8 +240,8 @@ Deleting a file does not overwrite where it was on disk. Disk encryption is what
 
 ## What works locally today
 
-**Works:** `setup`, `import <tool>`, `capture`, `ask`, `search`, `decisions list`,
-`decisions show`, `check`, `status`, `context sync`, `mcp`, and the `local` commands.
+**Works:** bare `align` (the setup wizard, or `align --local`), `import <tool>`, `capture`, `ask`, `search`, `decisions list`,
+`decisions show`, `check`, `status`, `sync`, `context sync`, `mcp`, and the `local` commands.
 
 **Not yet routed to the local graph** (they address the cloud gateway): `export`,
 `drift`, `links`, `spaces`, `check --resolve`, and the connector-scan commands under
