@@ -112,6 +112,7 @@ export const skippedText = (source: string): string => `${labelOf(source)} is sk
 /** Notion has no "only yours": with no pages chosen it reads everything shared with the integration, which is its yours scope. */
 const yoursLabel = (source?: string): string => (source === 'notion' ? FIXED_SCOPES['notion']!.text : YOURS_LABEL);
 
+/** The narrower scope: the person's own items (for Notion, everything shared with the integration). */
 function yours(origin: ResolvedScope['origin'], note?: string, source?: string): ResolvedScope {
   return { scope: 'yours', scopeKey: YOURS_KEY, extras: {}, label: yoursLabel(source), origin, ...(note !== undefined ? { note } : {}) };
 }

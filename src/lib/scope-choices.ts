@@ -166,6 +166,7 @@ export async function findConfluencePage(fields: Record<string, string>, id: str
   try { return { title: text(asRecord(JSON.parse(await readCapped(res, MAX_BODY_BYTES)))['title']) ?? id }; } catch { return { title: id }; }
 }
 
+/** The headers every Notion request here carries: the saved token and the API version. */
 function notionHeaders(fields: Record<string, string>): Record<string, string> {
   const token = fields['token'];
   if (!token) throw new ScopeLookupError('The Notion connection has no token saved. Reconnect: align connect notion', 'unsupported');

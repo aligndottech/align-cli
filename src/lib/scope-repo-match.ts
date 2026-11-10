@@ -8,6 +8,7 @@ const MIN = 3;
 const words = (t: string): string[] => t.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w !== '');
 const whole = (t: string): string => words(t).join('');
 
+/** The keys of the items whose name or key shares a whole word with one of the repo's names. Only a suggestion for what a picker preselects. */
 export function matchRepoNames(items: Array<{ key: string; name: string }>, repoNames: string[]): string[] {
   const repoWords = new Set(repoNames.flatMap(words).filter((w) => w.length >= MIN));
   const repoWhole = new Set(repoNames.map(whole).filter((w) => w.length >= MIN));

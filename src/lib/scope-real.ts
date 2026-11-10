@@ -20,9 +20,15 @@ export { SYNC_REPO_ENV };
  */
 export function scopeRepoKey(env: Record<string, string | undefined> = process.env): string | null {
   const given = env[SYNC_REPO_ENV];
-  return given !== undefined && given !== '' ? given : currentRepoIdentitySync();
+  if (given !== undefined && given !== '') return given;
+  // Git is asked once per directory in this process (a "not a repo" answer too): every scope read asks, and the answer does not move.
+  const dir = process.cwd();
+  if (!repoKeyByDir.has(dir)) repoKeyByDir.set(dir, currentRepoIdentitySync());
+  return repoKeyByDir.get(dir) ?? null;
 }
+const repoKeyByDir = new Map<string, string | null>();
 
+/** The scope store backed by the config file, keyed per repo by `repo()`. Tests hand `repo` a fixed identity. */
 export function configScopeStore(config = createConfigStore(), repo: () => string | null = scopeRepoKey): ScopeStore {
   return {
     getScope: (source) => config.getConnectorScope('local', source, repo()),

@@ -42,6 +42,14 @@ describe('runPersonalImport says each failure reason once', () => {
     expect(lines).toContain('2 batches failed: down');
   });
 
+  it('two different non-Error rejections are two lines, not one merged "undefined"', async () => {
+    let call = 0;
+    const { lines } = await run(2, async () => { throw ++call === 1 ? 'string one' : 'string two'; });
+    expect(lines).toHaveLength(2);
+    expect(lines).toContain('Batch 1: string one');
+    expect(lines).toContain('Batch 2: string two');
+  });
+
   it('a single failed batch out of several still names the batch', async () => {
     let call = 0;
     const { result, lines } = await run(2, async () => {
