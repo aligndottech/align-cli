@@ -35,7 +35,7 @@ export const SCOPE_TOOL_SCHEMA = {
   description:
     'See, or change, what the sources the user has ALREADY connected read into the local graph on this machine: only their own items, or everyone\'s in one named GitHub repo, Jira project, Linear team, GitLab project or Confluence space that their token can see. ' +
     'action "view" lists each connected source\'s scope (and any change waiting for the person); use it when asked what is read or why teammates\' items are missing. ' +
-    'action "set" changes one source; offer it when the user asks to include their team\'s items, or to go back to only their own. ' +
+    'action "set" changes one source; offer it when the user asks to include their team\'s items, or to go back to only their own. A Jira project can be narrowed to one board, and a Linear team to some of its projects. ' +
     'Widening re-reads that source\'s history on its next sync (a few minutes; the reply says how far back). ' +
     'It deletes nothing and reads other people\'s items onto this machine only. A team change you make WAITS: nothing reads it, in the background or via align_sync, until a person runs `align sync <source>` at a terminal, which shows what it reads and asks (default No). Tell them so, with the reply\'s disclosure sentence in your own words. That prompt is a speed bump, not proof of consent: an agent with shell access could answer it from a pseudo-terminal, and you must never do that. Narrowing to their own items is immediate. ' +
     'Zoom is only the user\'s own; Slack, Notion and Teams already read all their token can see. ' +
@@ -51,6 +51,8 @@ export const SCOPE_TOOL_SCHEMA = {
       teams: { type: 'array', items: { type: 'string' }, description: 'Linear: team keys, for example ["ENG"]' },
       gitlab_project: { type: 'string', description: 'GitLab: the project id or group/project path' },
       spaces: { type: 'array', items: { type: 'string' }, description: 'Confluence: space keys, for example ["ENG"]' },
+      board: { type: 'string', description: 'Jira, with exactly one key in "projects": read only the issues on this board (its id or exact name)' },
+      linear_projects: { type: 'array', items: { type: 'string' }, description: 'Linear, with exactly one key in "teams": read only these projects (names or ids)' },
     },
     required: ['action'],
     additionalProperties: false,
@@ -129,6 +131,7 @@ async function set(input: Record<string, unknown>, deps: ScopeDeps, agent: strin
   let change: SetInput;
   if (scope === 'yours') {
     if (given.length > 0) throw new Error(`${SCOPE_TOOL} takes either scope "yours" or a value to read, not both.`);
+    if (input['board'] !== undefined || input['linear_projects'] !== undefined) throw new Error(`${SCOPE_TOOL} takes either scope "yours" or a board or linear_projects to read, not both.`);
     change = { scope: 'yours' };
   } else if (wanted === undefined) {
     // Zoom, Slack, Notion, Teams: setScope refuses with the honest reason for that source.
@@ -136,6 +139,11 @@ async function set(input: Record<string, unknown>, deps: ScopeDeps, agent: strin
   } else {
     if (input[wanted] === undefined) throw new Error(`${SCOPE_TOOL} for ${source} needs "${wanted}" to name what to read, or scope "yours" to go back to the user's own items.`);
     change = { scope: 'team', values: valueOf(wanted, input[wanted]) };
+    // A board narrows one Jira project, Linear projects one team. Raw JQL is for a person at a terminal only (`--jql`).
+    if (input['board'] !== undefined && source !== 'jira') throw new Error(`${SCOPE_TOOL} "board" is for jira only.`);
+    if (input['linear_projects'] !== undefined && source !== 'linear') throw new Error(`${SCOPE_TOOL} "linear_projects" is for linear only.`);
+    if (input['board'] !== undefined) change = { ...change, narrow: { board: input['board'] } };
+    if (input['linear_projects'] !== undefined) change = { ...change, narrow: { projects: input['linear_projects'] } };
   }
 
   try {

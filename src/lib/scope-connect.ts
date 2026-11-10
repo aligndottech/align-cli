@@ -23,13 +23,15 @@ import type { CaptureFetchResult } from './fetchers/capture.js';
 import { type ChangedBy, type Choice, chooseScope, commitScope, CONFLUENCE_NEEDS_SPACES, markTold, type ResolvedScope, resolveScope, type ScopeDeps, type SetInput } from './scope.js';
 import { citedProjectKeys } from './scope-defaults.js';
 import { realScopeDeps } from './scope-real.js';
-import { listConfluenceSpaces, listJiraProjects, listLinearTeams, ScopeLookupError } from './scope-choices.js';
-import { describeScopeKey, disclosureText, fetchOptsFor, FIXED_SCOPES, SCOPED_SOURCES, type ScopedSource, scopeKeyOf } from './scope-values.js';
+import { listConfluenceSpaces, listJiraBoards, listJiraProjects, listLinearProjects, listLinearTeams, ScopeLookupError } from './scope-choices.js';
+import { describeTeamScope, disclosureText, fetchOptsFor, FIXED_SCOPES, type Narrowing, SCOPED_SOURCES, type ScopedSource } from './scope-values.js';
 import { CAPTURE_SOURCES } from './capture-sources.js';
 import type { FetchExtras, SyncWindow } from './since.js';
 
 export interface ScopeFlags {
   scope?: string; repo?: string; projects?: string; teams?: string; gitlabProject?: string; spaces?: string;
+  /** Narrow one Jira project to a board (id or exact name) or a JQL filter, or one Linear team to some of its projects. */
+  board?: string; jql?: string; linearProjects?: string;
   /** The `--since` the person actually gave, as the lower bound it read back to (null: `all`). Not a scope flag: it only sets a NEW scope row's window. */
   windowSince?: string | null;
 }
@@ -39,6 +41,8 @@ export interface ScopePrompts {
   multiselect(message: string, options: PickOption[], initial: string[], o: { required: boolean }): Promise<string[] | null>;
   /** A yes/no question whose default is No. A cancel, or a closed stdin, is No. */
   confirm(message: string): Promise<boolean>;
+  /** One answer from a list, starting on `initial`; null when cancelled. Absent: the second question (one board or project) is not asked. */
+  select?(message: string, options: PickOption[], initial: string): Promise<string | null>;
 }
 export interface ConnectScopeCtx {
   /** The store, graph and network the scope code uses. `store.fields` is overlaid with the in-flight fields per source. */
@@ -71,11 +75,24 @@ const VALUE_FLAG = { github: 'repo', jira: 'projects', linear: 'teams', gitlab: 
 const FLAG_NAME = { repo: '--repo', projects: '--projects', teams: '--teams', gitlabProject: '--gitlab-project', spaces: '--spaces' } as const;
 const FLAG_FOR = { repo: 'GitHub', projects: 'Jira', teams: 'Linear', gitlabProject: 'GitLab', spaces: 'Confluence' } as const;
 const WHAT = { jira: 'Jira projects', linear: 'Linear teams', confluence: 'Confluence spaces' } as const;
+/** The flags that narrow one project or team, the source each belongs to, and the value flag each needs. */
+const NARROW_FLAG = {
+  board: { name: '--board', source: 'jira', needs: 'projects' },
+  jql: { name: '--jql', source: 'jira', needs: 'projects' },
+  linearProjects: { name: '--linear-projects', source: 'linear', needs: 'teams' },
+} as const;
 
 /** Checked before any prompt or request. Returns the sentence to print with exit 2, or undefined when the flags are usable. */
 export function checkScopeFlags(source: string | undefined, flags: ScopeFlags): string | undefined {
   const valueFlags = (Object.keys(FLAG_NAME) as Array<keyof typeof FLAG_NAME>).filter((k) => flags[k] !== undefined);
-  if (flags.scope === undefined && valueFlags.length === 0) return undefined;
+  const narrowFlags = (Object.keys(NARROW_FLAG) as Array<keyof typeof NARROW_FLAG>).filter((k) => flags[k] !== undefined);
+  if (flags.scope === undefined && valueFlags.length === 0 && narrowFlags.length === 0) return undefined;
+  for (const k of narrowFlags) {
+    const { name, source: owner, needs } = NARROW_FLAG[k];
+    if (source !== owner) return `${name} is for ${labelOf(owner)}.`;
+    if (flags.scope === 'yours') return `Pass either --scope yours or ${name}, not both.`;
+    if (flags[needs] === undefined) return `${name} needs ${FLAG_NAME[needs]}, to say which ${owner === 'jira' ? 'project' : 'team'} it narrows.`;
+  }
   if (source === undefined) return 'Scope flags (--scope, --repo, --projects, --teams, --gitlab-project, --spaces) need --source <id> to say which source they are for.';
   const fixed = FIXED_SCOPES[source];
   if (fixed) return `${labelOf(source)} reads ${fixed.text}. There is no scope to choose for it.`;
@@ -92,7 +109,9 @@ export function checkScopeFlags(source: string | undefined, flags: ScopeFlags): 
 function flagInput(source: ScopedSource, flags: ScopeFlags): SetInput | undefined {
   if (flags.scope === 'yours') return { scope: 'yours' };
   const value = flags[VALUE_FLAG[source]];
-  return value !== undefined ? { scope: 'team', values: value } : undefined;
+  if (value === undefined) return undefined;
+  const narrow = { ...(flags.board !== undefined ? { board: flags.board } : {}), ...(flags.jql !== undefined ? { jql: flags.jql } : {}), ...(flags.linearProjects !== undefined ? { projects: flags.linearProjects } : {}) };
+  return { scope: 'team', values: value, ...(Object.keys(narrow).length > 0 ? { narrow } : {}) };
 }
 
 type Lister = (tokens: Record<string, string>, f: ScopeDeps['fetch'], o: { max?: number }) => Promise<{ items: Array<{ key: string; name: string }>; truncated: boolean }>;
@@ -130,10 +149,10 @@ export async function decideConnectScope(source: string, tokens: Record<string, 
   const decision = (extras: FetchExtras, scope: 'yours' | 'team', label: string, commit: () => void): ScopeDecision =>
     ({ extras, scope, label, get disclosurePending() { return disclosurePending; }, commit });
   const fromChoice = (c: Choice): ScopeDecision => {
-    if (c.scope === 'team') told(c.scopeKey, disclosureText(source, c.labels));
+    if (c.scope === 'team') told(c.scopeKey, disclosureText(source, c.labels, c.narrow));
     const extras: FetchExtras = c.scope === 'yours'
       ? { resolved: true }
-      : { resolved: true, ...(source === 'github' ? { repo: c.values[0]!, team: true } : fetchOptsFor(source, c.values)) };
+      : { resolved: true, ...(source === 'github' ? { repo: c.values[0]!, team: true } : fetchOptsFor(source, c.values, c.narrow)) };
     return decision(extras, c.scope, c.label, () => { commitScope(deps, source, c, by, ctx.flags.windowSince); });
   };
   /** What is in force without the agent's waiting choice: the same answer a background run gets. */
@@ -202,7 +221,7 @@ export async function decideConnectScope(source: string, tokens: Record<string, 
   const inForce = stored?.kind === 'team' && stored.pending ? stored.pending.previous : stored;
   // What is preselected is what is already in force, or what local decisions cite. An agent's WAITING choice is never preselected:
   // it is said, and picking it here is the explicit confirmation.
-  if (waitingLabels.length > 0) tell(`Your agent proposed ${source} scope ${describeScopeKey(source, scopeKeyOf(source, waitingLabels), 'team')}. It is not read until you pick it here.`);
+  if (waitingLabels.length > 0) tell(`Your agent proposed ${source} scope ${describeTeamScope(source, waitingLabels, stored?.kind === 'team' ? stored.narrow : undefined)}. It is not read until you pick it here.`);
   const initial = inForce?.kind === 'team' ? inForce.labels.filter((k) => keys.includes(k)) : inForce?.kind === 'yours' ? [] : ctx.citedKeys().filter((k) => keys.includes(k));
   const message = confluence
     ? 'Which Confluence spaces should Align read? Pick at least one.'
@@ -215,7 +234,35 @@ export async function decideConnectScope(source: string, tokens: Record<string, 
     return fromResolved(k);
   }
   if (confluence && picked.length === 0) throw blocked(CONFLUENCE_NEEDS_SPACES);
-  return fromChoice(await chooseScope(deps, source, picked.length === 0 ? { scope: 'yours' } : { scope: 'team', values: picked }, tokens));
+  const choice = await chooseScope(deps, source, picked.length === 0 ? { scope: 'yours' } : { scope: 'team', values: picked }, tokens);
+  if (choice.scope === 'team' && choice.values.length === 1 && (source === 'jira' || source === 'linear') && ctx.prompts.select) {
+    const narrowed = await askForPart(source, choice.values[0]!, choice.labels[0]!, inForce?.kind === 'team' ? inForce.narrow : undefined);
+    if (narrowed !== undefined) return fromChoice(await chooseScope(deps, source, { scope: 'team', values: picked, narrow: narrowed }, tokens));
+  }
+  return fromChoice(choice);
+
+  /**
+   * "Read all of AC, or one board?" (Linear: one project). All of it is first and where the cursor starts, unless a part was
+   * chosen before. Undefined: read all of it. A list that cannot be read is said, and all of it is read.
+   */
+  async function askForPart(src: 'jira' | 'linear', value: string, label: string, before: Narrowing | undefined): Promise<{ board: string } | { projects: string[] } | undefined> {
+    const what = src === 'jira' ? 'board' : 'project';
+    let parts: Array<{ id: string; name: string }>;
+    try {
+      parts = (src === 'jira' ? await listJiraBoards(tokens, value, deps.fetch) : await listLinearProjects(tokens, value, deps.fetch)).items;
+    } catch (e) {
+      if (!(e instanceof ScopeLookupError)) throw e;
+      tell(`Could not list the ${what}s in ${label}: ${e.message} Reading all of ${label}.`);
+      return undefined;
+    }
+    if (parts.length === 0) return undefined;
+    const ALL = ':all';
+    const previous = before?.by === 'board' ? before.id : before?.by === 'projects' && before.ids.length === 1 ? before.ids[0]! : undefined;
+    const initial = previous !== undefined && parts.some((x) => x.id === previous) ? previous : ALL;
+    const answer = await ctx.prompts.select!(`Read all of ${label}, or one ${what}?`, [{ value: ALL, label: `All of ${label}` }, ...parts.map((x) => ({ value: x.id, label: x.name }))], initial);
+    if (answer === null || answer === ALL) return undefined;
+    return src === 'jira' ? { board: answer } : { projects: [answer] };
+  }
 }
 
 /**
@@ -233,6 +280,17 @@ export async function fetchUnderScope(
 ): Promise<CaptureFetchResult> {
   let decision: ScopeDecision;
   try { decision = await decideConnectScope(source.id, tokens, ctx); } catch (e) { startSpinner(); throw e; }
+  return fetchWithDecision(source, tokens, window, decision, startSpinner);
+}
+
+/** Fetch under a scope already decided (and asked about), then write it. The fetch half of fetchUnderScope. */
+export async function fetchWithDecision(
+  source: { id: string; fetch: (tokens: Record<string, string>, window?: SyncWindow, opts?: FetchExtras) => Promise<CaptureFetchResult> },
+  tokens: Record<string, string>,
+  window: SyncWindow | undefined,
+  decision: ScopeDecision,
+  startSpinner: () => void = () => {},
+): Promise<CaptureFetchResult> {
   startSpinner();
   const fetched = await source.fetch(tokens, window, decision.extras);
   decision.commit();
@@ -252,6 +310,11 @@ export function clackScopePrompts(): ScopePrompts {
     },
     async confirm(message) {
       return askWithTimeout(async () => (await p.confirm({ message, initialValue: false })) === true);
+    },
+    /** One choice from a list, with the cursor on `initial`; null when the person cancels. */
+    async select(message, options, initial) {
+      const answer = await p.select({ message, options: options.map((x) => ({ value: x.value, label: x.label })), initialValue: initial, maxItems: 12 });
+      return p.isCancel(answer) ? null : String(answer);
     },
   };
 }

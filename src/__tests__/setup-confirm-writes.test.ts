@@ -11,6 +11,7 @@ import { spawn } from 'node:child_process';
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { LAUNCH_AGENTS } from '../lib/launch/agents.js';
 import { canPty, childEnv, ROOT } from './helpers/share-harness.js';
 
 vi.setConfig({ testTimeout: 120_000 });
@@ -19,7 +20,7 @@ const TSX = path.join(ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs');
 const ENTRY = path.join(ROOT, 'src', 'index.ts');
 const AGENT_FILES = ['.claude', '.cursor', '.gemini', '.mcp.json', '.opencode', '.pi', 'AGENTS.md', 'CLAUDE.md'];
 
-function rig() {
+function rig(o: { agents?: string[] } = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), 'align-confirm-writes-'));
   const work = path.join(dir, 'work');
   mkdirSync(work);
@@ -32,13 +33,19 @@ function rig() {
   // only what node and the pty helper need. Set NO_FAKE_AGENT=1 to drop the fake and see the CI failure.
   const bin = path.join(dir, 'bin');
   mkdirSync(bin);
-  if (!process.env['NO_FAKE_AGENT']) {
-    writeFileSync(path.join(bin, 'claude'), '#!/bin/sh\nexit 0\n');
-    chmodSync(path.join(bin, 'claude'), 0o755);
+  for (const name of process.env['NO_FAKE_AGENT'] ? [] : o.agents ?? ['claude']) {
+    writeFileSync(path.join(bin, name), '#!/bin/sh\nexit 0\n');
+    chmodSync(path.join(bin, name), 0o755);
   }
   // node itself is linked in rather than its directory put on PATH: an npm-global agent can sit beside it.
   symlinkSync(process.execPath, path.join(bin, 'node'));
-  env['PATH'] = [bin, '/usr/bin', '/bin'].join(path.delimiter);
+  // The system tools, minus every agent Align can open: a machine with, say, Copilot CLI in /usr/bin
+  // must not change how many agents this test sees. Names come from the launch table setup itself reads.
+  const sys = path.join(dir, 'sys');
+  mkdirSync(sys);
+  const agentBins = new Set<string>(LAUNCH_AGENTS.map((a) => a.bin));
+  for (const name of readdirSync('/usr/bin')) if (!agentBins.has(name) && name !== 'node') symlinkSync(path.join('/usr/bin', name), path.join(sys, name));
+  env['PATH'] = [bin, sys].join(path.delimiter);
   for (const k of Object.keys(env)) if (/^(CI|GITHUB_.*|ALIGN_TOKEN|ALIGN_ENV|ALIGN_WRAPPED|ALIGN_NO_LAUNCH)$/.test(k)) delete env[k];
   const entries = () => readdirSync(work).sort();
   return { dir, work, env, entries, close: () => rmSync(dir, { recursive: true, force: true }) };
@@ -61,14 +68,14 @@ function plain(r: ReturnType<typeof rig>, args: string[]): Promise<{ code: numbe
   });
 }
 
-const PICK: [string, string] = ['Which coding agent', '\r'];
+// One fake agent on PATH, so setup asks no agent question and the first prompt is the file list's.
 const SKIP_CONNECTORS: [string, string] = ['Connect more sources', '\r'];
 
 describe.skipIf(!canPty)('setup confirms the files it will write', () => {
   it('declining at "Continue?" writes none of them', async () => {
     const r = rig();
     try {
-      const { out } = await pty(r, ['--local'], [PICK, ['Continue?', 'n'], SKIP_CONNECTORS]);
+      const { out } = await pty(r, ['--local'], [['Continue?', 'n'], SKIP_CONNECTORS]);
       expect(out).toContain('Align may create or change these files:');
       expect(out).toContain('create  CLAUDE.md');
       expect(out).toContain('align use --undo');
@@ -80,7 +87,7 @@ describe.skipIf(!canPty)('setup confirms the files it will write', () => {
   it('pressing Enter (the default, yes) writes every file the list named', async () => {
     const r = rig();
     try {
-      const { out } = await pty(r, ['--local'], [PICK, ['Continue?', '\r'], SKIP_CONNECTORS]);
+      const { out } = await pty(r, ['--local'], [['Continue?', '\r'], SKIP_CONNECTORS]);
       const listed = AGENT_FILES.filter((f) => out.includes(f === '.claude' ? '.claude/settings.json' : f));
       expect(listed.length).toBe(AGENT_FILES.length);
       expect(r.entries()).toEqual([...AGENT_FILES].sort());
@@ -91,7 +98,29 @@ describe.skipIf(!canPty)('setup confirms the files it will write', () => {
   it('answering no writes nothing', async () => {
     const r = rig();
     try {
-      const { out } = await pty(r, ['--local'], [PICK, ['Continue?', 'n\r'], SKIP_CONNECTORS]);
+      const { out } = await pty(r, ['--local'], [['Continue?', 'n\r'], SKIP_CONNECTORS]);
+      expect(out).toContain('Left your agent config alone');
+      expect(r.entries()).toEqual([]);
+    } finally { r.close(); }
+  });
+
+  // Two agents installed: the agent question and the file list are one screen.
+  it('with two agents, one question writes the files and picks the agent', async () => {
+    const r = rig({ agents: ['claude', 'codex'] });
+    try {
+      const { out } = await pty(r, ['--local'], [['Write these files, then open which agent?', '\r'], SKIP_CONNECTORS]);
+      expect(out).toContain('Align may create or change these files:');
+      expect(out).not.toContain('Continue?');
+      expect(out).not.toContain('Which coding agent');
+      expect(r.entries()).toEqual([...AGENT_FILES].sort());
+    } finally { r.close(); }
+  });
+
+  it('with two agents, "Do not write anything" writes nothing', async () => {
+    const r = rig({ agents: ['claude', 'codex'] });
+    try {
+      // Down twice past both agents, then Enter.
+      const { out } = await pty(r, ['--local'], [['Write these files, then open which agent?', '\x1b[B\x1b[B\r'], SKIP_CONNECTORS]);
       expect(out).toContain('Left your agent config alone');
       expect(r.entries()).toEqual([]);
     } finally { r.close(); }

@@ -1,5 +1,5 @@
 import type { HumanQuestion } from '../permission-broker.js';
-import type { AgentUiEvent, GateDecision, GateOutcome } from '../types.js';
+import type { AgentUiEvent, GateDecision, GateOutcome, HumanAnswer } from '../types.js';
 import { theme } from './theme.js';
 
 export function headerLine(o: { label: string; decisionCount: number }): string {
@@ -31,6 +31,22 @@ export function gateCard(q: Extract<HumanQuestion, { kind: 'gate' }>): string[] 
 
 export function commandCard(q: Extract<HumanQuestion, { kind: 'command' }>): string[] {
   return [theme.warn('Run this command?'), `  ${q.command}`, '', theme.key('[y] yes   [s] yes for this session   [n] no')];
+}
+
+/** A command's first line, cut to `max` characters, for one-line mentions. */
+export function oneLine(command: string, max = 80): string {
+  const first = command.split('\n')[0] ?? '';
+  return first.length > max ? `${first.slice(0, max - 1)}\u2026` : first;
+}
+
+/** What a card folds to once answered: one line, so pressing a key visibly does something. */
+export function answeredLine(q: HumanQuestion, a: HumanAnswer): string {
+  if (q.kind === 'command') {
+    const cmd = oneLine(q.command);
+    if (a === 'stop') return theme.dim(`stopped: ${cmd}`);
+    return theme.dim(`${a === 'allow-session' ? 'approved for this session' : 'approved'}, running: ${cmd}`);
+  }
+  return theme.dim(a === 'stop' ? 'stopped the edit' : 'allowed once, applying the edit');
 }
 
 /** What an allowed edit leaves in the transcript. Never silent when the gate could not check. */

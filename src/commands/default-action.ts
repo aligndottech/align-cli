@@ -84,7 +84,7 @@ export async function runDefaultAction(opts: Record<string, unknown> = {}): Prom
     const after = createConfigStore();
     if (launchesAfterWizard({ localGraph: after.getEnvironment('local').mode === 'local-embedded', agent: after.getAgent(), isTTY: tty })) {
       const { runAgentSession } = await import('../lib/agent/run-agent-session.js');
-      process.exit(await runAgentSession({ engine: opts['engine'] as 'align' | 'claude' | undefined }));
+      process.exit(await runAgentSession({ engine: opts['engine'] as 'align' | 'claude' | undefined, notices: setup?.notices }));
     }
     return;
   }

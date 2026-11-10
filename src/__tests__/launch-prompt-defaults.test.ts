@@ -82,14 +82,14 @@ describe('bare `align` (launch.ts defaults)', () => {
 
 describe('the first-run wizard (pick-agent.ts defaults)', () => {
   it('asks the install question with No preselected', async () => {
-    const w = wizard(['npm', 'claude']);
+    const w = wizard(['npm', 'claude', 'gemini']); // two installed, so the picker opens
     clack.select.mockResolvedValueOnce('codex').mockResolvedValueOnce(clack.CANCEL);
     clack.confirm.mockResolvedValueOnce(false);
     await w.run();
     expect(clack.confirm).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ initialValue: false }));
   });
   it('Ctrl-C at the question cancels the wizard without installing or reopening the picker', async () => {
-    const w = wizard(['npm', 'claude']);
+    const w = wizard(['npm', 'claude', 'gemini']); // two installed, so the picker opens
     clack.select.mockResolvedValueOnce('codex');
     clack.confirm.mockResolvedValueOnce(clack.CANCEL);
     expect(await w.run()).toBe(PICK_CANCELLED);
@@ -97,17 +97,16 @@ describe('the first-run wizard (pick-agent.ts defaults)', () => {
     expect(clack.select).toHaveBeenCalledTimes(1);
   });
   it('only `true` installs: a truthy non-true answer is a No and goes back to the picker', async () => {
-    const w = wizard(['npm', 'claude']);
+    const w = wizard(['npm', 'claude', 'gemini']); // two installed, so the picker opens
     clack.select.mockResolvedValueOnce('codex').mockResolvedValueOnce(clack.CANCEL);
     clack.confirm.mockResolvedValueOnce('yes');
     expect(await w.run()).toBe(PICK_CANCELLED);
     expect(w.spawn).not.toHaveBeenCalled();
     expect(clack.select).toHaveBeenCalledTimes(2);
   });
-  it('the picker preselects the one installed agent, so Enter keeps it', async () => {
+  it('one installed agent opens no picker and is taken as it is', async () => {
     const w = wizard(['opencode']);
-    clack.select.mockResolvedValueOnce('opencode');
     expect(await w.run()).toBe('opencode');
-    expect(clack.select).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ initialValue: 'opencode' }));
+    expect(clack.select).not.toHaveBeenCalled();
   });
 });

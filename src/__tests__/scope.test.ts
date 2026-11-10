@@ -65,6 +65,38 @@ describe('resolveScope: GitHub', () => {
     expect(r.disclosure).toBeUndefined();
   });
 
+  // A fine-grained token answered 422 for fastify/fastify, a public repo the first-run import had already read
+  // without any token. Telling a new user to reconnect there is false, so a public repo gets no line.
+  const REPO_META = /api\.github\.com\/repos\/fastify\/fastify$/;
+  // The public repo was already read without a token, so "cannot see" and "reconnect" are false.
+  // What stays true: later syncs read only the person's own items. No command is offered, because
+  // `--repo` with the same token fails the same search.
+  it('a public repo the token cannot search: yours, and a plain line with no reconnect', async () => {
+    const d = deps({ cwdRepo: async () => 'fastify/fastify', table: [[SEARCH, { status: 422 }], [REPO_META, { body: { private: false } }]] });
+    const r = await resolveScope('github', d, { foreground: true });
+    expect(r).toMatchObject({ scope: 'yours', scopeKey: 'yours', origin: 'default' });
+    expect(r.note).toBe('GitHub syncs here read only items you are involved in.');
+  });
+
+  it('a repo whose metadata says private keeps the reconnect line', async () => {
+    const d = deps({ cwdRepo: async () => 'fastify/fastify', table: [[SEARCH, { status: 422 }], [REPO_META, { body: { private: true } }]] });
+    const r = await resolveScope('github', d, { foreground: true });
+    expect(r.note).toContain('Your GitHub token cannot see fastify/fastify');
+  });
+
+  it('the public check asks GitHub without the token', async () => {
+    const seen: Array<{ url: string; auth: string | undefined }> = [];
+    const fetchSpy = (async (url: string, init?: { headers?: Record<string, string> }) => {
+      seen.push({ url: String(url), auth: init?.headers?.['Authorization'] });
+      return new Response(JSON.stringify(SEARCH.test(String(url)) ? {} : { private: false }), { status: SEARCH.test(String(url)) ? 422 : 200 });
+    }) as unknown as typeof fetch;
+    const d = deps({ cwdRepo: async () => 'fastify/fastify', fetch: fetchSpy });
+    await resolveScope('github', d, { foreground: true });
+    const meta = seen.find((s) => REPO_META.test(s.url));
+    expect(meta).toBeDefined();
+    expect(meta!.auth).toBeUndefined();
+  });
+
   it('a probe that cannot answer (500, offline) proceeds as team and lets the fetch report', async () => {
     for (const hit of [{ status: 500 }, new Error('offline')]) {
       const d = deps({ cwdRepo: async () => 'o/r', table: [[SEARCH, hit]] });

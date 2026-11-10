@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { mergeWrittenConfig, type WrittenConfig } from './safe-config-write.js';
 import { STORABLE_PROVIDERS, type StoredProviderId } from './llm-providers.js';
-import type { ActiveScope, StoredScope } from './scope-values.js';
+import type { ActiveScope, Narrowing, StoredScope } from './scope-values.js';
 
 import { asDestinationName, type TeamDestinationName, validateDestinationName } from './destination-name.js';
 import { assertTransport } from './destination-trust.js';
@@ -375,20 +375,28 @@ export function createConfigStore() {
         const v = JSON.parse(raw) as { kind?: unknown; values?: unknown; labels?: unknown };
         if (v.kind === 'yours') return { kind: 'yours' };
         const strings = (x: unknown): x is string[] => Array.isArray(x) && x.length > 0 && x.every((e) => typeof e === 'string');
-        if (v.kind === 'team' && strings(v.values) && strings(v.labels)) {
+        // "narrowed" is a team scope with a narrowing: stored under its own kind so an older CLI reads it as yours, never as the
+        // whole project. A narrowing that does not parse is yours too.
+        const narrow = v.kind === 'narrowed' ? narrowingOf((v as { narrow?: unknown }).narrow) : undefined;
+        if (v.kind === 'narrowed' && narrow === undefined) return { kind: 'yours' };
+        if ((v.kind === 'team' || narrow !== undefined) && strings(v.values) && strings(v.labels)) {
+          const n = narrow !== undefined ? { narrow } : {};
           const p = (v as { pending?: { previous?: unknown } }).pending;
-          if (p === undefined) return { kind: 'team', values: v.values, labels: v.labels };
+          if (p === undefined) return { kind: 'team', values: v.values, labels: v.labels, ...n };
           // A waiting team scope whose "previous" cannot be read stays waiting on yours: never an active team read.
-          const prev = p.previous as { kind?: unknown; values?: unknown; labels?: unknown } | null | undefined;
+          const prev = p.previous as { kind?: unknown; values?: unknown; labels?: unknown; narrow?: unknown } | null | undefined;
+          const prevNarrow = prev?.kind === 'narrowed' ? narrowingOf(prev.narrow) : undefined;
           const previous: ActiveScope | null = prev === null || prev === undefined ? null
-            : prev.kind === 'team' && strings(prev.values) && strings(prev.labels) ? { kind: 'team', values: prev.values, labels: prev.labels } : { kind: 'yours' };
-          return { kind: 'team', values: v.values, labels: v.labels, pending: { previous } };
+            : (prev.kind === 'team' || prevNarrow !== undefined) && strings(prev.values) && strings(prev.labels)
+              ? { kind: 'team', values: prev.values, labels: prev.labels, ...(prevNarrow !== undefined ? { narrow: prevNarrow } : {}) }
+              : { kind: 'yours' };
+          return { kind: 'team', values: v.values, labels: v.labels, ...n, pending: { previous } };
         }
       } catch { /* damaged: falls through to yours */ }
       return { kind: 'yours' };
     },
     setConnectorScope(env: EnvName, connectorKey: string, scope: StoredScope) {
-      store.set('connectorTokens', { ...getTokens(), [`${env}:${connectorKey}:scope`]: JSON.stringify(scope) });
+      store.set('connectorTokens', { ...getTokens(), [`${env}:${connectorKey}:scope`]: JSON.stringify(onDisk(scope)) });
     },
     clearConnectorScope(env: EnvName, connectorKey: string) {
       const { [`${env}:${connectorKey}:scope`]: _gone, ...kept } = getTokens();
@@ -673,4 +681,23 @@ export function createConfigStore() {
       if (!existing.includes(stage)) store.set('funnelStagesRecorded', [...existing, stage]);
     },
   };
+}
+
+/** A team scope with a narrowing is written as kind "narrowed" (its pending previous too): an older CLI reads that kind as yours. */
+function onDisk(scope: StoredScope | ActiveScope): Record<string, unknown> {
+  if (scope.kind !== 'team') return scope;
+  const pending = 'pending' in scope && scope.pending ? { pending: { previous: scope.pending.previous === null ? null : onDisk(scope.pending.previous) } } : {};
+  return { ...scope, ...pending, kind: scope.narrow ? 'narrowed' : 'team' };
+}
+
+/** A stored narrowing, or undefined when any part of it does not parse. */
+function narrowingOf(raw: unknown): Narrowing | undefined {
+  if (raw === null || typeof raw !== 'object') return undefined;
+  const n = raw as Record<string, unknown>;
+  const text = (x: unknown): x is string => typeof x === 'string' && x.trim() !== '';
+  const list = (x: unknown): x is string[] => Array.isArray(x) && x.length > 0 && x.every(text);
+  if (n['by'] === 'board' && typeof n['id'] === 'string' && /^\d{1,12}$/.test(n['id']) && text(n['name']) && text(n['jql'])) return { by: 'board', id: n['id'], name: n['name'], jql: n['jql'] };
+  if (n['by'] === 'jql' && text(n['jql'])) return { by: 'jql', jql: n['jql'] };
+  if (n['by'] === 'projects' && list(n['ids']) && list(n['names']) && n['ids'].length === n['names'].length) return { by: 'projects', ids: n['ids'], names: n['names'] };
+  return undefined;
 }

@@ -469,3 +469,25 @@ describe('a summary written by the sync job: sources a person must act on', () =
     } finally { rmDir(d); }
   }, 30_000);
 });
+
+// Setup's own child takes the same per-source claim, so the refresh bare `align` plans right after it does not start a second one.
+describe('a setup child claims its sources', () => {
+  it('a claimed source is not started again by the refresh; the same plan without the claim starts it', async () => {
+    const { claimSources, planBackgroundSync } = await import('../lib/sync/launch-hook.js');
+    const real = (id: string) => ({ id, backgroundEligible: true, status: 'ok' as const, lastSuccessAt: new Date(Date.now() - 90 * 60_000).toISOString() });
+    const plan = (state: string) => planBackgroundSync({
+      env: { XDG_STATE_HOME: state }, home: '/h', platform: 'linux', isTTY: true, config: {}, err: () => {},
+      io: { readSummary: () => ({ version: 1, generated_at: new Date().toISOString(), sources: [real('jira'), real('linear')] }), inCi: () => false },
+    });
+    const unclaimed = fs.mkdtempSync(path.join(os.tmpdir(), 'align-claim-none-'));
+    const claimed = fs.mkdtempSync(path.join(os.tmpdir(), 'align-claim-jira-'));
+    try {
+      expect(plan(unclaimed).sources.sort()).toEqual(['jira', 'linear']);
+      claimSources(['jira'], { env: { XDG_STATE_HOME: claimed }, home: '/h', platform: 'linux' });
+      expect(plan(claimed).sources).toEqual(['linear']);
+    } finally {
+      fs.rmSync(unclaimed, { recursive: true, force: true });
+      fs.rmSync(claimed, { recursive: true, force: true });
+    }
+  });
+});

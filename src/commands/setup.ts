@@ -1,3 +1,4 @@
+import os from 'node:os';
 import { resolveEnv } from '../lib/resolve-env.js';
 import { type Command, Option } from 'commander';
 import * as p from '@clack/prompts';
@@ -26,7 +27,10 @@ import { GIT_DEFAULT_LIMIT, GIT_KEEP_CAP, SYNC_CEILINGS, SYNC_WINDOW_DEFAULT_DAY
 import { type FetchExtras, fetchWindow, parseSince, type SyncWindow, windowExtras, windowLabel } from '../lib/since.js';
 import { initLocalMode } from '../lib/local-mode.js';
 import { afterSourceConnected } from '../lib/sync/after-connect.js';
-import { connectScopeCtx, fetchUnderScope, type ScopeFlags } from '../lib/scope-connect.js';
+import { proveToken } from '../lib/scope-choices.js';
+import { connectScopeCtx, decideConnectScope, fetchUnderScope, fetchWithDecision, type ScopeDecision, type ScopeFlags } from '../lib/scope-connect.js';
+import { claimSources } from '../lib/sync/launch-hook.js';
+import { startSyncChild } from '../lib/sync/spawn-background.js';
 import { loginInteractive } from '../lib/login-flow.js';
 import { resolveAppUrl } from '../lib/env-resolver.js';
 import { collectTokensViaOAuth, oauthFlowLabel } from '../lib/personal-oauth.js';
@@ -42,7 +46,8 @@ import { agentConnectedLine, agentNotConnectedLine, agentTryLead, orderAgents, p
 import { getHotFile } from '../lib/hot-file.js';
 import { claudeCodeExists } from '../lib/claude-presence.js';
 import { projectForeignNotice } from '../lib/foreign-env.js';
-import { PICK_CANCELLED, pickAgent } from '../lib/launch/pick-agent.js';
+import { PICK_CANCELLED, pickAgent, type PickDeferred } from '../lib/launch/pick-agent.js';
+import { confirmAgentAndWrites } from '../lib/setup/agent-and-writes.js';
 import { offerSavedTokens } from '../lib/saved-token-offer.js';
 import { readOnlyTokenNote } from '../lib/read-only-token-note.js';
 import { runModelAndTypingSteps } from '../lib/model-step.js';
@@ -589,9 +594,11 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
   // only question a solo developer is asked before the graph starts to fill. Same table, PATH
   // scan and config key as the launcher, so this IS the launcher's choice (no `align use`).
   // Before initLocalMode on purpose: cancelling here must leave no half-built graph behind.
-  const picked = await pickAgent(config, { interactive: Boolean(interactive), approve: opts.approve });
+  // With two or more installed the question is deferred to the files screen below, so it is one screen.
+  const picked = await pickAgent(config, { interactive: Boolean(interactive), approve: opts.approve, defer: true });
   if (picked === PICK_CANCELLED) { p.cancel('Cancelled.'); process.exit(0); }
-  const agent = picked;
+  const deferred = typeof picked === 'object' && picked !== null ? picked.deferred : undefined;
+  let agent = deferred ? null : (picked as Exclude<typeof picked, PickDeferred>);
 
   const { dbPath } = await initLocalMode();
   p.log.success('Local graph ready - no account needed, your data stays on this machine.');
@@ -781,7 +788,10 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
     if (!(e instanceof SkipDocs)) localDocsSpinner.stop(`Docs import skipped - ${(e as Error).message}`);
   }
 
-  const { confirmed: writesConfirmed, editors } = await confirmAgentWrites({ interactive: Boolean(interactive), approve: opts.approve });
+  const both = deferred ? await confirmAgentAndWrites(deferred, config) : undefined;
+  if (both === 'cancelled') { p.cancel('Cancelled.'); process.exit(0); }
+  if (both) agent = both.agent as typeof agent;
+  const { confirmed: writesConfirmed, editors } = both ?? await confirmAgentWrites({ interactive: Boolean(interactive), approve: opts.approve });
   if (!writesConfirmed) p.log.info('Left your agent config alone. Run align again when you want it connected.');
   const projectAgents = writesConfirmed ? connectedProjectAgents(projectAgentsFromWritten(writeAgentAlignment('local'))) : [];
 
@@ -831,6 +841,8 @@ export interface ConnectedSourceResult {
   /** L3: whose items a team-scope read covered, when it was one. */
   reads?: string;
   disclosure_pending?: boolean; // L4: a team read --json could not tell the person about; still owed
+  /** Saved and handed to the background read: found and imported are 0 until it runs. */
+  deferred?: boolean;
 }
 
 export interface ConnectLocalSourcesOptions {
@@ -850,7 +862,18 @@ export interface ConnectLocalSourcesOptions {
   window?: SyncWindow;
   /** L4 (`align connect --scope/--projects/...`): which part of a source to read. */
   scopeFlags?: ScopeFlags;
+  /** Setup: save each source's token and scope, then read them in one background child so the agent opens at once. */
+  background?: boolean;
+  /** Test seam for the background child. */
+  startSync?: (sources: readonly string[], o: { delaySeconds: number; caller: 'launcher' }) => Promise<{ ok: boolean }>;
 }
+
+/**
+ * Sources setup may read in the background. GitHub and GitLab take their scope from this folder's
+ * remote and do not save it, and the child runs from the home directory, so it would read less;
+ * a Teams token lasts hours. Those three stay in the foreground.
+ */
+const FOREGROUND_ONLY = new Set(['github', 'gitlab', 'teams']);
 
 /** The ids `align connect --source` accepts: every local paste-token source, in picker order. */
 export function localConnectorIds(): string[] {
@@ -1038,15 +1061,68 @@ export async function connectLocalSources(o: ConnectLocalSourcesOptions): Promis
     }
   }
 
+  // Setup: answer each source's scope question now (consent), save its token and scope, and hand it to one
+  // background child. The child reads exactly as the foreground would: the same saved token, scope and window.
+  let foreground = localReady;
+  // Scopes already asked about here: a foreground read after a failed start reuses them rather than asking again.
+  const decided = new Map<string, ScopeDecision>();
+  if (o.background) {
+    const later = localReady.filter((r) => !FOREGROUND_ONLY.has(r.source.id));
+    const saved: typeof later = [];
+    for (const r of later) {
+      // A token is saved for the background read only once the vendor has not refused it (the foreground saves after its fetch).
+      if (await proveToken(r.source.id, r.tokens, fetch) === 'refused') {
+        p.log.info(`Skipped ${r.source.label} - its token was refused. Paste a fresh one: align connect ${r.source.id}`);
+        results.push({ id: r.source.id, label: r.source.label, found: 0, imported: 0, error: 'its token was refused' });
+        foreground = foreground.filter((x) => x !== r);
+        continue;
+      }
+      let decision: ScopeDecision;
+      try {
+        decision = await decideConnectScope(r.source.id, r.tokens, scopeCtx);
+      } catch (e) {
+        // One source's failure never stops the others, as in the foreground loop below.
+        const msg = (e as Error).message;
+        if (r.reused && isAuthExpiry(e)) {
+          config.forgetConnector('local', r.source.id);
+          p.log.info(`Skipped ${r.source.label} - its saved token was rejected (${msg}). Token forgotten; run setup again to paste a fresh one.`);
+        } else {
+          p.log.info(`Skipped ${r.source.label} - ${msg}`);
+        }
+        results.push({ id: r.source.id, label: r.source.label, found: 0, imported: 0, error: msg });
+        foreground = foreground.filter((x) => x !== r);
+        continue;
+      }
+      decided.set(r.source.id, decision);
+      config.saveConnectorFields('local', r.source.id, r.tokens);
+      decision.commit();
+      afterSourceConnected(localEnv.localDbPath, r.source.id, (id) => Boolean(config.getConnectorFields('local', id)?.['token']));
+      saved.push(r);
+    }
+    const startChild = o.startSync ?? ((ids: readonly string[], opts: { delaySeconds: number; caller: 'launcher' }) => {
+      claimSources(ids, { env: process.env, home: os.homedir(), platform: process.platform });
+      return startSyncChild(ids, opts);
+    });
+    const started = saved.length > 0 ? await startChild(saved.map((r) => r.source.id), { delaySeconds: 0, caller: 'launcher' }) : { ok: true };
+    if (started.ok) {
+      for (const r of saved) results.push({ id: r.source.id, label: r.source.label, found: 0, imported: 0, deferred: true });
+      foreground = foreground.filter((r) => !saved.includes(r));
+    } else {
+      p.log.info('Could not start the background read, so reading now.');
+    }
+  }
+
   // Git and repo docs already ran above, in runLocalValuePhase, before the mode/connector
   // questions - both are zero-credential value and belong in the "here is what I
   // found" moment, not stranded behind the questions this phase exists to ask. This phase
   // is only the automatic import for the paste-token connectors just collected.
-  for (const { source, tokens, reused } of localReady) {
+  for (const { source, tokens, reused } of foreground) {
     const spinner = quiet ? { start() {}, stop() {} } : p.spinner();
     let sourceCs: CaptureSource | undefined;
     try {
-      const fetched = await fetchUnderScope(source, tokens, window, scopeCtx, () => spinner.start(`Fetching from ${source.label}...`));
+      const startSpinner = () => spinner.start(`Fetching from ${source.label}...`);
+      const prior = decided.get(source.id);
+      const fetched = prior ? await fetchWithDecision(source, tokens, window, prior, startSpinner) : await fetchUnderScope(source, tokens, window, scopeCtx, startSpinner);
       sourceCs = capture.add(toCaptureSource(source, fetched, windowLabel(window.days)));
       const { items } = fetched;
       // Saved only once the fetch it unlocked has succeeded. A token that never worked is not
@@ -1091,10 +1167,15 @@ export async function connectLocalSources(o: ConnectLocalSourcesOptions): Promis
   return results;
 }
 
-async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void> {
+/** Connects the local sources setup picked, background reads by default, and returns the lines the agent screen shows under its header. */
+async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<string[]> {
   const { interactive, config, localEnv, localClient, dbPath, opts, capture, funnel, agents, foundTitles, agent } = ctx;
 
-  await connectLocalSources({ interactive, config, localEnv, localClient, capture, approve: opts.approve ?? false });
+  const connected = await connectLocalSources({ interactive, config, localEnv, localClient, capture, approve: opts.approve ?? false, background: true });
+  const deferred = connected.filter((r) => r.deferred).map((r) => r.label);
+  // Printed here and carried into the agent screen, which repaints the terminal over this line.
+  const notices = deferred.length > 0 ? [`Reading ${deferred.join(', ')} in the background. Progress: align sync --status`] : [];
+  for (const n of notices) p.log.info(n);
 
   // What each source fetched and what it could not reach - once, after every
   // import has printed its own line, so the numbers sit together. A source whose fetch
@@ -1193,6 +1274,7 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
   // waiting for. Awaited (unlike the other emitters) because this is the wizard's last act
   // and the one row the funnel was blind to; there is nothing left for a 2s worst case to hold up.
   await funnel.completed(localEnv);
+  return notices;
 }
 
 // Local-embedded onboarding (opt-in via --local): no account, no cloud, no OAuth. Composes
@@ -1200,13 +1282,15 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
 // as two calls instead of one function body.
 async function runLocalSetup(opts: { approve?: boolean; reset?: boolean; launchNext?: boolean; verbose?: boolean; funnel: SetupFunnel }): Promise<SetupResult> {
   const ctx = await runLocalValuePhase(opts);
-  await runLocalConnectorPhase(ctx);
-  return { writesDeclined: ctx.writesDeclined };
+  const notices = await runLocalConnectorPhase(ctx);
+  return { writesDeclined: ctx.writesDeclined, ...(notices.length > 0 ? { notices } : {}) };
 }
 
 /** What bare `align` needs from a finished wizard: after a declined write there is no connected agent to open. */
 export interface SetupResult {
   writesDeclined: boolean;
+  /** Lines for the agent screen that opens next, such as which sources are being read in the background. */
+  notices?: string[];
 }
 
 /**

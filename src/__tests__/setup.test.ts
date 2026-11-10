@@ -76,6 +76,9 @@ const mockSetConnectorToken = vi.hoisted(() => vi.fn());
 // reuse path.
 const mockGetConnectorFields = vi.hoisted(() => vi.fn().mockReturnValue(null));
 const mockSaveConnectorFields = vi.hoisted(() => vi.fn());
+// Setup hands paste-token sources (not GitHub, GitLab or Teams) to one background child. Never spawn a real one here.
+const mockStartSync = vi.hoisted(() => vi.fn().mockResolvedValue({ ok: true, pid: 1 }));
+vi.mock('../lib/sync/spawn-background.js', async (orig) => ({ ...(await orig<object>()), startSyncChild: mockStartSync }));
 const mockForgetConnector = vi.hoisted(() => vi.fn());
 // Nothing saved by default, so every pre-existing test keeps its subject - the
 // guided-key offer only fires when hasConfiguredProvider() is also false (gated by real env
@@ -809,9 +812,10 @@ describe('align setup', () => {
 
         await makeProgram().parseAsync(['node', 'align', '--local']);
 
-        expect(fetchJiraItems).toHaveBeenCalledWith(
-          expect.objectContaining({ token: 'atl_saved', email: 'ada@x.io', domain: 'acme.atlassian.net' }),
-        );
+        // Read by the background child, with exactly these saved fields.
+        expect(mockSaveConnectorFields).toHaveBeenCalledWith('local', 'jira', expect.objectContaining({ token: 'atl_saved', email: 'ada@x.io', domain: 'acme.atlassian.net' }));
+        expect(mockStartSync).toHaveBeenCalledWith(['jira'], expect.anything());
+        expect(fetchJiraItems).not.toHaveBeenCalled();
         expect(password).not.toHaveBeenCalled();
         expect(text).not.toHaveBeenCalled();
       });
@@ -879,8 +883,10 @@ describe('align setup', () => {
 
         await makeProgram().parseAsync(['node', 'align', '--local']);
 
-        expect(fetchJiraItems).toHaveBeenCalledWith(expect.objectContaining({ token: 'test-token' }));
-        expect(fetchConfluenceItems).toHaveBeenCalledWith(expect.objectContaining({ token: 'test-token' }));
+        expect(mockSaveConnectorFields).toHaveBeenCalledWith('local', 'jira', expect.objectContaining({ token: 'test-token' }));
+        expect(mockSaveConnectorFields).toHaveBeenCalledWith('local', 'confluence', expect.objectContaining({ token: 'test-token' }));
+        expect(fetchJiraItems).not.toHaveBeenCalled();
+        expect(fetchConfluenceItems).not.toHaveBeenCalled();
         const asked = mockConfirm.mock.calls.map((c: unknown[]) => String((c[0] as { message?: string })?.message));
         // One question for the shared Atlassian token, asked before the pasted one exists, so Confluence is never
         // offered the old token on its own.
@@ -1095,7 +1101,8 @@ describe('align setup', () => {
 
         await makeProgram().parseAsync(['node', 'align', '--local']);
 
-        expect(fetchLinearItems).toHaveBeenCalled();
+        expect(mockStartSync).toHaveBeenCalledWith(['linear'], expect.anything());
+        expect(fetchLinearItems).not.toHaveBeenCalled();
         expect(fetchGitHubItems).not.toHaveBeenCalled();
         expect(fetchSlackItems).not.toHaveBeenCalled();
         expect(mockSaveConnectorFields).toHaveBeenCalledTimes(1);
@@ -1145,11 +1152,12 @@ describe('align setup', () => {
 
       // Both fetchers ran with the SAME credential set - the reuse is real, not a
       // skipped connector (positive control for the single-ask assertions above).
-      expect(fetchJiraItems).toHaveBeenCalled();
-      expect(fetchConfluenceItems).toHaveBeenCalled();
-      const jiraArgs = (fetchJiraItems as ReturnType<typeof vi.fn>).mock.calls[0]![0] as Record<string, string>;
-      const confArgs = (fetchConfluenceItems as ReturnType<typeof vi.fn>).mock.calls[0]![0] as Record<string, string>;
-      expect(confArgs['token']).toBe(jiraArgs['token']);
+      // Both saved for the background child, with one token.
+      const saved = (id: string) => mockSaveConnectorFields.mock.calls.find((c) => c[1] === id)?.[2] as Record<string, string> | undefined;
+      expect(saved('jira')?.['token']).toBeDefined();
+      expect(saved('confluence')?.['token']).toBe(saved('jira')?.['token']);
+      expect(fetchJiraItems).not.toHaveBeenCalled();
+      expect(fetchConfluenceItems).not.toHaveBeenCalled();
 
       // And it is disclosed, not silent.
       const said = (log.info as ReturnType<typeof vi.fn>).mock.calls
@@ -1233,7 +1241,7 @@ describe('align setup', () => {
       expect(mockIngestBatch).toHaveBeenCalled();
     });
 
-    it('--local offers read-only token-paste connectors and imports a selected one into the local graph', async () => {
+    it('--local offers read-only token-paste connectors and hands a selected one to the background read', async () => {
       mockMultiselect.mockResolvedValueOnce(['linear']); // local connector step
       const { password } = await import('@clack/prompts');
       const { fetchLinearItems } = await import('../lib/fetchers/linear.js');
@@ -1244,8 +1252,9 @@ describe('align setup', () => {
       const open = (await import('open')).default;
       expect(open).toHaveBeenCalledWith('https://linear.app/settings/account/security/api-keys/new');
       expect(password).toHaveBeenCalled();
-      expect(fetchLinearItems).toHaveBeenCalled();
-      expect(mockIngestBatch).toHaveBeenCalled();
+      expect(mockSaveConnectorFields).toHaveBeenCalledWith('local', 'linear', expect.anything());
+      expect(mockStartSync).toHaveBeenCalledWith(['linear'], expect.anything());
+      expect(fetchLinearItems).not.toHaveBeenCalled();
       expect(mockWaitForCallback).not.toHaveBeenCalled();
       expect(mockWhoami).not.toHaveBeenCalled();
     });

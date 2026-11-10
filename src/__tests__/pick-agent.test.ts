@@ -30,18 +30,19 @@ function harness(over: Partial<PickAgentDeps> & { stored?: string; onPath?: stri
 }
 
 describe('pickAgent: how many agents are installed', () => {
-  it('on a terminal with one installed, still asks, with it preselected; Enter stores it', async () => {
+  // One installed agent is the only sensible answer, so a terminal is not asked; the line says how to switch.
+  it('on a terminal with one installed, takes it without asking and says how to switch', async () => {
     const h = harness({ onPath: ['claude'] });
     const r = await pickAgent(h.config, { interactive: true }, h.deps);
     expect(r).toBe('claude-code');
-    expect(h.select).toHaveBeenCalledTimes(1);
-    expect(h.select.mock.calls[0]![1]).toBe('claude-code');
+    expect(h.select).not.toHaveBeenCalled();
     expect(h.setAgent).toHaveBeenCalledExactlyOnceWith('claude-code');
+    expect(h.say).toContain(`Using ${CLAUDE.label}. Switch any time with \`align use\`.`);
   });
-  it('preselects the other one when that is the only one installed (two examples)', async () => {
+  it('takes the other one when that is the only one installed (two examples)', async () => {
     const h = harness({ onPath: ['opencode'] });
     expect(await pickAgent(h.config, { interactive: true }, h.deps)).toBe('opencode');
-    expect(h.select.mock.calls[0]![1]).toBe('opencode');
+    expect(h.select).not.toHaveBeenCalled();
     expect(h.stored()).toBe('opencode');
   });
   it('with two installed on a TTY, offers exactly those two and stores the answer', async () => {
@@ -172,7 +173,8 @@ describe('pickAgent: the picker lists every agent (phase P)', () => {
   });
   it('Ctrl-C at the install question cancels the wizard: no install, no second picker', async () => {
     const spawn = vi.fn();
-    const h = harness({ onPath: ['npm', 'claude'], agents: [CLAUDE, CODEX], confirm: vi.fn(async () => null), spawn });
+    // Two installed, so the picker opens (one installed is taken without a picker).
+    const h = harness({ onPath: ['npm', 'claude', 'opencode'], agents: [CLAUDE, OPENCODE, CODEX], confirm: vi.fn(async () => null), spawn });
     h.select.mockResolvedValueOnce('codex');
     expect(await pickAgent(h.config, { interactive: true }, h.deps)).toBe(PICK_CANCELLED);
     expect(spawn).not.toHaveBeenCalled();
@@ -190,5 +192,34 @@ describe('pickAgent: the picker lists every agent (phase P)', () => {
     expect(await pickAgent(h.config, { interactive: true, approve: true }, h.deps)).toBeNull();
     expect(h.select).not.toHaveBeenCalled();
     expect(spawn).not.toHaveBeenCalled();
+  });
+});
+
+// Setup asks for the agent on the same screen as the files when two or more are installed, so the
+// wizard defers the question: the installed agents come back unasked, and nothing is stored yet.
+describe('pickAgent: defer (setup asks later, with the files)', () => {
+  it('two installed on a terminal: returns them unasked and stores nothing', async () => {
+    const h = harness({ onPath: ['claude', 'opencode'] });
+    const r = await pickAgent(h.config, { interactive: true, defer: true }, h.deps);
+    expect(r).toEqual({ deferred: [{ name: 'claude-code', label: CLAUDE.label }, { name: 'opencode', label: OPENCODE.label }] });
+    expect(h.select).not.toHaveBeenCalled();
+    expect(h.setAgent).not.toHaveBeenCalled();
+  });
+  it('one installed is still taken at once, deferred or not', async () => {
+    const h = harness({ onPath: ['opencode'] });
+    expect(await pickAgent(h.config, { interactive: true, defer: true }, h.deps)).toBe('opencode');
+  });
+  it('none installed still opens the picker, which can install one', async () => {
+    const h = harness({ onPath: ['npm'] });
+    await pickAgent(h.config, { interactive: true, defer: true }, h.deps);
+    expect(h.select).toHaveBeenCalledTimes(1);
+  });
+  it('--approve and no terminal give the same answer with or without defer', async () => {
+    for (const opts of [{ interactive: true, approve: true }, { interactive: false }]) {
+      const plain = harness({ onPath: ['claude', 'opencode'] });
+      const deferred = harness({ onPath: ['claude', 'opencode'] });
+      const without = await pickAgent(plain.config, opts, plain.deps);
+      expect(await pickAgent(deferred.config, { ...opts, defer: true }, deferred.deps)).toEqual(without);
+    }
   });
 });

@@ -9,15 +9,19 @@ const tick = (ms = 30) => new Promise((r) => setTimeout(r, ms));
 
 function fakeTerminal() {
   let onInput: (d: string) => void = () => {};
+  let onResize: () => void = () => {};
+  let columns = 80;
   const out: string[] = [];
   const term: Terminal = {
-    start: (i) => { onInput = i; }, stop: () => {}, drainInput: async () => {},
+    start: (i, r) => { onInput = i; onResize = r; }, stop: () => {}, drainInput: async () => {},
     write: (d) => { out.push(d); },
-    get columns() { return 80; }, get rows() { return 24; }, get kittyProtocolActive() { return false; },
+    get columns() { return columns; }, get rows() { return 24; }, get kittyProtocolActive() { return false; },
     moveBy: () => {}, hideCursor: () => {}, showCursor: () => {}, clearLine: () => {}, clearFromCursor: () => {},
     clearScreen: () => {}, setTitle: () => {}, setProgress: () => {}, setProgramStatus: () => {},
   };
-  return { term, press: (d: string) => onInput(d), screen: () => plain(out.join('')), mark: () => out.length, since: (i: number) => plain(out.slice(i).join('')) };
+  // redraw(): a resize makes the screen draw every line again, so what follows is what is on it now.
+  const redraw = () => { columns += 1; onResize(); };
+  return { term, press: (d: string) => onInput(d), redraw, screen: () => plain(out.join('')), mark: () => out.length, since: (i: number) => plain(out.slice(i).join('')) };
 }
 
 function fakeEngine() {
@@ -51,6 +55,17 @@ describe('agent screen', () => {
     const { t, engine } = await launch();
     expect(t.screen()).toContain('Align · Fake engine · 749 decisions');
     expect(engine.start).toHaveBeenCalledOnce();
+  });
+
+  it('shows each notice under the header when the screen opens', async () => {
+    const engine = fakeEngine();
+    const t = fakeTerminal();
+    void runAgentUi({ engine, decisionCount: 749, gate: async () => ({ kind: 'allow', cards: [] }), terminal: t.term, notices: ['Refreshing jira in the background.', 'Align cannot refresh notion: reconnect.'] });
+    await tick();
+    const screen = t.screen();
+    expect(screen).toContain('Refreshing jira in the background.');
+    expect(screen).toContain('Align cannot refresh notion: reconnect.');
+    expect(screen.indexOf('749 decisions')).toBeLessThan(screen.indexOf('Refreshing jira'));
   });
 
   it('denies an edit when the person answers s on the gate card', async () => {
@@ -280,5 +295,79 @@ describe('an engine that cannot start', () => {
       expect(await runAgentUi({ engine, decisionCount: 1, gate: async () => ({ kind: 'allow', cards: [] }), terminal: t.term })).toBe(1);
       expect(errs.join('')).toContain('Claude Code is not installed');
     } finally { spy.mockRestore(); }
+  });
+});
+
+// An answered card used to stay on screen exactly as it was asked, so pressing a key looked like
+// nothing happened. It now folds to one line saying what was decided, and an approved command
+// names itself in the status line until its tool ends.
+describe('answering a card shows at once that something happened', () => {
+  const submit = async (t: ReturnType<typeof fakeTerminal>) => { for (const k of ['h', 'i', '\r']) t.press(k); await tick(); };
+  const answer = async (key: string, ask: ToolAsk, gate?: (a: ToolAsk) => Promise<GateOutcome>) => {
+    const { t, engine } = await launch(gate);
+    await submit(t);
+    const verdict = engine.broker(ask);
+    await tick();
+    const m = t.mark();
+    t.press(key);
+    await verdict;
+    await tick();
+    return { t, engine, m };
+  };
+
+  it('y folds the command card into "approved, running" and the status names the command', async () => {
+    const { t, m } = await answer('y', cmdAsk('npm test'));
+    expect(t.since(m)).toContain('approved, running: npm test');
+    expect(t.since(m)).toContain('Running npm test');
+  });
+
+  it('the answered card is gone from the screen, not just followed by a new line', async () => {
+    const { t } = await answer('y', cmdAsk('npm test'));
+    const r = t.mark();
+    t.redraw();
+    await tick();
+    // Positive control: the full redraw carries the folded line, so the absence below is real.
+    expect(t.since(r)).toContain('approved, running: npm test');
+    expect(t.since(r)).not.toContain('Run this command?');
+    expect(t.since(r)).not.toContain('[y] yes');
+  });
+
+  it('s says it is approved for this session, for whatever command it was', async () => {
+    const { t, m } = await answer('s', cmdAsk('pnpm lint'));
+    expect(t.since(m)).toContain('approved for this session, running: pnpm lint');
+    expect(t.since(m)).toContain('Running pnpm lint');
+  });
+
+  it('n folds the card into "stopped" and nothing is shown running', async () => {
+    const { t, m } = await answer('n', cmdAsk('git push --force'));
+    expect(t.since(m)).toContain('stopped: git push --force');
+    expect(t.since(m)).not.toContain('Running git push');
+  });
+
+  it('the running line goes when the tool ends', async () => {
+    const { t, engine } = await answer('y', cmdAsk('npm test'));
+    const m = t.mark();
+    engine.onEvent({ type: 'tool-end', id: 'c-npm test', ok: true });
+    await tick(1100);
+    expect(t.since(m)).not.toContain('Running npm test');
+    expect(t.since(m)).toContain('esc to interrupt');
+  });
+
+  it('a long or multi-line command shows only its first line, cut short', async () => {
+    const { t, m } = await answer('y', cmdAsk(`python3 - <<'E'\n${'x'.repeat(200)}\nE`));
+    expect(t.since(m)).toContain("approved, running: python3 - <<'E'");
+    expect(t.since(m)).not.toContain('x'.repeat(100));
+  });
+
+  it('a on the gate card says the edit is allowed once; s says stopped', async () => {
+    const allowed = await answer('a', editAsk, async () => askOutcome);
+    expect(allowed.t.since(allowed.m)).toContain('allowed once, applying the edit');
+    const r = allowed.t.mark();
+    allowed.t.redraw();
+    await tick();
+    expect(allowed.t.since(r)).toContain('allowed once, applying the edit');
+    expect(allowed.t.since(r)).not.toContain('[a] allow once');
+    const stopped = await answer('s', editAsk, async () => askOutcome);
+    expect(stopped.t.since(stopped.m)).toContain('stopped the edit');
   });
 });
