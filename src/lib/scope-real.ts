@@ -23,10 +23,14 @@ export function scopeRepoKey(env: Record<string, string | undefined> = process.e
   if (given !== undefined && given !== '') return given;
   // Git is asked once per directory in this process (a "not a repo" answer too): every scope read asks, and the answer does not move.
   const dir = process.cwd();
-  if (!repoKeyByDir.has(dir)) repoKeyByDir.set(dir, currentRepoIdentitySync());
-  return repoKeyByDir.get(dir) ?? null;
+  const known = repoKeyByDir.get(dir);
+  if (known !== undefined) return known;
+  // A null (not a repo, or git timed out) is asked again next time: only a real identity is kept.
+  const found = currentRepoIdentitySync();
+  if (found !== null) repoKeyByDir.set(dir, found);
+  return found;
 }
-const repoKeyByDir = new Map<string, string | null>();
+const repoKeyByDir = new Map<string, string>();
 
 /** The scope store backed by the config file, keyed per repo by `repo()`. Tests hand `repo` a fixed identity. */
 export function configScopeStore(config = createConfigStore(), repo: () => string | null = scopeRepoKey): ScopeStore {
@@ -57,7 +61,7 @@ export function scopeStatusHooks(config = createConfigStore()): { activeScopeKey
   const store = configScopeStore(config);
   /** The scope key a stored choice reads under: `yours`, or the team key with any narrowing. */
   const key = (source: string, s: ActiveScope | null): string | undefined =>
-    s === null || s.kind === 'skip' ? undefined : s.kind === 'yours' ? 'yours' : scopeKeyOf(source as ScopedSource, s.labels, s.narrow);
+    s === null || s.kind === 'skip' || s.kind === 'unreadable' ? undefined : s.kind === 'yours' ? 'yours' : scopeKeyOf(source as ScopedSource, s.labels, s.narrow);
   return {
     activeScopeKey: (id) => {
       const s = store.getScope(id);

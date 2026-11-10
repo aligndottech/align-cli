@@ -67,13 +67,13 @@ function setup(o: { picks?: string[] | null; pagePicks?: string[] | null; flags?
 }
 
 describe('Notion picker', () => {
-  it('lists pages by title with skip first, and preselects a page sharing a whole word with the repo name', async () => {
+  it('lists pages by title with skip first, and lists a page sharing a whole word with the repo name first, preselecting nothing', async () => {
     const s = setup({ repoNames: ['align-cli'], table: NOTION });
     await decideConnectScope('notion', FIELDS['notion']!, s.ctx);
     expect(s.asked).toHaveLength(1);
     expect(s.asked[0]!.options.map((x) => x.value)).toEqual([SKIP_VALUE, P1, P2, P3]);
     expect(s.asked[0]!.options.map((x) => x.label)).toEqual(['None, skip Notion in this repo', 'align-cli roadmap', 'Billing', 'Hiring']);
-    expect(s.asked[0]!.initial).toEqual([P1]);
+    expect(s.asked[0]!.initial).toEqual([]);
   });
 
   it('with no page matching the repo nothing is preselected: Enter keeps today\'s read of everything shared', async () => {

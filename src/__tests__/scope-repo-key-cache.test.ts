@@ -21,15 +21,16 @@ describe('scopeRepoKey', () => {
     expect(identity).toHaveBeenCalledTimes(1);
   });
 
-  it('a directory that is not a repo (null) is cached too, and another directory is asked separately', () => {
+  it('a null (not a repo, or a timeout) is asked again, and another directory is asked separately', () => {
     here = '/work/plain';
     identity.mockReturnValue(null);
     expect([scopeRepoKey({}), scopeRepoKey({})]).toEqual([null, null]);
-    expect(identity).toHaveBeenCalledTimes(1);
+    expect(identity).toHaveBeenCalledTimes(2);
+    identity.mockClear();
     here = '/work/b';
     identity.mockReturnValue('github.com/acme/web');
     expect(scopeRepoKey({})).toBe('github.com/acme/web');
-    expect(identity).toHaveBeenCalledTimes(2);
+    expect(identity).toHaveBeenCalledTimes(1);
   });
 
   it('a non-empty SYNC_REPO_ENV is returned directly, without git and without touching the cache; empty or unset is not', () => {

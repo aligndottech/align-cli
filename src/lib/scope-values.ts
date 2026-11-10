@@ -49,6 +49,8 @@ export type ActiveScope =
   | { kind: 'yours' }
   /** The person chose to read nothing from this source in this repo. Stored per repo, like any choice. */
   | { kind: 'skip' }
+  /** A narrowed record that could not be read, for a source where yours is the WIDER read (Notion): nothing is read until it is chosen again. */
+  | { kind: 'unreadable' }
   /** `values` are what the fetcher takes (Linear: team ids); `labels` are what people read (Linear: team keys). */
   | { kind: 'team'; values: string[]; labels: string[]; narrow?: Narrowing };
 /**
@@ -59,6 +61,7 @@ export type ActiveScope =
 export type StoredScope =
   | { kind: 'yours' }
   | { kind: 'skip' }
+  | { kind: 'unreadable' }
   | { kind: 'team'; values: string[]; labels: string[]; narrow?: Narrowing; pending?: { previous: ActiveScope | null } };
 const MAX_VALUES = 20;
 
@@ -68,7 +71,7 @@ const LINEAR_KEY = /^[A-Z][A-Z0-9]{0,9}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const GITLAB_ID = /^\d{1,12}$/;
 const GITLAB_PATH = /^[A-Za-z0-9_.-]{1,100}(?:\/[A-Za-z0-9_.-]{1,100})+$/;
-const NOTION_ID = /^(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
+export const NOTION_ID = /^(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
 /** A Confluence page id: digits. */
 export const CONFLUENCE_PAGE_ID = /^\d{1,19}$/;
 const CONFLUENCE_SPACE = /^~?[A-Za-z0-9_.-]{1,32}$/;

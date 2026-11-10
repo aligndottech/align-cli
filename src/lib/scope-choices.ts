@@ -11,6 +11,7 @@
  * it was not handed.
  */
 import { buildJiraJql } from '@aligndottech/connector-core';
+import { CONFLUENCE_PAGE_ID } from './scope-values.js';
 
 export type FetchLike = typeof fetch;
 type Init = NonNullable<Parameters<typeof fetch>[1]>;
@@ -137,12 +138,12 @@ export async function listConfluenceTopLevelPages(fields: Record<string, string>
   for (const sp of Array.isArray(found['results']) ? found['results'] : []) {
     const id = asRecord(sp)['id'];
     const key = text(asRecord(sp)['key']);
-    if ((typeof id !== 'string' && typeof id !== 'number') || !DIGITS.test(String(id)) || key === undefined) continue;
+    if ((typeof id !== 'string' && typeof id !== 'number') || !CONFLUENCE_PAGE_ID.test(String(id)) || key === undefined) continue;
     const page = asRecord(await get('Confluence', `https://${host}/wiki/api/v2/spaces/${String(id)}/pages?depth=root&limit=${max}`, headers, f));
     for (const v of Array.isArray(page['results']) ? page['results'] : []) {
       const pid = asRecord(v)['id'];
       const title = text(asRecord(v)['title']);
-      if ((typeof pid === 'string' || typeof pid === 'number') && DIGITS.test(String(pid)) && title !== undefined) items.push({ id: String(pid), name: `${key}: ${title}` });
+      if ((typeof pid === 'string' || typeof pid === 'number') && CONFLUENCE_PAGE_ID.test(String(pid)) && title !== undefined) items.push({ id: String(pid), name: `${key}: ${title}` });
     }
     if (text(asRecord(page['_links'])['next']) !== undefined) truncated = true;
   }
@@ -151,7 +152,7 @@ export async function listConfluenceTopLevelPages(fields: Record<string, string>
 
 /** One Confluence page by id: its title, or undefined when the token cannot read it. A refused token is an error, not "no". */
 export async function findConfluencePage(fields: Record<string, string>, id: string, f: FetchLike): Promise<{ title: string } | undefined> {
-  if (!DIGITS.test(id)) return undefined;
+  if (!CONFLUENCE_PAGE_ID.test(id)) return undefined;
   const host = hostOf('Confluence', fields['domain']);
   const headers = atlassianHeaders(fields);
   let res: Response;

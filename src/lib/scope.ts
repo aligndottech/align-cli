@@ -171,6 +171,7 @@ export async function resolveScope(source: string, deps: ScopeDeps, o: { foregro
 
 async function resolveFrom(source: ScopedSource, stored: StoredScope | ActiveScope | null, deps: ScopeDeps, o: { foreground: boolean }): Promise<ResolvedScope> {
   if (stored?.kind === 'skip') return { ...yours('chosen', undefined, source), skipped: skippedText(source) };
+  if (stored?.kind === 'unreadable') return { ...yours('chosen', undefined, source), blocked: `The saved ${labelOf(source)} choice could not be read, so nothing was read. Choose again: align connect --source ${source}` };
   if (stored?.kind === 'team') return team(source, stored.values, stored.labels, 'chosen', deps, o.foreground, stored.narrow);
   if (source === 'confluence') {
     return {

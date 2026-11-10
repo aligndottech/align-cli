@@ -295,10 +295,12 @@ export async function decideConnectScope(source: string, tokens: Record<string, 
     const inRepo = ctx.inRepo?.() ?? true;
     const matched = matchRepoNames(listed.items.map((x) => ({ key: x.id, name: x.name })), ctx.repoNames?.() ?? []);
     // No match preselects nothing: Enter keeps reading everything shared, as before this question existed.
-    const initial = before?.kind === 'team' ? before.values.filter((v) => ids.includes(v)) : before?.kind === 'skip' ? [SKIP_VALUE] : before?.kind === 'yours' ? [] : matched;
+    // Nothing stored: nothing preselected, so Enter keeps reading everything shared. Matching pages are listed first instead.
+    const initial = before?.kind === 'team' ? before.values.filter((v) => ids.includes(v)) : before?.kind === 'skip' ? [SKIP_VALUE] : [];
+    const ordered = [...listed.items.filter((x) => matched.includes(x.id)), ...listed.items.filter((x) => !matched.includes(x.id))];
     const picked = await ctx.prompts.multiselect(
       'Which Notion pages should Align read, with the pages under them? Pick none to read everything shared with your integration.',
-      [...(inRepo ? [{ value: SKIP_VALUE, label: `None, skip ${labelOf('notion')} in this repo` }] : []), ...listed.items.map((x) => ({ value: x.id, label: x.name, hint: x.kind }))],
+      [...(inRepo ? [{ value: SKIP_VALUE, label: `None, skip ${labelOf('notion')} in this repo` }] : []), ...ordered.map((x) => ({ value: x.id, label: x.name, hint: x.kind }))],
       initial, { required: false },
     );
     if (picked === null) {
