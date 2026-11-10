@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.71.0](https://github.com/aligndottech/align-cli/compare/cli-v0.70.0...cli-v0.71.0) (2026-11-10)
+
+
+### Features
+
+* **connect:** narrow Notion to chosen pages and Confluence to page trees, plus review fixes ([#539](https://github.com/aligndottech/align-cli/issues/539)) ([95b6811](https://github.com/aligndottech/align-cli/commit/95b6811099b3224c317b63ab55d8c36c71aba23e))
+* **scope:** connector scope fits the repo you are in, and one warning per failure reason (ALI-2089, ALI-2088) ([#537](https://github.com/aligndottech/align-cli/issues/537)) ([f12f73e](https://github.com/aligndottech/align-cli/commit/f12f73e3904bd1860509f5f851e33e791560562a))
+
 ## [0.70.0](https://github.com/aligndottech/align-cli/compare/cli-v0.69.0...cli-v0.70.0) (2026-11-10)
 
 
