@@ -7,6 +7,7 @@ import { Command } from 'commander';
 import { AuthExpiredError } from '../lib/errors.js';
 import type * as RepoIdentity from '../lib/repo-identity.js';
 import type * as FetchersGithub from '../lib/fetchers/github.js';
+import type * as ScopeConnect from '../lib/scope-connect.js';
 
 // ---- Hoisted mock state (must be hoisted so vi.mock factories can reference them) ----
 
@@ -303,6 +304,16 @@ vi.mock('../lib/fetchers/linear.js', () => ({
     report: { scanned: 1, skips: [] },
   }),
 }));
+
+// What the foreground connector loop does with a skipped or capped read: the fetch is forced to return that report, and
+// sayIfCapped is the observed seam (it takes the source and the completion the fetcher reported).
+const forcedFetch = vi.hoisted(() => ({ fn: null as null | (() => unknown) }));
+const mockSayIfCapped = vi.hoisted(() => vi.fn());
+vi.mock('../lib/scope-connect.js', async (orig) => {
+  const real = await orig<typeof ScopeConnect>();
+  return { ...real, fetchUnderScope: (...a: Parameters<typeof real.fetchUnderScope>) => (forcedFetch.fn ? forcedFetch.fn() : real.fetchUnderScope(...a)) };
+});
+vi.mock('../lib/capped-read.js', async (orig) => ({ ...(await orig<object>()), sayIfCapped: mockSayIfCapped }));
 
 const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
 
@@ -960,6 +971,47 @@ describe('align setup', () => {
         expect(mockForgetConnector).toHaveBeenCalledWith('local', 'github');
         const stops = spinnerInstances.flatMap((s) => s.stop.mock.calls.map((c) => String(c[0])));
         expect(stops.some((m) => /forgotten/i.test(m))).toBe(true);
+      });
+
+      describe('a source read in the foreground loop', () => {
+        const reuseGithub = (): void => {
+          mockGetConnectorFields.mockImplementation((_env: string, key: string) => (key === 'github' ? { token: 'ghp_saved_last_time' } : null));
+          mockMultiselect.mockResolvedValueOnce(['github']);
+          mockConfirm.mockImplementation(async (o: { message?: string }) => /re-import|token you connected before/i.test(String(o?.message)));
+        };
+        afterEach(() => { forcedFetch.fn = null; mockSayIfCapped.mockClear(); });
+
+        it('a source skipped in this repo prints its skip line (the spinner never started), saves the token and goes on', async () => {
+          reuseGithub();
+          forcedFetch.fn = () => ({ items: [], report: { scanned: 0, skips: [], skippedInRepo: true } });
+          const p = await import('@clack/prompts');
+          (p.log.info as ReturnType<typeof vi.fn>).mockClear();
+          spinnerInstances.length = 0;
+
+          await makeProgram().parseAsync(['node', 'align', '--local']);
+
+          const said = (p.log.info as ReturnType<typeof vi.fn>).mock.calls.map((c) => String(c[0]));
+          expect(said).toContain('Skipped GitHub in this repo. To read it: align connect --source github');
+          expect(spinnerInstances.flatMap((sp) => sp.stop.mock.calls.map((c) => String(c[0]))).some((m) => /^Skipped GitHub/.test(m))).toBe(false);
+          expect(mockSaveConnectorFields).toHaveBeenCalledWith('local', 'github', expect.anything());
+          expect(mockSayIfCapped).not.toHaveBeenCalled();
+        });
+
+        it('says when a read was capped, naming the source and what the fetcher reported', async () => {
+          reuseGithub();
+          const item = { source_url: 'https://github.com/o/r/pull/1', title: 'PR', raw_text: 'x', type: 'pull_request' };
+          forcedFetch.fn = () => ({ items: [item], report: { scanned: 1, skips: [], complete: false } });
+          await makeProgram().parseAsync(['node', 'align', '--local']);
+          expect(mockSayIfCapped).toHaveBeenCalledWith({ source: 'github', read: 1, complete: false });
+        });
+
+        it('a fetcher that did not say whether it finished leaves the completion out', async () => {
+          reuseGithub();
+          const item = { source_url: 'https://github.com/o/r/pull/1', title: 'PR', raw_text: 'x', type: 'pull_request' };
+          forcedFetch.fn = () => ({ items: [item], report: { scanned: 1, skips: [] } });
+          await makeProgram().parseAsync(['node', 'align', '--local']);
+          expect(mockSayIfCapped).toHaveBeenCalledWith({ source: 'github', read: 1 });
+        });
       });
 
       it('keeps a reused token when the failure is not about the token', async () => {

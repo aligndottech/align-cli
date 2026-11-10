@@ -1,6 +1,7 @@
 import type { Command } from 'commander';
 import { subcommandOpts } from '../../lib/command-opts.js';
 import * as p from '@clack/prompts';
+import { sayIfCapped } from '../../lib/capped-read.js';
 import { createConfigStore, type EnvName } from '../../lib/config.js';
 import { createGatewayClient } from '../../lib/gateway-client.js';
 import { resolveImportEnv } from '../../lib/resolve-env.js';
@@ -72,6 +73,7 @@ export function registerImportTeamsCommand(importCmd: Command): void {
         });
         const { items } = fetched;
         spinner.stop(`Found ${items.length} messages`);
+        sayIfCapped({ source: 'teams', read: items.length, limit: parseInt(opts.limit, 10) });
         const importResult: { stored?: number; failedBatches?: number } = {};
         await runPersonalImport(items, client, { result: importResult, label: 'Teams', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'teams' } });
         console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.teams, fetched, windowLabel(window.days), importResult)])}\n`);

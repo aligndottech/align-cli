@@ -52,6 +52,8 @@ export interface CaptureFetchReport {
   discussionTotal?: number;
   /** L3: one line saying whose items a team-scope read covered ("everyone's PRs and issues in o/r"). */
   scopeNote?: string;
+  /** The person chose to skip this source in this repo, so nothing was fetched. */
+  skippedInRepo?: boolean;
   /** L4: a team read that --json could not tell the person about; the disclosure is still owed and shows at the next foreground run. */
   disclosurePending?: boolean;
 }

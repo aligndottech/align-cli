@@ -129,6 +129,10 @@ export function savedLlmConfig(config: {
 export type LeadPromptOutcome = 'declined' | 'submitted' | 'skipped';
 export interface LeadState { shownAt?: string; version?: string; outcome?: LeadPromptOutcome; submittedAt?: string }
 
+/** The config key a source's scope choice lives under: per machine, or per repo (see getConnectorScope). */
+const scopeKey = (env: string, connectorKey: string, repo?: string | null): string =>
+  repo ? `${env}:${connectorKey}:scope:repo:${repo}` : `${env}:${connectorKey}:scope`;
+
 export function createConfigStore() {
   const store = new Conf<{
     environments: Record<string, Partial<EnvironmentConfig>>;
@@ -368,12 +372,23 @@ export function createConfigStore() {
     // KNOWN LIMIT (lost updates): this store reads the whole file and writes the whole file, and every setter here is a read-modify-write of
     // one key. Two Align processes writing at the same instant can lose one write. Re-reading just before each set (as the setters do) keeps the
     // window to milliseconds; a lock was judged not worth its cost for a settings file. The visible failure for a scope is the old scope staying in force.
-    getConnectorScope(env: EnvName, connectorKey: string): StoredScope | null {
-      const raw = getTokens()[`${env}:${connectorKey}:scope`];
+    // PER REPO: a choice made in a repo is stored under `<env>:<source>:scope:repo:<identity>`. `repo` set reads that entry
+    // first and falls back to the per-machine `<env>:<source>:scope` written before choices were per repo, so an old "yours" still applies
+    // in a repo with no choice of its own, but only when that entry is yours (never a team or a skip). Absent or null `repo` is the per-machine entry. `forgetConnector` removes every one of them
+    // (they all start with `<env>:<source>:`), and none is a `:field:` key, so no fetch is handed one as a credential.
+    getConnectorScope(env: EnvName, connectorKey: string, repo?: string | null): StoredScope | null {
+      const tokens = getTokens();
+      const own = repo ? tokens[scopeKey(env, connectorKey, repo)] : undefined;
+      const raw = own ?? tokens[scopeKey(env, connectorKey)];
       if (raw === undefined) return null;
+      // The per-machine entry is a fallback for YOURS only. A team or skip chosen per machine, before choices were per repo, must not
+      // apply in a repo that has none of its own: that is how a team picked in one clone was read into every other.
+      if (repo && own === undefined && topLevelKind(raw) !== 'yours') return null;
       try {
         const v = JSON.parse(raw) as { kind?: unknown; values?: unknown; labels?: unknown };
         if (v.kind === 'yours') return { kind: 'yours' };
+        // Written by this CLI only; an older one reads the unknown kind as yours, the narrower scope, which is the fail direction wanted.
+        if (v.kind === 'skip') return { kind: 'skip' };
         const strings = (x: unknown): x is string[] => Array.isArray(x) && x.length > 0 && x.every((e) => typeof e === 'string');
         // "narrowed" is a team scope with a narrowing: stored under its own kind so an older CLI reads it as yours, never as the
         // whole project. A narrowing that does not parse is yours too.
@@ -389,17 +404,17 @@ export function createConfigStore() {
           const previous: ActiveScope | null = prev === null || prev === undefined ? null
             : (prev.kind === 'team' || prevNarrow !== undefined) && strings(prev.values) && strings(prev.labels)
               ? { kind: 'team', values: prev.values, labels: prev.labels, ...(prevNarrow !== undefined ? { narrow: prevNarrow } : {}) }
-              : { kind: 'yours' };
+              : prev?.kind === 'skip' ? { kind: 'skip' } : { kind: 'yours' };
           return { kind: 'team', values: v.values, labels: v.labels, ...n, pending: { previous } };
         }
       } catch { /* damaged: falls through to yours */ }
       return { kind: 'yours' };
     },
-    setConnectorScope(env: EnvName, connectorKey: string, scope: StoredScope) {
-      store.set('connectorTokens', { ...getTokens(), [`${env}:${connectorKey}:scope`]: JSON.stringify(onDisk(scope)) });
+    setConnectorScope(env: EnvName, connectorKey: string, scope: StoredScope, repo?: string | null) {
+      store.set('connectorTokens', { ...getTokens(), [scopeKey(env, connectorKey, repo)]: JSON.stringify(onDisk(scope)) });
     },
-    clearConnectorScope(env: EnvName, connectorKey: string) {
-      const { [`${env}:${connectorKey}:scope`]: _gone, ...kept } = getTokens();
+    clearConnectorScope(env: EnvName, connectorKey: string, repo?: string | null) {
+      const { [scopeKey(env, connectorKey, repo)]: _gone, ...kept } = getTokens();
       store.set('connectorTokens', kept);
     },
     // L4: the one-time team-scope disclosure, remembered per source and scope so it prints before the FIRST team read of each.
@@ -688,6 +703,11 @@ function onDisk(scope: StoredScope | ActiveScope): Record<string, unknown> {
   if (scope.kind !== 'team') return scope;
   const pending = 'pending' in scope && scope.pending ? { pending: { previous: scope.pending.previous === null ? null : onDisk(scope.pending.previous) } } : {};
   return { ...scope, ...pending, kind: scope.narrow ? 'narrowed' : 'team' };
+}
+
+/** The top-level `kind` of a stored scope, or undefined when it is not JSON (a nested `previous.kind` is not it). */
+function topLevelKind(raw: string): unknown {
+  try { return (JSON.parse(raw) as { kind?: unknown } | null)?.kind; } catch { return undefined; }
 }
 
 /** A stored narrowing, or undefined when any part of it does not parse. */

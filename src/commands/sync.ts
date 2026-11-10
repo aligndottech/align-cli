@@ -6,7 +6,7 @@ import { createConfigStore } from '../lib/config.js';
 import { inCi } from '../lib/telemetry-ci.js';
 import { BACKFILL_SOURCES } from '../lib/mcp-backfill.js';
 import { claimProblem } from '../lib/sync/bg-claim.js';
-import { clearBlocked, writeBlocked } from '../lib/sync/blocked.js';
+import { noteSyncOutcome } from '../lib/sync/blocked.js';
 import { acquireLock } from '../lib/sync/lock.js';
 import { BACKGROUND_CLASSIFY_MAX, classifyUnclassified, estimateClassify } from '../lib/sync/classify.js';
 import { hasConfiguredProvider } from '../lib/local-llm.js';
@@ -325,11 +325,7 @@ export function registerSyncCommand(program: Command): void {
         backgroundOff: () => config.isBackgroundSyncOff(),
         setBackgroundOff: (off) => config.setBackgroundSyncOff(off),
         inAgent: () => Boolean(process.env['ALIGN_WRAPPED']) || process.env[STARTED_BY_AGENT_ENV] === 'mcp',
-        noteOutcome: (source, state, message) => {
-          if (source === 'teams') return;
-          if (state === 'manual' || state === 'not_connected') writeBlocked(source, state, message ?? state);
-          else if (state === 'ok' || state === 'partial' || state === 'error' || state === 'needs_reauth') clearBlocked(source);
-        },
+        noteOutcome: (source, state, message) => { noteSyncOutcome(source, state, message); },
         backgroundProblems: () => {
           const dir = alignStateDir();
           if (dir === null) return ['Align cannot use its state directory, so it does not refresh in the background'];

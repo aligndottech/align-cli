@@ -3,7 +3,7 @@
  * Kept apart from scope.ts so that file stays a function of its injected world. The GitHub fetcher is imported lazily, only when a folder is read.
  */
 import { createConfigStore } from './config.js';
-import { currentRepoIdentity } from './repo-identity.js';
+import { currentRepoIdentity, currentRepoIdentitySync, SYNC_REPO_ENV } from './repo-identity.js';
 import { CONFLUENCE_NEEDS_SPACES, type ScopeDeps, type ScopeStore } from './scope.js';
 import { type ActiveScope, describeTeamScope, type ScopedSource, scopeKeyOf } from './scope-values.js';
 
@@ -12,11 +12,27 @@ export function gitlabPlaceOf(identity: string | null): string | undefined {
   return identity?.startsWith('gitlab.com/') ? identity.slice('gitlab.com/'.length) : undefined;
 }
 
-export function configScopeStore(config = createConfigStore()): ScopeStore {
+export { SYNC_REPO_ENV };
+
+/**
+ * The repo a scope choice belongs to: the one a background child was started for, else the folder's. Null outside a git repo, where
+ * a choice is per machine. A scope is per repo so that picking a Linear team in one clone does not read it in every other.
+ */
+export function scopeRepoKey(env: Record<string, string | undefined> = process.env): string | null {
+  const given = env[SYNC_REPO_ENV];
+  return given !== undefined && given !== '' ? given : currentRepoIdentitySync();
+}
+
+export function configScopeStore(config = createConfigStore(), repo: () => string | null = scopeRepoKey): ScopeStore {
   return {
-    getScope: (source) => config.getConnectorScope('local', source),
-    saveScope: (source, scope) => config.setConnectorScope('local', source, scope),
-    clearScope: (source) => config.clearConnectorScope('local', source),
+    getScope: (source) => config.getConnectorScope('local', source, repo()),
+    saveScope: (source, scope) => {
+      const id = repo();
+      // A skip is a statement about THIS repo; saved per machine it would switch the source off everywhere.
+      if (scope.kind === 'skip' && id === null) throw new Error('Skipping a source is chosen for one repo, and this folder is not in a git repo.');
+      config.setConnectorScope('local', source, scope, id);
+    },
+    clearScope: (source) => config.clearConnectorScope('local', source, repo()),
     fields: (source) => config.getConnectorFields('local', source),
     isDisclosed: (source, scopeKey) => config.isTeamScopeDisclosed(source, scopeKey),
     markDisclosed: (source, scopeKey) => config.markTeamScopeDisclosed(source, scopeKey),
@@ -35,14 +51,14 @@ export function scopeStatusHooks(config = createConfigStore()): { activeScopeKey
   const store = configScopeStore(config);
   /** The scope key a stored choice reads under: `yours`, or the team key with any narrowing. */
   const key = (source: string, s: ActiveScope | null): string | undefined =>
-    s === null ? undefined : s.kind === 'yours' ? 'yours' : scopeKeyOf(source as ScopedSource, s.labels, s.narrow);
+    s === null || s.kind === 'skip' ? undefined : s.kind === 'yours' ? 'yours' : scopeKeyOf(source as ScopedSource, s.labels, s.narrow);
   return {
     activeScopeKey: (id) => {
       const s = store.getScope(id);
       // A waiting choice is never in force. With nothing before it the default applies, whose key is `yours`.
       return s?.kind === 'team' && s.pending ? key(id, s.pending.previous) ?? 'yours' : key(id, s);
     },
-    blockedScope: (id) => (id === 'confluence' && activeStoredScope(id, config)?.kind !== 'team' ? CONFLUENCE_NEEDS_SPACES : undefined),
+    blockedScope: (id) => (id === 'confluence' && !['team', 'skip'].includes(activeStoredScope(id, config)?.kind ?? '') ? CONFLUENCE_NEEDS_SPACES : undefined),
     pendingScope: (id) => {
       const s = store.getScope(id);
       return s?.kind === 'team' && s.pending ? describeTeamScope(id as ScopedSource, s.labels, s.narrow) : undefined;

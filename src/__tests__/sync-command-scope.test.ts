@@ -112,4 +112,12 @@ describe('the disclosure in align sync', () => {
     expect(out.join('\n')).toContain('align connect confluence --spaces ENG,OPS');
     expect(h.fetchCalls).toHaveLength(0);
   });
+
+  it('a source skipped in this repo prints how to read it, reads nothing and exits 0', async () => {
+    h.script({ items: [] });
+    const code = await runSyncCommand(['linear'], {}, deps({ scopeKey: 'yours', scope: 'yours', extras: {}, skipped: 'Linear is skipped in this repo, so nothing was read. To read it: align connect --source linear' }));
+    expect(code).toBe(0);
+    expect(out.join('\n')).toContain('align connect --source linear');
+    expect(h.fetchCalls).toHaveLength(0);
+  });
 });

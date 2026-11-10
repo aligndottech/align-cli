@@ -7,22 +7,24 @@
  *
  * What it decides, in order (a flag always wins, and a flag is checked against what the token can see before anything is fetched):
  * - GitHub and GitLab: the folder's remote decides, with no question (resolveScope). A repo the token cannot see is yours, said so.
- * - Jira and Linear: a picker on a terminal (cited keys preselected); otherwise the stored choice, else the cited keys the token can
- *   see, else yours with how to widen. A list that cannot be read never blocks: yours, and the reason is said.
+ * - Jira and Linear: a picker on a terminal, with "None, skip <Source> in this repo" first (preselected unless a name matches this repo or
+ *   a choice was stored); otherwise the stored choice, else yours with how to widen. A list that cannot be read never blocks: yours, and the reason is said.
  * - Confluence: spaces, picked, flagged or stored. With none, refused with the command (there is no "yours" to fall back to).
  * - Zoom: only yours, and it says why. Slack, Notion and Teams already read all the token can see: nothing to say.
  *
  * The team-scope disclosure is printed here, before the fetch, once per source. `quiet` (`--json`) prints nothing and does not mark
  * it told, so the next foreground run still tells the person.
  */
+import path from 'node:path';
 import { askWithTimeout } from './confirm-timeout.js';
 import * as p from '@clack/prompts';
 import { STARTED_BY_AGENT_ENV } from './backfill-state.js';
 import type { createConfigStore } from './config.js';
 import type { CaptureFetchResult } from './fetchers/capture.js';
 import { type ChangedBy, type Choice, chooseScope, commitScope, CONFLUENCE_NEEDS_SPACES, markTold, type ResolvedScope, resolveScope, type ScopeDeps, type SetInput } from './scope.js';
+import { matchRepoNames } from './scope-repo-match.js';
 import { citedProjectKeys } from './scope-defaults.js';
-import { realScopeDeps } from './scope-real.js';
+import { realScopeDeps, scopeRepoKey } from './scope-real.js';
 import { listConfluenceSpaces, listJiraBoards, listJiraProjects, listLinearProjects, listLinearTeams, ScopeLookupError } from './scope-choices.js';
 import { describeTeamScope, disclosureText, fetchOptsFor, FIXED_SCOPES, type Narrowing, SCOPED_SOURCES, type ScopedSource } from './scope-values.js';
 import { CAPTURE_SOURCES } from './capture-sources.js';
@@ -54,8 +56,13 @@ export interface ConnectScopeCtx {
   prompts: ScopePrompts;
   /** Who the choices are attributed to. Absent: the person at this command line. A child `align_backfill` started is an agent's: its choices wait. */
   by?: ChangedBy;
-  /** Ticket prefixes local decisions cite (scope-defaults.ts), to preselect. */
+  /** Ticket prefixes local decisions cite (scope-defaults.ts). No longer preselected: the graph spans every repo on the machine, so
+   *  its citations say nothing about THIS repo. Kept on the context for callers that still pass it. */
   citedKeys(): string[];
+  /** Names this repo goes by (its remote's repo name, its folder), to preselect a team, project or space that matches. Absent: none. */
+  repoNames?(): string[];
+  /** Is this folder in a git repo? Skip is chosen for a repo, so outside one it is not offered. Absent: yes. */
+  inRepo?(): boolean;
   say(line: string): void;
 }
 export interface ScopeDecision {
@@ -63,11 +70,16 @@ export interface ScopeDecision {
   extras: FetchExtras;
   scope: 'yours' | 'team';
   label: string;
+  /** The person chose to skip this source in this repo: nothing is fetched, and `commit` remembers it. */
+  readonly skipped?: true;
   /** True when this is a team read the person could not be told about (quiet): the disclosure is still owed. */
   readonly disclosurePending?: boolean;
   /** Write the choice. Called once, after the fetch succeeded. */
   commit(): void;
 }
+
+/** The picker's "none" answer. Not a key any source can have (keys never start with a colon), so it cannot collide with a team. */
+export const SKIP_VALUE = ':skip';
 
 const labelOf = (source: string): string => (CAPTURE_SOURCES as Record<string, { label: string }>)[source]?.label ?? source;
 const isScoped = (source: string): source is ScopedSource => (SCOPED_SOURCES as readonly string[]).includes(source);
@@ -146,6 +158,8 @@ export async function decideConnectScope(source: string, tokens: Record<string, 
     tell(text);
     markTold(deps.store, source, scopeKey);
   };
+  const skipDecision = (commit: () => void): ScopeDecision =>
+    ({ extras: { resolved: true }, scope: 'yours', label: `nothing (${labelOf(source)} is skipped in this repo)`, skipped: true, commit });
   const decision = (extras: FetchExtras, scope: 'yours' | 'team', label: string, commit: () => void): ScopeDecision =>
     ({ extras, scope, label, get disclosurePending() { return disclosurePending; }, commit });
   const fromChoice = (c: Choice): ScopeDecision => {
@@ -159,6 +173,7 @@ export async function decideConnectScope(source: string, tokens: Record<string, 
   const kept = (): Promise<ResolvedScope> => resolveScope(source, { ...deps, isTty: () => false }, { foreground: false });
   const fromResolved = async (r: ResolvedScope, o: { note?: boolean } = {}): Promise<ScopeDecision> => {
     if (r.blocked !== undefined) throw blocked(r.blocked);
+    if (r.skipped !== undefined) return skipDecision(() => {});
     if (r.activates) {
       // An agent's waiting scope, offered to a person: the disclosure every time, and only an explicit Yes makes it active.
       tell(r.disclosure!);
@@ -222,17 +237,27 @@ export async function decideConnectScope(source: string, tokens: Record<string, 
   // What is preselected is what is already in force, or what local decisions cite. An agent's WAITING choice is never preselected:
   // it is said, and picking it here is the explicit confirmation.
   if (waitingLabels.length > 0) tell(`Your agent proposed ${source} scope ${describeTeamScope(source, waitingLabels, stored?.kind === 'team' ? stored.narrow : undefined)}. It is not read until you pick it here.`);
-  const initial = inForce?.kind === 'team' ? inForce.labels.filter((k) => keys.includes(k)) : inForce?.kind === 'yours' ? [] : ctx.citedKeys().filter((k) => keys.includes(k));
+  // Preselected: what is already in force; else what matches this repo by name; else skip, because a team that has nothing to do with
+  // this repo would put its whole history into this repo's graph (a fastify clone read 2,000 Align tickets).
+  const inRepo = ctx.inRepo?.() ?? true;
+  const matched = matchRepoNames(listed, ctx.repoNames?.() ?? []);
+  const initial = inForce?.kind === 'team' ? inForce.labels.filter((k) => keys.includes(k))
+    : inForce?.kind === 'skip' ? [SKIP_VALUE]
+    : inForce?.kind === 'yours' ? []
+    : matched.length > 0 ? matched : inRepo ? [SKIP_VALUE] : [];
   const message = confluence
     ? 'Which Confluence spaces should Align read? Pick at least one.'
     : `Which ${WHAT[source as keyof typeof WHAT]} should Align read everything from? Leave all unselected to read only the items you are involved in.`;
-  const picked = await ctx.prompts.multiselect(message, listed.map((x) => ({ value: x.key, label: `${x.key}  ${x.name}` })), initial, { required: confluence });
+  const picked = await ctx.prompts.multiselect(message, [...(inRepo ? [{ value: SKIP_VALUE, label: `None, skip ${labelOf(source)} in this repo` }] : []), ...listed.map((x) => ({ value: x.key, label: `${x.key}  ${x.name}` }))], initial, { required: confluence });
   // Cancelled: nothing changes, and an agent's waiting scope stays waiting (it is not promoted, and not read).
   if (picked === null) {
     const k = await kept();
     if (k.blocked !== undefined) throw blocked(k.blocked);
     return fromResolved(k);
   }
+  // Skip wins over anything ticked beside it: reading nothing is the narrower answer.
+  if (picked.includes(SKIP_VALUE) && !inRepo) throw blocked('Skipping a source is chosen for one repo, and this folder is not in a git repo. Pick a team, or none to read only your own items.');
+  if (picked.includes(SKIP_VALUE)) return skipDecision(() => { deps.store.saveScope(source, { kind: 'skip' }); });
   if (confluence && picked.length === 0) throw blocked(CONFLUENCE_NEEDS_SPACES);
   const choice = await chooseScope(deps, source, picked.length === 0 ? { scope: 'yours' } : { scope: 'team', values: picked }, tokens);
   if (choice.scope === 'team' && choice.values.length === 1 && (source === 'jira' || source === 'linear') && ctx.prompts.select) {
@@ -257,11 +282,25 @@ export async function decideConnectScope(source: string, tokens: Record<string, 
     }
     if (parts.length === 0) return undefined;
     const ALL = ':all';
-    const previous = before?.by === 'board' ? before.id : before?.by === 'projects' && before.ids.length === 1 ? before.ids[0]! : undefined;
-    const initial = previous !== undefined && parts.some((x) => x.id === previous) ? previous : ALL;
+    const named = matchRepoNames(parts.map((x) => ({ key: x.name, name: x.name })), ctx.repoNames?.() ?? []);
+    if (src === 'linear') {
+      // Linear: several projects of the team. The whole team is first; the cursor starts on what was chosen before, else on the
+      // project named like this repo, else on the whole team. The whole team beats projects ticked beside it (the wider read is
+      // what a person who ticked it asked for), and nothing ticked or a cancel reads it too: today's behaviour.
+      const earlier = before?.by === 'projects' ? before.ids.filter((id) => parts.some((x) => x.id === id)) : [];
+      const byName = named.length === 1 ? parts.filter((x) => x.name === named[0]).map((x) => x.id) : [];
+      const initial = earlier.length > 0 ? earlier : byName.length > 0 ? byName : [ALL];
+      const picks = await ctx.prompts.multiselect(`Which projects of ${label} should Align read? Or the whole team.`, [{ value: ALL, label: `The whole team ${label}` }, ...parts.map((x) => ({ value: x.id, label: x.name }))], initial, { required: false });
+      if (picks === null || picks.includes(ALL) || picks.length === 0) return undefined;
+      return { projects: picks };
+    }
+    const previous = before?.by === 'board' ? before.id : undefined;
+    // The cursor starts on what was chosen before; else on the one board named like this repo; else on all of it.
+    const byName = named.length === 1 ? parts.find((x) => x.name === named[0]) : undefined;
+    const initial = previous !== undefined && parts.some((x) => x.id === previous) ? previous : byName?.id ?? ALL;
     const answer = await ctx.prompts.select!(`Read all of ${label}, or one ${what}?`, [{ value: ALL, label: `All of ${label}` }, ...parts.map((x) => ({ value: x.id, label: x.name }))], initial);
     if (answer === null || answer === ALL) return undefined;
-    return src === 'jira' ? { board: answer } : { projects: [answer] };
+    return { board: answer };
   }
 }
 
@@ -291,6 +330,11 @@ export async function fetchWithDecision(
   decision: ScopeDecision,
   startSpinner: () => void = () => {},
 ): Promise<CaptureFetchResult> {
+  // Skipped here: nothing is read, and the choice is remembered for this repo.
+  if (decision.skipped) {
+    decision.commit();
+    return { items: [], report: { scanned: 0, skips: [], skippedInRepo: true } };
+  }
   startSpinner();
   const fetched = await source.fetch(tokens, window, decision.extras);
   decision.commit();
@@ -327,12 +371,20 @@ export function startedByAgent(env: Record<string, string | undefined> = process
   return env[STARTED_BY_AGENT_ENV] === 'mcp';
 }
 
+/** What this repo is called: the last part of its identity (`github.com/o/fastify` is `fastify`) and the folder it is in. */
+function repoNamesHere(): string[] {
+  const id = scopeRepoKey();
+  const names = [path.basename(process.cwd())];
+  if (id !== null) names.push(path.basename(id));
+  return [...new Set(names.filter((n) => n !== ''))];
+}
+
 /** The production wiring of `ConnectScopeCtx` for `align connect` and `align setup`: the real store, graph, folder, network and prompts. */
 export function connectScopeCtx(o: { config: ReturnType<typeof createConfigStore>; dbPath: string | undefined; interactive: boolean; quiet: boolean; flags?: ScopeFlags }): ConnectScopeCtx {
   const dbPath = o.dbPath;
   return {
     deps: realScopeDeps(dbPath, { config: o.config }), interactive: o.interactive, quiet: o.quiet, flags: o.flags ?? {}, prompts: clackScopePrompts(),
     ...(startedByAgent() ? { by: { via: 'mcp' as const, agent: 'unknown' } } : {}),
-    citedKeys: () => (dbPath === undefined ? [] : citedProjectKeys(dbPath)), say: (line) => p.log.info(line),
+    citedKeys: () => (dbPath === undefined ? [] : citedProjectKeys(dbPath)), repoNames: repoNamesHere, inRepo: () => scopeRepoKey() !== null, say: (line) => p.log.info(line),
   };
 }

@@ -34,3 +34,13 @@ export function readBlocked(source: string, dir: string | null = alignStateDir()
     return (b.state === 'manual' || b.state === 'not_connected') ? { state: b.state, reason: typeof b.reason === 'string' ? b.reason : '' } : undefined;
   } catch { return undefined; }
 }
+
+/**
+ * What a finished source run leaves in the marker file. `skipped` leaves nothing and clears nothing: a skip is chosen for ONE repo and
+ * this file is per source for the whole machine, so writing it would stop background refresh of the source in every other repo.
+ */
+export function noteSyncOutcome(source: string, state: string, message: string | undefined, dir: string | null = alignStateDir()): void {
+  if (source === 'teams' || state === 'skipped') return;
+  if (state === 'manual' || state === 'not_connected') writeBlocked(source, state, message ?? state, dir);
+  else if (state === 'ok' || state === 'partial' || state === 'error' || state === 'needs_reauth') clearBlocked(source, dir);
+}

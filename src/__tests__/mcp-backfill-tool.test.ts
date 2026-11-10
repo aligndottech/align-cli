@@ -21,7 +21,7 @@ vi.mock('node:child_process', async (orig) => ({ ...(await orig<object>()), spaw
 const fields = vi.hoisted(() => ({ value: null as Record<string, string> | null }));
 vi.mock('../lib/config.js', async (orig) => ({
   ...(await orig<object>()),
-  createConfigStore: vi.fn(() => ({ getConnectorFields: vi.fn(() => fields.value) })),
+  createConfigStore: vi.fn(() => ({ getConnectorFields: vi.fn(() => fields.value), getConnectorScope: vi.fn(() => null) })),
 }));
 
 import { createLocalDb } from '../lib/local-db.js';

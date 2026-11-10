@@ -32,20 +32,28 @@ afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
 
 interface Selected { message: string; options: PickOption[]; initial: string }
 
-function setup(o: { picks: string[]; answer?: string | null; table: Route[]; store?: ReturnType<typeof memStore> }) {
+interface Multi { message: string; options: PickOption[]; initial: string[] }
+
+function setup(o: { picks: string[]; answer?: string | null; parts?: string[] | null; repoNames?: string[]; table: Route[]; store?: ReturnType<typeof memStore> }) {
   const said: string[] = [];
   const selected: Selected[] = [];
+  const multi: Multi[] = [];
   const deps = makeDeps(dbPath, { table: o.table, ...(o.store ? { store: o.store } : {}) });
   const ctx: ConnectScopeCtx = {
     deps, interactive: true, quiet: false, flags: {},
     prompts: {
-      multiselect: async () => o.picks,
+      // The projects question (Linear) is a multiselect too; it is told apart by its words.
+      multiselect: async (message, options, initial) => {
+        if (!message.startsWith('Which projects of')) return o.picks;
+        multi.push({ message, options, initial });
+        return o.parts === undefined ? initial : o.parts;
+      },
       confirm: async () => false,
       select: async (message, options, initial) => { selected.push({ message, options, initial }); return o.answer === undefined ? initial : o.answer; },
     },
-    citedKeys: () => [], say: (l) => said.push(l),
+    citedKeys: () => [], say: (l) => said.push(l), ...(o.repoNames ? { repoNames: () => o.repoNames! } : {}),
   };
-  return { ctx, said, selected };
+  return { ctx, said, selected, multi };
 }
 
 const boards = (...b: Array<[number, string]>): Route => [/\/rest\/agile\/1\.0\/board\?projectKeyOrId=AC/, { body: { isLast: true, values: b.map(([id, name]) => ({ id, name })) } }];
@@ -69,10 +77,47 @@ describe('the second setup question', () => {
   });
 
   it('linear: one team, a project chosen, reads that project', async () => {
-    const s = setup({ picks: ['ENG'], answer: 'p-2', table: [linear] });
+    const s = setup({ picks: ['ENG'], parts: ['p-2'], table: [linear] });
     const d = await decideConnectScope('linear', FIELDS['linear']!, s.ctx);
-    expect(s.selected[0]!.message).toBe('Read all of ENG, or one project?');
+    expect(s.multi[0]!.message).toBe('Which projects of ENG should Align read? Or the whole team.');
+    expect(s.selected).toEqual([]);
     expect(d.extras).toMatchObject({ teams: ['t-1'], projects: ['p-2'] });
+  });
+
+  it('linear: several projects of the team chosen, all are read', async () => {
+    const s = setup({ picks: ['ENG'], parts: ['p-1', 'p-2'], table: [linear] });
+    const d = await decideConnectScope('linear', FIELDS['linear']!, s.ctx);
+    expect(d.extras).toMatchObject({ teams: ['t-1'], projects: ['p-1', 'p-2'] });
+    expect(d.label).toBe('issues in Linear projects Auth, Billing of Linear team ENG');
+  });
+
+  it('linear: the whole team is the first option, and beats projects ticked beside it', async () => {
+    const s = setup({ picks: ['ENG'], parts: [':all', 'p-1'], table: [linear] });
+    const d = await decideConnectScope('linear', FIELDS['linear']!, s.ctx);
+    expect(s.multi[0]!.options[0]).toMatchObject({ value: ':all', label: 'The whole team ENG' });
+    expect(s.multi[0]!.initial).toEqual([':all']);
+    expect(d.extras).toEqual({ resolved: true, teams: ['t-1'] });
+  });
+
+  it('linear: nothing ticked, or a cancel, reads the whole team', async () => {
+    for (const parts of [[], null]) {
+      const s = setup({ picks: ['ENG'], parts, table: [linear] });
+      const d = await decideConnectScope('linear', FIELDS['linear']!, s.ctx);
+      expect(d.extras).toEqual({ resolved: true, teams: ['t-1'] });
+    }
+  });
+
+  it('linear: the project named like the repo starts ticked', async () => {
+    const s = setup({ picks: ['ENG'], repoNames: ['billing'], table: [linear] });
+    await decideConnectScope('linear', FIELDS['linear']!, s.ctx);
+    expect(s.multi[0]!.initial).toEqual(['p-2']);
+  });
+
+  it('linear: projects chosen before start ticked', async () => {
+    const store = memStore({ scopes: { linear: { kind: 'team', values: ['t-1'], labels: ['ENG'], narrow: { by: 'projects', ids: ['p-1', 'p-2'], names: ['Auth', 'Billing'] } } } });
+    const s = setup({ picks: ['ENG'], table: [linear], store });
+    await decideConnectScope('linear', FIELDS['linear']!, s.ctx);
+    expect(s.multi[0]!.initial).toEqual(['p-1', 'p-2']);
   });
 
   it('"All of" is first, the cursor starts there, and choosing it reads the whole project', async () => {

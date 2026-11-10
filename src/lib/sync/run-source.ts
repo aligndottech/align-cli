@@ -28,7 +28,7 @@ import {
 import { HOT_THREAD_DAYS, mergePartialThread, selectHotThreads } from './threads.js';
 import { ascendingByUpdated, finishRun, inheritedWindowSince, later, newestUpdated, nextWindow, PERSISTENT_HOLE_RUNS, plausible } from './window.js';
 
-export type SourceState = SyncStatus | 'locked' | 'backfill_running' | 'recent' | 'not_connected' | 'manual';
+export type SourceState = SyncStatus | 'locked' | 'backfill_running' | 'recent' | 'not_connected' | 'manual' | 'skipped';
 
 export interface SourceOutcome {
   source: string;
@@ -97,7 +97,7 @@ const BATCH = 50;
  * - linear: linear.js:176 two parallel streams (assigned, created); confluence.js:206 one listing per space, `time_budget` ends the loop
  *           with whole spaces unread; teams.js:211-222 team by team, channel by channel; zoom.js:181 30-day windows; slack walks channels.
  */
-const CUT_KINDS_BY_SOURCE: Record<string, ReadonlySet<string>> = {
+export const CUT_KINDS_BY_SOURCE: Record<string, ReadonlySet<string>> = {
   jira: new Set(['time_budget', 'page_cap']),
   notion: new Set(['time_budget']),
   gitlab: new Set(['time_budget']),
@@ -143,6 +143,8 @@ async function run(source: string, tokens: Record<string, string>, env: SyncEnv,
   let scope = await env.scopeOf(source, { trigger: o.trigger });
   // A source that must not be read until the person acts (Confluence with no spaces): no request, no row, the command to run.
   if (scope.blocked !== undefined) return none(source, 'manual', scope.blocked);
+  // Skipped in this repo by the person: no request, no row, and how to undo it.
+  if (scope.skipped !== undefined) return none(source, 'skipped', scope.skipped);
   if (scope.activates && scope.disclosure !== undefined) {
     // An agent's waiting scope offered to a person: it is read only after an explicit Yes. Anything else reads what was in force.
     env.announce?.(source, scope.disclosure);
@@ -150,6 +152,7 @@ async function run(source: string, tokens: Record<string, string>, env: SyncEnv,
     if (yes) env.markDisclosed?.(source, scope.scopeKey);
     else scope = await env.scopeOf(source, { trigger: 'background' });
     if (scope.blocked !== undefined) return none(source, 'manual', scope.blocked);
+    if (scope.skipped !== undefined) return none(source, 'skipped', scope.skipped);
   } else if (scope.disclosure !== undefined && env.announce) {
     env.announce(source, scope.disclosure);
     env.markDisclosed?.(source, scope.scopeKey);

@@ -7,7 +7,8 @@
  * always has a name. Zoom is always yours; Slack, Notion and Teams already read all the token can see and have nothing to name.
  *
  * Where it lives:
- * - the CHOICE is in the config store beside the token (config.ts `getConnectorScope`), so forgetting the connector removes it;
+ * - the CHOICE is in the config store beside the token (config.ts `getConnectorScope`), so forgetting the connector removes it. It is kept
+ *   per repo (scope-real.ts `configScopeStore`), and a choice saved per machine before that is the fallback for a repo with none;
  * - each scope has its own `source_sync` row, keyed by `scopeKeyOf`, with the source's window and its own watermark.
  *   Changing scope adds or reuses a row and never touches another one, and never deletes an imported item.
  *
@@ -89,6 +90,8 @@ export interface ResolvedScope {
   origin: 'chosen' | 'detected' | 'default';
   /** Set when this source must not be read at all until the person acts (Confluence with no spaces). */
   blocked?: string;
+  /** Set when the person chose to skip this source in this repo: nothing is read, and this is the sentence saying how to change it. */
+  skipped?: string;
   /** One line worth saying about this scope: why it is only yours, or how to widen it. */
   note?: string;
   /** True when an agent's team choice for this source is waiting for a person; this result is the scope that stays in force meanwhile. */
@@ -102,6 +105,9 @@ export interface ResolvedScope {
 const YOURS_LABEL = 'your own items';
 const labelOf = (source: string): string => (CAPTURE_SOURCES as Record<string, { label: string }>)[source]?.label ?? source;
 const isScoped = (source: string): source is ScopedSource => (SCOPED_SOURCES as readonly string[]).includes(source);
+
+/** What a skipped source says, and the command that undoes it. */
+export const skippedText = (source: string): string => `${labelOf(source)} is skipped in this repo, so nothing was read. To read it: align connect --source ${source}`;
 
 function yours(origin: ResolvedScope['origin'], note?: string): ResolvedScope {
   return { scope: 'yours', scopeKey: YOURS_KEY, extras: {}, label: YOURS_LABEL, origin, ...(note !== undefined ? { note } : {}) };
@@ -160,6 +166,7 @@ export async function resolveScope(source: string, deps: ScopeDeps, o: { foregro
 }
 
 async function resolveFrom(source: ScopedSource, stored: StoredScope | ActiveScope | null, deps: ScopeDeps, o: { foreground: boolean }): Promise<ResolvedScope> {
+  if (stored?.kind === 'skip') return { ...yours('chosen'), skipped: skippedText(source) };
   if (stored?.kind === 'team') return team(source, stored.values, stored.labels, 'chosen', deps, o.foreground, stored.narrow);
   if (source === 'confluence') {
     return {
@@ -470,7 +477,7 @@ export async function setScope(deps: ScopeDeps, source: string, input: SetInput,
 export interface ScopeView {
   source: string;
   /** unset: Confluence with no spaces, which reads nothing until the person picks some. */
-  kind: 'yours' | 'team' | 'unset';
+  kind: 'yours' | 'team' | 'unset' | 'skipped';
   scope_key: string;
   /** In words. */
   label: string;
@@ -504,7 +511,9 @@ export async function viewScopes(deps: ScopeDeps): Promise<ScopeView[]> {
     const stored: StoredScope | ActiveScope | null = waitingKey ? waitingKey.pending!.previous : raw;
     const waiting = waitingKey ? { waiting: describeTeamScope(source as ScopedSource, waitingKey.labels, waitingKey.narrow) } : {};
     const push = (v: ScopeView): void => { out.push({ ...v, ...waiting }); };
-    if (stored?.kind === 'team') {
+    if (stored?.kind === 'skip') {
+      push({ source, kind: 'skipped', scope_key: YOURS_KEY, label: 'skipped in this repo, so nothing is read', can_set: true, origin: 'chosen' });
+    } else if (stored?.kind === 'team') {
       push({ source, kind: 'team', scope_key: scopeKeyOf(source as ScopedSource, stored.labels, stored.narrow), label: describeTeamScope(source as ScopedSource, stored.labels, stored.narrow), values: stored.labels, can_set: true, origin: 'chosen' });
     } else if (source === 'confluence') {
       push({ source, kind: 'unset', scope_key: YOURS_KEY, label: 'no spaces chosen, so nothing is read', can_set: true, origin: 'default' });

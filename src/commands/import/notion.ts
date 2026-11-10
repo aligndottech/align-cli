@@ -1,6 +1,7 @@
 import type { Command } from 'commander';
 import { subcommandOpts } from '../../lib/command-opts.js';
 import * as p from '@clack/prompts';
+import { sayIfCapped } from '../../lib/capped-read.js';
 import { createConfigStore, type EnvName } from '../../lib/config.js';
 import { createGatewayClient } from '../../lib/gateway-client.js';
 import { resolveImportEnv } from '../../lib/resolve-env.js';
@@ -69,6 +70,7 @@ Create an integration at: https://app.notion.com/developers/tokens`)
         const fetched = await fetchNotionItems({ token, ...fetchWindow('notion', window), limit: parseInt(opts.limit, 10) });
         const { items } = fetched;
         spinner.stop(`Found ${items.length} pages`);
+        sayIfCapped({ source: 'notion', read: items.length, limit: parseInt(opts.limit, 10) });
         const importResult: { stored?: number; failedBatches?: number } = {};
         await runPersonalImport(items, client, { result: importResult, label: 'Notion', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'notion' } });
         console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.notion, fetched, windowLabel(window.days), importResult)])}\n`);

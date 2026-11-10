@@ -189,6 +189,17 @@ describe('a source the user has to act on starts nothing and returns the command
     expect(r.started).toBe(false);
   });
 
+  it('skipped in this repo: nothing is started and it says it is skipped, never "Backfill started"', async () => {
+    const d = deps({ isSkipped: () => true });
+    const r = await runBackfill({ source: 'jira', since: '1y' }, localEnv, d);
+    expect(d.spawned).toEqual([]);
+    expect(d.recorded).toEqual([]);
+    expect(r.started).toBe(false);
+    expect(text(r)).toMatch(/Jira is skipped in this repo/);
+    expect(text(r)).toContain('align connect --source jira');
+    expect(text(r)).not.toMatch(/Backfill started/i);
+  });
+
   it('needs_reauth: the same, and it says to re-authenticate', async () => {
     const d = deps({ needsReauth: () => true });
     const r = await runBackfill({ source: 'github', since: '1y' }, localEnv, d);

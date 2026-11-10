@@ -1,6 +1,7 @@
 import type { Command } from 'commander';
 import { subcommandOpts } from '../../lib/command-opts.js';
 import * as p from '@clack/prompts';
+import { sayIfCapped } from '../../lib/capped-read.js';
 import { createConfigStore, type EnvName } from '../../lib/config.js';
 import { createGatewayClient } from '../../lib/gateway-client.js';
 import { resolveImportEnv } from '../../lib/resolve-env.js';
@@ -66,6 +67,7 @@ export function registerImportZoomCommand(importCmd: Command): void {
         });
         const { items } = fetched;
         spinner.stop(`Found ${items.length} recordings with transcripts`);
+        sayIfCapped({ source: 'zoom', read: items.length, limit: parseInt(opts.limit, 10) });
         const importResult: { stored?: number; failedBatches?: number } = {};
         await runPersonalImport(items, client, { result: importResult, label: 'Zoom', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'zoom' } });
         console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.zoom, fetched, windowLabel(window.days), importResult)])}\n`);

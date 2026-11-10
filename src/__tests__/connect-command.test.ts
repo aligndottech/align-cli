@@ -117,6 +117,8 @@ function setTty(stdin: boolean, out: boolean) {
   Object.defineProperty(process.stdout, 'isTTY', { value: out, configurable: true });
 }
 
+const REPO = 'github.com/acme/api';
+
 describe('align connect', () => {
   const inTty = process.stdin.isTTY, outTty = process.stdout.isTTY;
   beforeEach(() => {
@@ -125,13 +127,15 @@ describe('align connect', () => {
     vi.clearAllMocks();
     // L4: connecting looks at what the token can see; that never reaches a vendor from a test.
     vi.stubGlobal('fetch', vendorFetch);
+    // A scope is saved per repo, so the repo is pinned here (the way a background child is told it) and every save names it.
+    vi.stubEnv('ALIGN_SYNC_REPO', REPO);
     mockMultiselect.mockResolvedValue([]);
     mockPassword.mockResolvedValue('pasted-token');
     mockConfirm.mockResolvedValue(true);
     mockGetConnectorFields.mockReturnValue(null);
     mockResolveImportEnv.mockReturnValue('local');
   });
-  afterEach(() => { vi.unstubAllGlobals(); setTty(Boolean(inTty), Boolean(outTty)); });
+  afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); setTty(Boolean(inTty), Boolean(outTty)); });
 
   it('with no source at a terminal, opens the multiselect setup uses and imports what was picked', async () => {
     setTty(true, true);
@@ -365,7 +369,7 @@ describe('align connect', () => {
       mockGetConnectorFields.mockImplementation((_e: string, id: string) => (id === 'jira' ? { token: 't', email: 'me@acme.com', domain: 'acme.atlassian.net' } : null));
       mockSetConnectorScope.mockClear();
       await run(['connect', '--source', 'jira', '--yes', '--projects', 'ALI']);
-      expect(mockSetConnectorScope).toHaveBeenCalledWith('local', 'jira', expect.objectContaining({ pending: { previous: null } }));
+      expect(mockSetConnectorScope).toHaveBeenCalledWith('local', 'jira', expect.objectContaining({ pending: { previous: null } }), REPO);
       vi.unstubAllEnvs();
     });
   });
@@ -468,7 +472,7 @@ describe('align connect', () => {
       expect(mockFetchJira).toHaveBeenCalledWith(expect.objectContaining({ projects: ['ALI'] }));
       expect((log.info as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0])).join('\n')).toContain('Importing items from everyone in Jira project ALI that your token can read. They stay on this machine.');
       expect(mockMarkDisclosed).toHaveBeenCalledWith('jira', 'jira:ALI');
-      expect(mockSetConnectorScope).toHaveBeenCalledWith('local', 'jira', { kind: 'team', values: ['ALI'], labels: ['ALI'] });
+      expect(mockSetConnectorScope).toHaveBeenCalledWith('local', 'jira', { kind: 'team', values: ['ALI'], labels: ['ALI'] }, REPO);
     });
 
     it('--json is unattended: it reads what was in force (no projects), prints nothing, and SAVES the request pending for a person', async () => {
@@ -481,7 +485,7 @@ describe('align connect', () => {
       expect(mockFetchJira.mock.calls.at(-1)![0]).not.toHaveProperty('projects');
       expect((log.info as ReturnType<typeof vi.fn>).mock.calls).toEqual([]);
       expect(mockMarkDisclosed).not.toHaveBeenCalled();
-      expect(mockSetConnectorScope).toHaveBeenCalledWith('local', 'jira', expect.objectContaining({ values: ['ALI'], pending: { previous: null } }));
+      expect(mockSetConnectorScope).toHaveBeenCalledWith('local', 'jira', expect.objectContaining({ values: ['ALI'], pending: { previous: null } }), REPO);
       const out = JSON.parse(stdout[stdout.length - 1]!) as { sources: Array<{ reads?: string }> };
       expect(out.sources[0]!.reads).toBeUndefined();
     });
@@ -510,7 +514,7 @@ describe('align connect', () => {
       const arg = mockFetchGitHub.mock.calls.at(-1)![0] as Record<string, unknown>;
       expect(arg).not.toHaveProperty('repo');
       expect(arg).not.toHaveProperty('scope');
-      expect(mockSetConnectorScope).toHaveBeenCalledWith('local', 'github', { kind: 'yours' });
+      expect(mockSetConnectorScope).toHaveBeenCalledWith('local', 'github', { kind: 'yours' }, REPO);
       mockResolveRepo.mockResolvedValue(undefined);
     });
 
