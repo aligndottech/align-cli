@@ -86,10 +86,11 @@ as your token can see. There is no "everything": a team read always has a name.
 |--------|-------------------|----------------|
 | GitHub | a repo (`--repo owner/repo`), or the repo you are in | your own items |
 | GitLab | a project (`--gitlab-project group/project`), or the project you are in | your own merge requests |
-| Jira | project keys (`--projects ALI,OPS`) | issues you are involved in |
-| Linear | team keys (`--teams ENG`) | issues you are involved in |
-| Confluence | space keys (`--spaces ENG,OPS`) | **nothing is read**: pick at least one space |
-| Slack, Notion, Teams | nothing to pick | everything your token can see (Slack: the channels it is in) |
+| Jira | project keys (`--projects ALI,OPS`); with one project, a board (`--board`) or a JQL filter (`--jql`) | issues you are involved in |
+| Linear | team keys (`--teams ENG`); with one team, projects (`--linear-projects`) | issues you are involved in |
+| Confluence | space keys (`--spaces ENG,OPS`); inside them, page trees (`--confluence-pages`) | **nothing is read**: pick at least one space |
+| Notion | pages or databases (`--notion-pages`), read with everything under them | every page shared with your integration |
+| Slack, Teams | nothing to pick | everything your token can see (Slack: the channels it is in) |
 | Zoom | nothing to pick | only your own cloud recordings; the whole account needs an admin token, which Align does not ask for |
 
 ```bash
@@ -97,6 +98,10 @@ align connect --source jira --projects ALI,OPS --yes   # no questions
 align connect --source jira --scope yours --yes        # back to only your own
 align connect                                          # at a terminal: pickers, with the keys your decisions cite preselected
 ```
+
+Inside a repo, the choice is kept for that repo only, so two repos can read different Jira projects
+or Notion pages. Inside a repo, each picker also offers "None, skip <source> in this repo", which is
+kept per repo too.
 
 The first time a source is read as a particular team scope (each repo, project set or space set counts separately, so widening later says it again), one line says what that means: "Importing items from
 everyone in ... that your token can read. They stay on this machine." Nothing leaves your machine
