@@ -41,6 +41,9 @@ vi.mock('../lib/config.js', () => ({
   createConfigStore: vi.fn(() => ({
     getDefaultEnv: vi.fn(() => 'prod'),
     getEnvironment: vi.fn((name: string) => (name === 'local' ? LOCAL : cloudEnv)),
+    // The real store has these; align mcp now asks whether a team graph was joined.
+    hasTeamDestination: vi.fn(() => false),
+    listTeamDestinationNames: vi.fn(() => []),
   })),
 }));
 vi.mock('../lib/gateway-client.js', () => ({ createGatewayClient: vi.fn(() => ({})) }));
