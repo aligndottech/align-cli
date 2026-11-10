@@ -8,7 +8,7 @@
  *
  * Where it lives:
  * - the CHOICE is in the config store beside the token (config.ts `getConnectorScope`), so forgetting the connector removes it. It is kept
- *   per repo (ALI-2089; scope-real.ts `configScopeStore`), and a choice saved per machine before that is the fallback for a repo with none;
+ *   per repo (scope-real.ts `configScopeStore`), and a choice saved per machine before that is the fallback for a repo with none;
  * - each scope has its own `source_sync` row, keyed by `scopeKeyOf`, with the source's window and its own watermark.
  *   Changing scope adds or reuses a row and never touches another one, and never deletes an imported item.
  *

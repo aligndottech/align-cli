@@ -9,7 +9,7 @@ import { matchRepoNames } from '../lib/scope-repo-match.js';
 import { FIELDS, makeDeps, memStore, type Route } from './helpers/scope-deps.js';
 
 /**
- * ALI-2089 item 2 Test List (skip a source in this repo):
+ * Item 2 Test List (skip a source in this repo):
  * - A name match is on whole tokens: an equal word of 3+ characters (split on punctuation, any case), or the whole name equal. Never a
  *   substring: ENG is not engine, ops is not workshops, ali is not calibre.
  * - Two repos, two answers: "fastify" matches nothing in ALI/OPS, "align-cli" matches the team named Align.
@@ -135,7 +135,7 @@ describe('choosing skip', () => {
   });
 });
 
-describe('the second question starts on the board or project named like this repo (ALI-2089 item 3)', () => {
+describe('the second question starts on the board or project named like this repo', () => {
   const linear: Route = [/api\.linear\.app/, { body: { data: {
     teams: { nodes: [{ id: 't-1', key: 'ENG', name: 'Eng' }], pageInfo: {} },
     team: { projects: { nodes: [{ id: 'p-1', name: 'Auth service' }, { id: 'p-2', name: 'Billing' }], pageInfo: {} } },
@@ -163,7 +163,7 @@ describe('the second question starts on the board or project named like this rep
   });
 });
 
-describe('outside a git repo there is nothing to skip it for (ALI-2089 review)', () => {
+describe('outside a git repo there is nothing to skip it for', () => {
   it('the picker does not offer skip, and nothing is preselected', async () => {
     const s = setup({ repo: ['somefolder'], table: [teams(['ALI', 'Align'])] });
     s.ctx.inRepo = () => false;

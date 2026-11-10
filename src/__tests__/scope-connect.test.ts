@@ -141,7 +141,7 @@ describe('Jira', () => {
     const s = setup({ interactive: true, cited: ['ALI', 'GONE', 'OPS'], table: [jiraProjects('ALI', 'BETA', 'OPS')], picks: ['OPS', 'BETA'] });
     const d = await decideConnectScope('jira', TOKENS.jira, s.ctx);
     expect(s.asked).toHaveLength(1);
-    // ALI-2089: skip is offered first and preselected when no name matches the repo; the graph's cited keys span every repo, so they no longer preselect.
+    // Skip is offered first and preselected when no name matches the repo; the graph's cited keys span every repo, so they no longer preselect.
     expect(s.asked[0]!.options.map((x) => x.value)).toEqual([':skip', 'ALI', 'BETA', 'OPS']);
     expect(s.asked[0]!.initial).toEqual([':skip']);
     expect(s.asked[0]!.required).toBe(false);

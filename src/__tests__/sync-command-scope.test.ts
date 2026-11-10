@@ -113,7 +113,7 @@ describe('the disclosure in align sync', () => {
     expect(h.fetchCalls).toHaveLength(0);
   });
 
-  it('a source skipped in this repo prints how to read it, reads nothing and exits 0 (ALI-2089)', async () => {
+  it('a source skipped in this repo prints how to read it, reads nothing and exits 0', async () => {
     h.script({ items: [] });
     const code = await runSyncCommand(['linear'], {}, deps({ scopeKey: 'yours', scope: 'yours', extras: {}, skipped: 'Linear is skipped in this repo, so nothing was read. To read it: align connect --source linear' }));
     expect(code).toBe(0);

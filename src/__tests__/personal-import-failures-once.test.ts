@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
- * ALI-2088: when every batch fails for one reason, the reason is said once, with a count, not
+ * When every batch fails for one reason, the reason is said once, with a count, not
  * once per batch. Seen on a clean 0.70.0 install: `align connect git` before `align` printed
  * "Batch N: Align is not set up on this machine" 38 times, and the instruction scrolled away.
  */

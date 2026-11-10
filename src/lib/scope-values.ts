@@ -39,7 +39,7 @@ export const YOURS_KEY = 'yours';
 /** What a person chose for one source, kept beside its token (non-secret). Absent means "no choice": the narrower scope. */
 export type ActiveScope =
   | { kind: 'yours' }
-  /** The person chose to read nothing from this source in this repo (ALI-2089). Stored per repo, like any choice. */
+  /** The person chose to read nothing from this source in this repo. Stored per repo, like any choice. */
   | { kind: 'skip' }
   /** `values` are what the fetcher takes (Linear: team ids); `labels` are what people read (Linear: team keys). */
   | { kind: 'team'; values: string[]; labels: string[]; narrow?: Narrowing };

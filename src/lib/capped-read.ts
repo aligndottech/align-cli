@@ -9,7 +9,7 @@ const WINDOWED = new Set(['github', 'slack', 'jira', 'linear', 'gitlab', 'conflu
 const commas = (n: number): string => n.toLocaleString('en-US');
 
 /**
- * ALI-2089: the line that follows "Found N items" when N is the cap and not the total. A read that stops at its ceiling returns exactly
+ * The line that follows "Found N items" when N is the cap and not the total. A read that stops at its ceiling returns exactly
  * the ceiling, so "Found 2000 items" read as the size of the source (a fastify clone showed 2,000 Linear items from a team that has
  * more). Said when the count reached the limit in force, or when the fetcher itself reported it did not reach the end. The command is
  * one that exists: `align connect --source <source> --since 30d` reads a shorter, newer window, and `align sync <source>` is offered

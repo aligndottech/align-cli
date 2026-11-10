@@ -8,7 +8,7 @@
  * What it decides, in order (a flag always wins, and a flag is checked against what the token can see before anything is fetched):
  * - GitHub and GitLab: the folder's remote decides, with no question (resolveScope). A repo the token cannot see is yours, said so.
  * - Jira and Linear: a picker on a terminal, with "None, skip <Source> in this repo" first (preselected unless a name matches this repo or
- *   a choice was stored; ALI-2089); otherwise the stored choice, else yours with how to widen. A list that cannot be read never blocks: yours, and the reason is said.
+ *   a choice was stored); otherwise the stored choice, else yours with how to widen. A list that cannot be read never blocks: yours, and the reason is said.
  * - Confluence: spaces, picked, flagged or stored. With none, refused with the command (there is no "yours" to fall back to).
  * - Zoom: only yours, and it says why. Slack, Notion and Teams already read all the token can see: nothing to say.
  *
@@ -238,7 +238,7 @@ export async function decideConnectScope(source: string, tokens: Record<string, 
   // it is said, and picking it here is the explicit confirmation.
   if (waitingLabels.length > 0) tell(`Your agent proposed ${source} scope ${describeTeamScope(source, waitingLabels, stored?.kind === 'team' ? stored.narrow : undefined)}. It is not read until you pick it here.`);
   // Preselected: what is already in force; else what matches this repo by name; else skip, because a team that has nothing to do with
-  // this repo would put its whole history into this repo's graph (ALI-2089: a fastify clone read 2,000 Align tickets).
+  // this repo would put its whole history into this repo's graph (a fastify clone read 2,000 Align tickets).
   const inRepo = ctx.inRepo?.() ?? true;
   const matched = matchRepoNames(listed, ctx.repoNames?.() ?? []);
   const initial = inForce?.kind === 'team' ? inForce.labels.filter((k) => keys.includes(k))

@@ -1,5 +1,5 @@
 /**
- * ALI-2089: which of the teams, projects or spaces a token can see belong to THIS repo, by name. A match is a whole word: a word of the
+ * Which of the teams, projects or spaces a token can see belong to THIS repo, by name. A match is a whole word: a word of the
  * repo's name (or its folder's) equal to a word of an item's name or key, split on anything that is not a letter or digit, in any case;
  * or the two whole names equal. Never a substring (ENG is not "engine", ops is not "workshops"). A word under three characters never
  * matches, so a two-letter Jira key does not claim every repo. A suggestion only: it decides what the picker preselects, never what is read.

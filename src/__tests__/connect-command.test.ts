@@ -127,7 +127,7 @@ describe('align connect', () => {
     vi.clearAllMocks();
     // L4: connecting looks at what the token can see; that never reaches a vendor from a test.
     vi.stubGlobal('fetch', vendorFetch);
-    // ALI-2089: a scope is saved per repo, so the repo is pinned here (the way a background child is told it) and every save names it.
+    // A scope is saved per repo, so the repo is pinned here (the way a background child is told it) and every save names it.
     vi.stubEnv('ALIGN_SYNC_REPO', REPO);
     mockMultiselect.mockResolvedValue([]);
     mockPassword.mockResolvedValue('pasted-token');

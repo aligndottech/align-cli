@@ -26,7 +26,7 @@ describe('the two MCP-started children', () => {
     try {
       await defaultBackfillDeps({ mode: 'local-embedded', localDbPath: path.join(dir, 'g.db') } as never).start('github', ['connect']);
       const call = started.calls[0]!;
-      // The one addition is the repo the child was started for (ALIGN_SYNC_REPO, ALI-2089); everything else is the reduced env.
+      // The one addition is the repo the child was started for (ALIGN_SYNC_REPO); everything else is the reduced env.
     const { ALIGN_SYNC_REPO: _repo, ...rest } = call[5] as Record<string, string>;
     expect(rest).toEqual(syncChildEnv(process.env));
       expect(Object.keys(call[5] as object)).not.toContain('ANTHROPIC_API_KEY');
@@ -42,7 +42,7 @@ describe('the two MCP-started children', () => {
     vi.stubEnv('GITHUB_TOKEN', 'ghp_planted');
     await startSyncChild(['github']);
     const call = started.calls[0]!;
-    // The one addition is the repo the child was started for (ALIGN_SYNC_REPO, ALI-2089); everything else is the reduced env.
+    // The one addition is the repo the child was started for (ALIGN_SYNC_REPO); everything else is the reduced env.
     const { ALIGN_SYNC_REPO: _repo, ...rest } = call[5] as Record<string, string>;
     expect(rest).toEqual(syncChildEnv(process.env));
     expect(call[4]).toBe('mcp');

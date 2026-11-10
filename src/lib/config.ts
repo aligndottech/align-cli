@@ -372,7 +372,7 @@ export function createConfigStore() {
     // KNOWN LIMIT (lost updates): this store reads the whole file and writes the whole file, and every setter here is a read-modify-write of
     // one key. Two Align processes writing at the same instant can lose one write. Re-reading just before each set (as the setters do) keeps the
     // window to milliseconds; a lock was judged not worth its cost for a settings file. The visible failure for a scope is the old scope staying in force.
-    // PER REPO (ALI-2089): a choice made in a repo is stored under `<env>:<source>:scope:repo:<identity>`. `repo` set reads that entry
+    // PER REPO: a choice made in a repo is stored under `<env>:<source>:scope:repo:<identity>`. `repo` set reads that entry
     // first and falls back to the per-machine `<env>:<source>:scope` written before choices were per repo, so an old "yours" still applies
     // in a repo with no choice of its own, but only when that entry is yours (never a team or a skip). Absent or null `repo` is the per-machine entry. `forgetConnector` removes every one of them
     // (they all start with `<env>:<source>:`), and none is a `:field:` key, so no fetch is handed one as a credential.
@@ -382,7 +382,7 @@ export function createConfigStore() {
       const raw = own ?? tokens[scopeKey(env, connectorKey)];
       if (raw === undefined) return null;
       // The per-machine entry is a fallback for YOURS only. A team or skip chosen per machine, before choices were per repo, must not
-      // apply in a repo that has none of its own: that is how a team picked in one clone was read into every other (ALI-2089).
+      // apply in a repo that has none of its own: that is how a team picked in one clone was read into every other.
       if (repo && own === undefined && !/"kind"\s*:\s*"yours"/.test(raw)) return null;
       try {
         const v = JSON.parse(raw) as { kind?: unknown; values?: unknown; labels?: unknown };

@@ -12,7 +12,7 @@ export type PersonalImportItem = BatchIngestItem;
 const BATCH_SIZE = 20;
 
 /**
- * ALI-2088: one warning per distinct reason, not one per batch. When all 38 batches fail
+ * One warning per distinct reason, not one per batch. When all 38 batches fail
  * because Align is not set up, the user needs that instruction once, where they can see it.
  * A reason seen once keeps its batch number.
  */

@@ -27,7 +27,7 @@ vi.mock('conf', () => {
 });
 
 /**
- * ALI-2089 item 4 Test List (a scope is remembered per repo):
+ * Item 4 Test List (a scope is remembered per repo):
  * - A choice made in repo A is not in force in repo B (two repos, both ways).
  * - A per-machine scope saved before this existed still applies in a repo with no choice of its own.
  * - A repo's own choice beats the per-machine one, and saving never rewrites the per-machine one.

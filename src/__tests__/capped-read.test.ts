@@ -7,7 +7,7 @@ import { SYNC_CEILINGS } from '../lib/import-defaults.js';
 import { CUT_KINDS_BY_SOURCE } from '../lib/sync/run-source.js';
 
 /**
- * ALI-2089 item 1 Test List (a read that hit its cap says so, and never prints the cap as the total):
+ * Item 1 Test List (a read that hit its cap says so, and never prints the cap as the total):
  * - Exactly the cap read: said capped, with how many were read and the command that reads more (Linear 2,000; Jira 2,000: two examples).
  * - One under the cap: nothing to say.
  * - Every windowed connector has its own cap in the sentence, read from SYNC_CEILINGS (one table, one writer).
