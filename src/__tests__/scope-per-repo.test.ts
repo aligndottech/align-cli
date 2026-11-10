@@ -130,7 +130,8 @@ describe('the repo identity a scope is keyed by', () => {
   it('the sync reader agrees with the async one the local graph uses, for a remote and for a remoteless repo', async () => {
     git('init', '-q');
     expect(currentRepoIdentitySync({ cwd: dir })).toBe(await currentRepoIdentity({ cwd: dir }));
-    expect(currentRepoIdentitySync({ cwd: dir })).toBe(fs.realpathSync(dir));
+    // Same directory, compared on disk: on Windows git prints C:/Users/runneradmin while Node prints the 8.3 C:\Users\RUNNER~1.
+    expect(fs.realpathSync.native(currentRepoIdentitySync({ cwd: dir }) ?? '')).toBe(fs.realpathSync.native(dir));
     git('remote', 'add', 'origin', 'git@github.com:Acme/API.git');
     expect(currentRepoIdentitySync({ cwd: dir })).toBe('github.com/acme/api');
     expect(await currentRepoIdentity({ cwd: dir })).toBe('github.com/acme/api');

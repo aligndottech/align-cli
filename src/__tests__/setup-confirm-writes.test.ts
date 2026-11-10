@@ -139,7 +139,8 @@ describe.skipIf(!canPty)('setup confirms the files it will write', () => {
 
 // an agent running `align` in its own shell has no terminal. Nobody said yes, so the
 // list prints and nothing is written; --approve is the scripted yes.
-describe('with no terminal', () => {
+// The rig fakes agents as /bin/sh scripts and links the system tools from /usr/bin, so it is POSIX only.
+describe.skipIf(process.platform === 'win32')('with no terminal', () => {
   it('without --approve: prints the list, does not ask, writes nothing, and names --approve', async () => {
     const r = rig();
     try {
