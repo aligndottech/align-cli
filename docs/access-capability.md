@@ -1,16 +1,19 @@
 # Choosing an access path: API, CLI JSON, or MCP
 
-Align exposes the same authoritative decision-graph check through three equivalent surfaces:
+Align's decision-graph check is reachable three ways:
 
 - the gateway's public **API** (`POST /alignment/check` and friends), for a runtime with its
   own direct integration
-- the installed CLI's **`--json`** flags (`align ask --json`, `align check --json`), for a
-  shell-capable agent
+- the installed CLI's **`--json`** flags (`align check --json`, and `align ask --json` for
+  search), for a shell-capable agent
 - the **MCP server** (`align mcp`, or the hosted `mcp-align` connector), for an MCP-native
   client
 
-All three call the identical gateway route with the identical auth/tenant resolution, so this
-is not a speed ranking or a "which is faster" claim. This
+The alignment check (`/alignment/check`) is the same route behind the API, `align check --json`
+and the MCP tool `align_check_alignment`. Search is likewise the same route (`/decisions/smart-search`)
+behind the API, `align ask --json` and `align_ask`. `align ask --json` returns matching decisions,
+not an alignment verdict. In local mode the CLI and `align mcp` run the same logic in-process, with
+no gateway call. So this is not a speed ranking or a "which is faster" claim. This
 page is about which one a given runtime should default to.
 
 ## The matrix
@@ -32,7 +35,7 @@ The decision table is implemented as a small, pure function -
 all 8 input combinations in
 [`src/__tests__/access-capability.test.ts`](../src/__tests__/access-capability.test.ts). It
 does no capability *detection* itself (no filesystem or TTY reads) - it only decides, given
-already-known booleans, which path to recommend. Detection and wiring the recommendation into
+already-known booleans, which path to recommend. Nothing calls it yet. Detection and wiring the recommendation into
 `align` is tracked separately.
 
 ## What this is not

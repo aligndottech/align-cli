@@ -38,6 +38,8 @@ It then asks whether `align share` should go to this destination from now on. No
 only a `y` does, and the output says "Shares from this machine now go to ...". A later join asks again before
 changing it.
 
+Joining wires no agent. The CLI prints `align mcp --setup --env <name>` for that.
+
 The access expires after 90 days. The CLI prints the date. Renew it with:
 
 ```bash
@@ -112,11 +114,12 @@ Revoking a used invite signs that member out of any CLI they connected with it. 
 The link carries your gateway address, so the gateway has to know its own public address:
 
 - Tell the gateway its own public address, for example `https://api.acme.example`. With Helm set
-  `gateway.apiBaseUrl` (or the gateway ingress host, which the chart falls back to). Without Helm set
-  `PUBLIC_GATEWAY_URL`. It must be `https`, or `http` on `localhost`. The chart's defaults give
-  `https://api.align.tech`, so a self-host that leaves them alone writes the wrong address into every link;
-  the CLI then refuses the link because the gateway disagrees with it.
+  `gateway.apiBaseUrl` (or enable the gateway ingress, whose host the chart falls back to). Without Helm set
+  `PUBLIC_GATEWAY_URL`. It must be `https`, or `http` on `localhost`, with no path or query. With neither
+  Helm value the chart sets no address. If you enable the ingress and leave its placeholder host
+  `api.align.tech`, every link names Align's hosted gateway, and the CLI refuses it because your gateway
+  disagrees. A set value the gateway refuses also leaves the address out of links.
 - Set `FRONTEND_URL` to the public address of your web app. The CLI uses the address the gateway reports, so a
   wrong value here sends approval links to the wrong place.
 
-Without `PUBLIC_GATEWAY_URL` the link has no gateway, and the person joining must pass `--gateway`.
+Without a usable `PUBLIC_GATEWAY_URL` the link has no gateway, and the person joining must pass `--gateway`.

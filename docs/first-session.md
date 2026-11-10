@@ -1,9 +1,9 @@
 # Your first session
 
 You ran `align`, it found decisions in your history, and your agent is connected. Here is how
-to see that working, in three prompts. Type them into your agent (Claude Code, Cursor, Codex,
-...), not into the terminal. The end of setup prints the same three, filled in from your own
-repo.
+to see that working, in three prompts. Type them into the agent bare `align` opens, or into
+Claude Code, Cursor, Codex and the others, not into your shell. The end of setup prints the same
+three, filled in from your own repo, once it has found at least one decision.
 
 ## 1. Ask why
 
@@ -12,8 +12,9 @@ repo.
 Use a decision from the "Found in your history" box. The agent looks it up in the graph and
 answers with the reason and where it came from: a commit, a PR, a ticket. Good answers quote
 the source. If the answer is "Align has no record", the reason was never written down
-anywhere Align reads, and `align connect` can add the place it lives (PR descriptions, Jira,
-Slack ...).
+anywhere Align reads. The first run already reads the repo's commits, its docs and the recent
+merged PRs of a public GitHub repo. `align connect` can add the place it lives (older or private
+PRs, Jira, Slack ...).
 
 ## 2. Ask before you touch a file
 
@@ -31,8 +32,9 @@ decision it goes against, and stops to tell you instead of writing the change. T
 same check that runs on its own when the agent edits code. Asking for a plan means nothing is
 written.
 
-You don't need an AI key for this. Inside your agent, the agent itself reads the decisions
-Align found and judges whether the plan goes against them.
+You don't need an AI key in Claude Code, Cursor, Codex and the other agents: the agent itself
+reads the decisions Align found and judges whether the plan goes against them. Align's own agent
+(bare `align`) runs on a key, Ollama or your Claude Code; setup offers to set one up.
 
 ## How do I know the check is running?
 

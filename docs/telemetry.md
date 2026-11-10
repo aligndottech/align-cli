@@ -60,8 +60,8 @@ decisions, so keep the file private and delete it when you are done.
 
 | Switch | What it stops | Where |
 |---|---|---|
-| `DO_NOT_TRACK=1` | Everything, both tiers, both modes. Remembered once any align run has seen it (see above). Set before the first run and the install count is never sent, even if you unset it later. The [consoledonottrack.com](https://consoledonottrack.com) convention. | environment |
-| `ALIGN_TELEMETRY=0` | Same as above. Any value other than `1`, `true`, `yes` or `on` counts as off. | environment |
+| `DO_NOT_TRACK=1` | Everything, both tiers, both modes. Remembered once any align run has seen it (see above). Set before the first run and the install count is never sent, even if you unset it later. Any value except empty, `0`, `false`, `no` or `off` counts, so `DO_NOT_TRACK=0` does not turn it off. The [consoledonottrack.com](https://consoledonottrack.com) convention. | environment |
+| `ALIGN_TELEMETRY=0` | Same as above. Any value other than `1`, `true`, `yes` or `on` counts as off, case ignored. An empty value counts as unset. | environment |
 | `align telemetry off` | Everything, in both modes: local events and cloud-mode events. Stored on this machine. | command |
 | Running in CI | Everything. Detected the way [ci-info](https://github.com/watson/ci-info) does (`CI`, `GITHUB_ACTIONS` and the other CI providers' variables). A CI run does not count as an install. | automatic |
 | `align telemetry on` | Turns usage on (and undoes `align telemetry off`). | command |
@@ -75,7 +75,8 @@ back on.
 
 Sent once the notice has printed in a terminal, or after `align telemetry on`. Never after
 `align telemetry off` or a No to the old consent question. Both go to
-`POST https://api.align.tech/telemetry/anonymous` with no account, no token and no tenant.
+`POST https://api.align.tech/telemetry/anonymous` with no account, no token and no tenant. If you set
+`ALIGN_GATEWAY_URL`, they go to that gateway instead.
 The gateway accepts nothing outside these fields (a strict schema) and mirrors the event to
 PostHog under `cli-local:<installId>` with `platform: cli` and `mode: local`
 added server-side.
@@ -136,14 +137,15 @@ One per command you run.
 `align_sync run`, and the background refresh that runs when you start `align`, each run
 `align sync --background`, which sends no `cli.command` at all. The same goes for `align sync
 --background` typed by a person: no `cli.command`, and its `source_synced` pings report trigger
-`background`. `align_mark` over MCP is not a command you ran and sends nothing.
+`background`. `align_mark` over MCP is not a command you ran and sends nothing. Neither does any `align local ...`
+command, the explicitly offline group.
 
 ### `cli.funnel.<stage>` (local mode)
 
 Milestone pings, one of `setup_started`, `import_completed`, `mcp_wired`,
 `first_capture` (once per install, the first time you capture a decision with `align capture`; it
 carries the command name and nothing about what was captured), `first_useful_decision` (once per install, the first non-empty answer, from `align ask` or
-from an agent over MCP), `teammate_requested`, and the four session-import stages:
+from an agent over MCP, or from Align's own agent), `teammate_requested`, and the four session-import stages:
 `sessions_scanned`, `candidates_found`, `candidates_confirmed` and `decisions_ratified`, and
 `agent_launched` (bare `align` opened your coding agent) and `agent_active` (your agent used an
 Align tool, at most once a day).
@@ -158,7 +160,8 @@ the counts are counts, and the agent is the name of a tool on your machine. `dec
 is sent by `align ratify` with no count and no agent, because a ratification is a person
 standing behind a claim rather than anything an agent did.
 
-`agent_active` is sent by `align mcp` on the first tool call your agent makes each UTC day, and
+`agent_active` is sent on the first Align tool call each UTC day, by `align mcp` or by Align's own
+agent when you start it with bare `align`, and
 only in local-only mode (cloud mode records tool calls on the server already). It carries the four
 fields in the table below and nothing else: no tool name, no count, no agent name, no arguments.
 It exists because `align mcp` sends one `cli.command` when the server starts, so an editor that
@@ -199,8 +202,9 @@ refreshed by hand) sends nothing. Local-only mode sends it; cloud mode does not.
 | `scope` | `yours` (your own items) or `team` (a repo you are inside, read for everyone). |
 | `trigger` | What started it: `manual` (you ran `align sync`) or `background` (a background sync: your agent's `align_sync run`, or `align sync --background`, which is also how the refresh at launch runs). The gateway also accepts `connect`; the CLI does not send it yet. |
 
-No title, URL, repo, organisation, author or id is ever in this body: it is built from these
-five fields and nothing else.
+No title, URL, repo, organisation, author or id is ever in this body: it is built from the five
+fields `count`, `source`, `outcome`, `scope` and `trigger`, plus `installId`, `cliVersion`, `stage`
+and `command` above, and nothing else.
 
 ## Cloud mode
 
@@ -228,6 +232,8 @@ own `telemetry_events` table.
 | `category` | Always `engagement`. |
 | `platform` | Always `cli`. |
 | `properties.command` | The command that reached the stage. |
+
+The session-import stages (`sessions_scanned`, `candidates_found`, `candidates_confirmed`) also carry `properties.count` and `properties.agent`, with the same meaning as in local mode. No other stage sends `count`, and only `agent_launched` also sends `agent`.
 
 ## What is never sent
 
