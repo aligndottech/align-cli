@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.73.0](https://github.com/aligndottech/align-cli/compare/cli-v0.72.3...cli-v0.73.0) (2026-11-11)
+
+
+### Features
+
+* **agent:** load the repo's own harness when any agent you use trusts it ([#552](https://github.com/aligndottech/align-cli/issues/552)) ([d3a37da](https://github.com/aligndottech/align-cli/commit/d3a37da3f358ddba298c3b5cdd0d72c0f18fba03))
+
 ## [0.72.3](https://github.com/aligndottech/align-cli/compare/cli-v0.72.2...cli-v0.72.3) (2026-11-10)
 
 
