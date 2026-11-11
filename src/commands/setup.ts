@@ -200,10 +200,10 @@ export function buildSources(gitAvailable: boolean): SetupSource[] {
       // Slack documents a "create an app from this manifest" link (docs.slack.dev, app manifests: api.slack.com/apps?new_app=1&manifest_json=).
       // The manifest asks for the four read scopes as USER scopes and declares no bot user, so the app cannot write. No expiry is
       // set: Slack's token rotation is a separate opt-in that needs a refresh flow this paste path does not have.
-      tokenUrl: 'https://api.slack.com/apps?new_app=1&manifest_json=' + encodeURIComponent(JSON.stringify({
+      tokenUrl: `https://api.slack.com/apps?new_app=1&manifest_json=${encodeURIComponent(JSON.stringify({
         display_information: { name: 'Align CLI (read-only)', description: 'Reads your Slack threads into your local Align graph. It cannot post.' },
         oauth_config: { scopes: { user: ['channels:read', 'channels:history', 'groups:read', 'groups:history'] } },
-      })),
+      }))}`,
       fetch: async (t, w = parseSince(undefined), o) => {
         const { fetchSlackItems } = await import('../lib/fetchers/slack.js');
         return fetchSlackItems({ token: t['token']!, ...fetchWindow('slack', w), ...windowExtras(o) });
