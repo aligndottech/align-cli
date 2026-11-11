@@ -248,6 +248,11 @@ host hook  ->  align check --advisory --format <host>  ->  host-shaped JSON on s
   `renderForHost` wraps it in the shape that host reads. `--format text` is the fallback for
   anything not listed above: plain prose, for a host that just runs a command and shows what
   it printed.
+- **What each decision says** - the hook shows up to 200 characters of each surfaced decision
+  under its title (800 in total), with secrets redacted.
+- **Dependencies** - an edit that adds an npm dependency (a new key in `package.json`, or an import of a
+  package the nearest `package.json` does not list) is also checked as the sentence "Add dependency X to
+  package.json", so a rule about new dependencies surfaces. Other manifests are not covered yet.
 
 Adding a host is a payload case, an output case, and a writer. It is not a change to the
 check.

@@ -251,3 +251,13 @@ export function removeUserHooks(target: UserHookTarget): boolean {
 export function editedHookNotice(file: string): string {
   return `Kept your edits to the align hook in ${file}, so it still runs its old command and env. To refresh it, delete that hook entry and run align mcp --setup again.`;
 }
+
+/**
+ * Codex skips a hook in ~/.codex/hooks.json until it is approved in Codex's one-time interactive hook
+ * trust review, and `codex exec` never asks, so a hook we just wrote does nothing until then. Null unless
+ * the Codex hook file is among the files this run wrote.
+ */
+export function codexHookTrustNotice(hooks: UserHookTarget | undefined, written: readonly string[]): string | null {
+  if (hooks?.host !== 'codex' || !written.includes(hooks.path)) return null;
+  return 'Codex: open Codex once interactively and approve the Align hook, or it will not run. Codex skips a new hook until then, and `codex exec` never asks.';
+}

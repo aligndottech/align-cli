@@ -237,10 +237,28 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
         run: |
           set -x
-          # Plain-http Ubuntu mirrors (azure.archive, archive, security) did not answer from the runner, but https ones did (measured with curl).
-          printf 'https://mirrors.edge.kernel.org/ubuntu/\tpriority:1\n' | sudo tee /etc/apt/apt-mirrors.txt
-          sudo timeout 120 apt-get update -o Acquire::Retries=2 -o Acquire::http::Timeout=20
-          sudo timeout 240 apt-get install -y --no-install-recommends gnome-keyring libsecret-tools dbus
+          # One mirror is a single point of failure: kernel.org answered in one run and timed out ("Network is unreachable") in the next.
+          # An https mirror is first because plain-http ones were measured not answering from the runner on some runs; the http ones stay
+          # as lower-priority fallbacks so apt can move on when kernel.org does not answer.
+          printf '%s\n' \
+            "https://mirrors.edge.kernel.org/ubuntu/	priority:1" \
+            "http://azure.archive.ubuntu.com/ubuntu/	priority:2" \
+            "http://archive.ubuntu.com/ubuntu/	priority:3" | sudo tee /etc/apt/apt-mirrors.txt
+          # The network step fails on a bad minute, not on a bad package, so retry the pair. Fails loudly after the third attempt.
+          ok=0
+          for attempt in 1 2 3; do
+            if sudo timeout 120 apt-get update -o Acquire::Retries=2 -o Acquire::http::Timeout=20 \
+              && sudo timeout 240 apt-get install -y --no-install-recommends gnome-keyring libsecret-tools dbus; then
+              ok=1
+              break
+            fi
+            echo "::warning::Secret Service install attempt $attempt failed"
+            sleep $((attempt * 5))
+          done
+          if [ "$ok" != 1 ]; then
+            echo "::error::Could not install the Secret Service after 3 attempts"
+            exit 1
+          fi
 
       - name: Real credential store (Linux)
         env:

@@ -1,7 +1,7 @@
 import type { HookToolInput } from '../hook-payload.js';
 import { findLineWriters, isWriterTitle } from '../blame-attribution.js';
 
-export type RelatedDecision = { id: string; title: string; summary?: string };
+export type RelatedDecision = { id: string; title: string; summary?: string; url?: string; status?: 'superseded'; successor?: { id: string; title: string } };
 
 type DecisionLookup = { decisionsBySourceRefs?: (shas: string[], prUrls: string[]) => RelatedDecision[] };
 
