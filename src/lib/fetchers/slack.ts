@@ -13,6 +13,11 @@ import { type CaptureFetchResult, type WindowedOpts, withCaptureReport } from '.
  * moment Slack adds a subtype the SDK learns about and this file does not
  * (code-style.md, "a type and a database constraint are two writers of one fact").
  */
-export async function fetchSlackItems(opts: { token: string; limit?: number } & WindowedOpts): Promise<CaptureFetchResult> {
+export async function fetchSlackItems(
+  opts: { token: string; limit?: number; captureEmojis?: string[] | string; reactionsFromAnyone?: boolean } & WindowedOpts,
+): Promise<CaptureFetchResult> {
+  // A message the token's user reacted to with one of these emojis is read even with fewer
+  // than two replies (connector-core selects it). Unset means core's defaults (pushpin and
+  // bookmark), so the options pass through untouched and no copy of the defaults lives here.
   return withCaptureReport(opts, new SlackFetcher());
 }
