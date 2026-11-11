@@ -232,23 +232,13 @@ jobs:
 
       # Pinned to 24.04 for THIS job (`ubuntu-latest` is 26.04 now). Both images pointed apt at an Azure mirror that did not answer
       # `apt-get update`, so the mirror is switched below.
-      - name: Diagnose package access
-        continue-on-error: true
-        run: |
-          command -v secret-tool gnome-keyring-daemon dbus-run-session || true
-          for u in http://archive.ubuntu.com/ubuntu http://us.archive.ubuntu.com/ubuntu http://azure.archive.ubuntu.com/ubuntu https://mirrors.edge.kernel.org/ubuntu https://mirror.us.leaseweb.net/ubuntu http://security.ubuntu.com/ubuntu; do
-            echo "$u -> $(curl -s -o /dev/null -m 10 -w '%{http_code} %{time_total}' $u/dists/noble/InRelease)"
-          done
-          ls /var/lib/apt/lists | head -5
-          apt-cache policy gnome-keyring libsecret-tools | head -8
-
       - name: Install the Secret Service
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
           set -x
-          # The runner's default apt mirror (azure.archive.ubuntu.com) stopped answering; the main archive does.
-          printf 'http://archive.ubuntu.com/ubuntu/\tpriority:1\n' | sudo tee /etc/apt/apt-mirrors.txt
+          # Plain-http Ubuntu mirrors (azure.archive, archive, security) did not answer from the runner, but https ones did (measured with curl).
+          printf 'https://mirrors.edge.kernel.org/ubuntu/\tpriority:1\n' | sudo tee /etc/apt/apt-mirrors.txt
           sudo timeout 120 apt-get update -o Acquire::Retries=2 -o Acquire::http::Timeout=20
           sudo timeout 240 apt-get install -y --no-install-recommends gnome-keyring libsecret-tools dbus
 
