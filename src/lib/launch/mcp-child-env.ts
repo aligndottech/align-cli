@@ -76,6 +76,7 @@ export const CHILD_ENV_NOT_PINNED: Record<string, string> = {
   ].map((v) => [v, 'read by `align share` to decide whether to open a browser or draw a QR code at the person\'s terminal; the MCP server never does either'])),
   COPILOT_ALLOW_ALL: 'read by the launcher about Copilot, not by align mcp',
   GEMINI_RESTRICTED_MODE: 'read by the launcher about Gemini folder trust, not by align mcp',
+  CLAUDE_CONFIG_DIR: "read by the agent session to find Claude Code's trust record, not by align mcp",
   ...Object.fromEntries([
     'QWEN_CODE_SYSTEM_DEFAULTS_PATH', 'QWEN_CODE_SYSTEM_SETTINGS_PATH', 'QWEN_CODE_TRUSTED_FOLDERS_PATH', 'QWEN_HOME',
     'GEMINI_CLI_SYSTEM_DEFAULTS_PATH', 'GEMINI_CLI_SYSTEM_SETTINGS_PATH', 'GEMINI_CLI_TRUST_WORKSPACE', 'GEMINI_CLI_TRUSTED_FOLDERS_PATH', 'GEMINI_CLI_HOME',

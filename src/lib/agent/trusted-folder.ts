@@ -59,6 +59,6 @@ export function trustedDir(cwd: string, home: string, env: Record<string, string
     if ((entry as { hasTrustDialogAccepted?: unknown } | null)?.hasTrustDialogAccepted !== true) continue;
     trusted.add(real(key) ?? key);
   }
-  const never = new Set([real(home) ?? home, path.parse(cwd).root]);
-  return repoChain(cwd).find((dir) => !never.has(dir) && dir !== path.parse(dir).root && trusted.has(dir));
+  const resolvedHome = real(home) ?? home;
+  return repoChain(cwd).find((dir) => dir !== resolvedHome && dir !== path.parse(dir).root && trusted.has(dir));
 }

@@ -39,7 +39,9 @@ const READ_TOOLS = new Set(['read', 'grep', 'find', 'ls']);
  * project settings could name extensions elsewhere in the repo).
  *
  * Skills and prompt templates are text the model reads. The user's own (`~/.pi/agent/skills`) always
- * load, as do `~/.claude/skills` and `~/.agents/skills`. The repo's (`.pi/skills`, `.claude/skills`, `.agents/skills` and `.pi/prompts`, under the folder whose trust matched) load only when `trustedDir` is set, meaning the user already
+ * load, as do `~/.claude/skills` and `~/.agents/skills`. The repo's (`.pi/skills`, `.claude/skills`,
+ * `.agents/skills` and `.pi/prompts`, under the folder whose trust matched) load only when
+ * `trustedDir` is set, meaning the user already
  * accepted Claude Code's trust prompt for this folder. Pi's own discovery is off (`noSkills`,
  * `noPromptTemplates`) and the wanted folders go in as explicit paths, so the repo/user split
  * stays ours. Context files (AGENTS.md, CLAUDE.md) stay on in both modes.
