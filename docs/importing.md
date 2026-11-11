@@ -233,6 +233,7 @@ to a source, and it makes no AI calls. Specifically:
   channel the token cannot see is a skip of that scope, shown in the status, and blocks nothing.
   Nothing here asks for a token.
 - **Slack replies to older threads** are picked up for threads that had a reply in the last 30 days.
+- **Slack reactions pin a message** (available once the CLI is built on a connector-core with reaction selection). A message you reacted to with :pushpin: or :bookmark: is imported even when it has fewer than two replies. Reactions by other people do not count. The emojis are an option on the Slack fetch (`captureEmojis`; `reactionsFromAnyone` widens it to anyone's reaction); there is no command-line flag or setting for them yet. It needs no extra Slack scope. Removing the reaction later does not delete the imported decision.
 - **Teams is manual** (its token lasts about an hour): `align sync teams`, or `align connect teams`.
 - One sync per source at a time, across terminals and agents. A second one says "already syncing".
 - Stored items that never finished linking (all of them after an upgrade) are finished locally
