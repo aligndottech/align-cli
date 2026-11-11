@@ -851,7 +851,12 @@ function excerptOf(d: RelatedDecision, room: number): string {
 // `successor`); the agent must not follow it as current. Only the local result carries this today.
 function replacedNote(d: RelatedDecision): string {
   if (d.status !== 'superseded') return '';
-  return d.successor?.title ? ` (replaced by: ${flatten(d.successor.title).replace(CONTROLS, '')})` : ' (replaced)';
+  return d.successor?.title ? ` (replaced by: ${safeTitle(d.successor.title)})` : ' (replaced)';
+}
+
+// A title reaches the agent too, so it gets the excerpt's redaction and control stripping.
+function safeTitle(title: string): string {
+  return flatten(redactSecrets(title).text).replace(CONTROLS, '');
 }
 
 // One writer of the bullet format. `budget.left` is shared by every list in one output.
@@ -859,7 +864,7 @@ function decisionBullets(decisions: RelatedDecision[], budget: { left: number })
   return decisions.flatMap((d) => {
     const excerpt = excerptOf(d, budget.left);
     budget.left -= excerpt.length;
-    const head = `- ${d.title}${replacedNote(d)}`;
+    const head = `- ${safeTitle(d.title)}${replacedNote(d)}`;
     return excerpt ? [head, `  ${excerpt}`] : [head];
   });
 }

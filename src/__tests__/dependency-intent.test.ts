@@ -52,6 +52,35 @@ describe('dependencyIntentQuery', () => {
     expect(dependencyIntentQuery({ file_path: join(dir, 'src', 'a.ts'), content: 'import a from "$lib/a";\nimport b from "~/b";\nimport c from "@/c";\n' }, dir)).toBeNull();
   });
 
+  it('(3c) a baseUrl import of a project folder such as src/foo or components/x is not a package', () => {
+    mkdirSync(join(dir, 'components'));
+    const content = 'import a from "src/foo";\nimport b from "components/x";\n';
+    expect(dependencyIntentQuery({ file_path: join(dir, 'src', 'a.ts'), content }, dir)).toBeNull();
+  });
+
+  it('(3d) a dependency listed in a workspace root manifest above the package is not new', () => {
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'root', private: true, workspaces: ['packages/*'], dependencies: { lodash: '^4.17.21' } }));
+    mkdirSync(join(dir, 'packages', 'app', 'src'), { recursive: true });
+    writeFileSync(join(dir, 'packages', 'app', 'package.json'), JSON.stringify({ name: '@acme/app', dependencies: { zod: '^3.23.0' } }));
+    const content = 'import _ from "lodash";\nimport { z } from "zod";\n';
+    expect(dependencyIntentQuery({ file_path: join(dir, 'packages', 'app', 'src', 'a.ts'), content }, dir)).toBeNull();
+  });
+
+  it('(3e) a sibling workspace package is not new', () => {
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'root', private: true, workspaces: ['packages/*'] }));
+    mkdirSync(join(dir, 'packages', 'app', 'src'), { recursive: true });
+    mkdirSync(join(dir, 'packages', 'core'), { recursive: true });
+    writeFileSync(join(dir, 'packages', 'app', 'package.json'), JSON.stringify({ name: '@acme/app' }));
+    writeFileSync(join(dir, 'packages', 'core', 'package.json'), JSON.stringify({ name: '@acme/core' }));
+    const content = 'import { c } from "@acme/core";\n';
+    expect(dependencyIntentQuery({ file_path: join(dir, 'packages', 'app', 'src', 'a.ts'), content }, dir)).toBeNull();
+  });
+
+  it('(3f) a type-only import is not a runtime dependency, a value import of the same file is', () => {
+    expect(dependencyIntentQuery({ file_path: join(dir, 'src', 'a.ts'), content: 'import type { X } from "lodash";\n' }, dir)).toBeNull();
+    expect(dependencyIntentQuery({ file_path: join(dir, 'src', 'a.ts'), content: 'import { X } from "lodash";\n' }, dir)).toBe('Add dependency lodash to package.json');
+  });
+
   it('(4) a description-only edit of package.json stays silent', () => {
     const q = dependencyIntentQuery({ file_path: pkg(), old_string: '"description": "A small shop"', new_string: '"description": "A tiny shop for testing"' }, dir);
     expect(q).toBeNull();

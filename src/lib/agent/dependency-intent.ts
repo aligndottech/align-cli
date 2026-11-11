@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { builtinModules } from 'node:module';
 import path from 'node:path';
 import type { HookToolInput } from '../hook-payload.js';
@@ -82,6 +82,8 @@ const IMPORT_RE = /(?:\bimport\s*(?:[^'"()]*?\bfrom\s*)?|\bexport\s[^'"()]*?\bfr
 function importedPackages(text: string): string[] {
   const out = new Set<string>();
   for (const m of text.matchAll(IMPORT_RE)) {
+    // `import type` / `export type` are erased at compile time: no runtime dependency.
+    if (/^(?:import|export)\s+type\b/.test(m[0])) continue;
     const spec = m[2]!;
     if (/^[./$~#]/.test(spec) || spec.startsWith('@/') || spec.includes(':')) continue;
     const parts = spec.split('/');
@@ -93,16 +95,57 @@ function importedPackages(text: string): string[] {
   return [...out];
 }
 
-function nearestManifest(fromFile: string, cwd: string): string | null {
+function readJson(file: string): Record<string, unknown> | null {
+  try {
+    const parsed: unknown = JSON.parse(readOrNull(file) ?? '');
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Names of the packages a workspace root declares (`workspaces: ["packages/*", "tools/cli"]`). */
+function workspacePackageNames(rootDir: string, json: Record<string, unknown>): string[] {
+  const ws = json.workspaces;
+  const patterns = Array.isArray(ws) ? ws : ws && typeof ws === 'object' && Array.isArray((ws as { packages?: unknown }).packages) ? (ws as { packages: unknown[] }).packages : [];
+  const dirs: string[] = [];
+  for (const p of patterns) {
+    if (typeof p !== 'string' || p.includes('..')) continue;
+    if (p.endsWith('/*')) {
+      try {
+        const base = path.join(rootDir, p.slice(0, -2));
+        for (const e of readdirSync(base, { withFileTypes: true })) if (e.isDirectory()) dirs.push(path.join(base, e.name));
+      } catch { /* missing workspace folder */ }
+    } else if (!p.includes('*')) dirs.push(path.join(rootDir, p));
+  }
+  return dirs.map((d) => readJson(path.join(d, 'package.json'))?.name).filter((n): n is string => typeof n === 'string');
+}
+
+/**
+ * Every name the edit may import without adding a dependency: the nearest manifest's deps and name,
+ * plus, walking up, any enclosing manifest's (a monorepo hoists shared deps to the root) and the
+ * packages its workspaces declare (a sibling workspace package is linked, not installed).
+ */
+function knownPackages(fromFile: string, cwd: string): { manifest: string; known: Set<string> } | null {
   let dir = path.dirname(path.resolve(cwd, fromFile));
+  let manifest: string | null = null;
+  const known = new Set<string>();
   for (let i = 0; i < MAX_LEVELS_UP; i++) {
     const candidate = path.join(dir, 'package.json');
-    if (existsSync(candidate)) return candidate;
+    if (existsSync(candidate)) {
+      const json = readJson(candidate);
+      const deps = depNames(readOrNull(candidate) ?? '');
+      if (!json || !deps) return manifest ? { manifest, known } : null;
+      manifest ??= candidate;
+      for (const n of deps) known.add(n);
+      if (typeof json.name === 'string') known.add(json.name);
+      for (const n of workspacePackageNames(dir, json)) known.add(n);
+    }
     const up = path.dirname(dir);
     if (up === dir) break;
     dir = up;
   }
-  return null;
+  return manifest ? { manifest, known } : null;
 }
 
 function sentence(names: string[], manifestPath: string, cwd: string): string {
@@ -129,13 +172,14 @@ export function dependencyIntentQuery(input: HookToolInput | undefined, cwd: str
     }
 
     if (!SOURCE_EXT.has(path.extname(file))) return null;
-    const manifestPath = nearestManifest(file, cwd);
-    const listed = manifestPath ? depNames(readOrNull(manifestPath) ?? '') : null;
-    if (!manifestPath || !listed) return null;
+    const found = knownPackages(file, cwd);
+    if (!found) return null;
+    const root = path.dirname(found.manifest);
+    // A baseUrl import (`src/foo`, `components/x`) names a project folder, not a package.
+    const isFolder = (n: string): boolean => !n.startsWith('@') && existsSync(path.join(root, n));
     const already = new Set(importedPackages(change.before));
-    const own = (JSON.parse(readOrNull(manifestPath) ?? '{}') as { name?: string }).name;
-    const added = importedPackages(change.after).filter((n) => !listed.has(n) && !already.has(n) && n !== own);
-    return added.length ? sentence(added, manifestPath, cwd) : null;
+    const added = importedPackages(change.after).filter((n) => !found.known.has(n) && !already.has(n) && !isFolder(n));
+    return added.length ? sentence(added, found.manifest, cwd) : null;
   } catch {
     return null;
   }

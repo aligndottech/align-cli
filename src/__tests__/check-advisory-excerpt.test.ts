@@ -162,6 +162,20 @@ describe('advisory output carries what each decision says', () => {
     });
   });
 
+  describe('titles are as safe as excerpts', () => {
+    const GITHUB_PAT = `ghp_${'y'.repeat(36)}`;
+    it('redacts a secret and strips controls in a decision title', () => {
+      const out = ctx(buildRelatedOutput([{ id: 't', title: `Use ${GITHUB_PAT} \u001b[31mnow`, summary: 'Short body text that is long enough to show.' }], claude));
+      expect(out).not.toContain(GITHUB_PAT);
+      expect(out).not.toContain('\u001b');
+    });
+    it('redacts a secret in the successor title', () => {
+      const out = ctx(buildRelatedOutput([{ id: 'o', title: 'Old', status: 'superseded', successor: { id: 'n', title: `Rotate ${GITHUB_PAT}` } }], claude));
+      expect(out).not.toContain(GITHUB_PAT);
+      expect(out).toContain('(replaced by: Rotate ');
+    });
+  });
+
   describe('a replaced decision says so', () => {
     it('shows the marker and the successor on the title line', () => {
       const out = ctx(buildRelatedOutput([{ id: 'o', title: 'Use Redux', summary: 'State lives in Redux.', status: 'superseded', successor: { id: 'n', title: 'Use the store module' } }], claude));
