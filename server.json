@@ -1,7 +1,7 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.aligndottech/cli",
-  "description": "A local decision graph from your git history and tools, checked by your agent before it edits.",
+  "description": "Checks your coding agent's edits against your team's decisions in tickets, chat, docs and git.",
   "repository": {
     "url": "https://github.com/aligndottech/align-cli",
     "source": "github"

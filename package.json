@@ -3,7 +3,7 @@
   "version": "0.73.0",
   "mcpName": "io.github.aligndottech/cli",
   "type": "module",
-  "description": "Your AI agents know the code. They don't know the company. A local decision graph from your git history and tools, checked by your coding agent before it edits.",
+  "description": "Your AI agents know the code. They don't know the company. Local CLI and MCP server that checks your coding agent's change against your team's decisions from Jira, Confluence, Linear, Notion, Slack, Teams, Zoom, GitHub, GitLab, git history and repo docs.",
   "keywords": [
     "align",
     "decisions",
@@ -12,7 +12,18 @@
     "ai-agents",
     "claude-code",
     "cursor",
-    "cli"
+    "cli",
+    "jira",
+    "slack",
+    "linear",
+    "notion",
+    "confluence",
+    "github",
+    "gitlab",
+    "codex",
+    "gemini-cli",
+    "adr",
+    "local-first"
   ],
   "author": "Align (https://align.tech)",
   "license": "MIT",
