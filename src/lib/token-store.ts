@@ -98,7 +98,7 @@ function macBackend(run: Run): TokenBackend {
     id: 'macos-keychain',
     label,
     probe: () => {
-      const r = run('/usr/bin/security', ['list-keychains']);
+      const r = run('/usr/bin/security', ['list-keychains'], { timeoutMs: READ_TIMEOUT_MS });
       return r.status === 0 ? null : (firstLine(r.stderr) || '/usr/bin/security is not usable');
     },
     get,
@@ -183,9 +183,9 @@ function windowsBackend(run: Run, blobFile: string, env: Readonly<Record<string,
     // would replace it with one entry. It is left exactly as it is, and every read and write against it fails loudly.
     try {
       const v = JSON.parse(text) as unknown;
-      if (v !== null && typeof v === 'object' && !Array.isArray(v)) return v as Record<string, string>;
+      if (v !== null && typeof v === 'object' && !Array.isArray(v) && Object.values(v).every((x) => typeof x === 'string')) return v as Record<string, string>;
     } catch { /* falls through to the one error */ }
-    throw new Error(`${blobFile} is not valid JSON, so the tokens in it cannot be read. It was left untouched: restore it from a backup, or delete it and reconnect your sources`);
+    throw new Error(`${blobFile} is not a valid token file (not JSON, or a value is not a string), so the tokens in it cannot be read. It was left untouched: restore it from a backup, or delete it and reconnect your sources`);
   };
   const writeBlobs = (blobs: Record<string, string>): void => {
     fs.mkdirSync(path.dirname(blobFile), { recursive: true });
@@ -210,7 +210,7 @@ function windowsBackend(run: Run, blobFile: string, env: Readonly<Record<string,
     id: 'windows-dpapi',
     label,
     probe: () => {
-      const r = ps('exit 0');
+      const r = ps('exit 0', undefined, READ_TIMEOUT_MS);
       return r.status === 0 ? null : (firstLine(r.stderr) || 'powershell.exe is not usable');
     },
     get,

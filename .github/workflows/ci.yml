@@ -183,6 +183,63 @@ jobs:
       - name: Smoke - CLI binary runs
         run: node dist/bin.js --version
 
+      # The REAL credential store, not a fake: the macOS Keychain and Windows DPAPI backends are otherwise proven only against
+      # in-memory stand-ins, which can only agree with what their author believed `security` and PowerShell do. The file runs
+      # only with ALIGN_ALLOW_REAL_KEYCHAIN_IN_TESTS=1, so `npm test` above never reaches a keychain. The Linux half is the
+      # `credential-store-linux` job below, which runs on pull requests (this job does not).
+      #
+      # macOS: a throwaway, unlocked keychain made the default. The runner's login keychain is locked and has no UI to unlock it,
+      # so a call against it blocks until a timeout.
+      - name: Real credential store (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          ALIGN_ALLOW_REAL_KEYCHAIN_IN_TESTS: '1'
+        run: |
+          set -euo pipefail
+          security create-keychain -p ci-pass align-ci.keychain
+          security list-keychains -d user -s align-ci.keychain $(security list-keychains -d user | tr -d '"')
+          security default-keychain -s align-ci.keychain
+          security unlock-keychain -p ci-pass align-ci.keychain
+          security set-keychain-settings -t 3600 align-ci.keychain
+          npx vitest run src/__tests__/token-store-real.test.ts
+
+      # Windows: DPAPI encrypts for the runner user, so nothing needs preparing.
+      - name: Real credential store (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          ALIGN_ALLOW_REAL_KEYCHAIN_IN_TESTS: '1'
+        run: npx vitest run src/__tests__/token-store-real.test.ts
+
+  # Linux half of the real credential store check, in a job that runs on pull requests (cross-platform does not). The Secret
+  # Service needs a session bus and an unlocked keyring, which `dbus-run-session` and `gnome-keyring-daemon --unlock` provide.
+  credential-store-linux:
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.19'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Install the Secret Service
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gnome-keyring libsecret-tools dbus-x11
+
+      - name: Real credential store (Linux)
+        env:
+          ALIGN_ALLOW_REAL_KEYCHAIN_IN_TESTS: '1'
+        run: |
+          dbus-run-session -- bash -c 'echo -n ci-pass | gnome-keyring-daemon --unlock --components=secrets >/dev/null && npx vitest run src/__tests__/token-store-real.test.ts'
+
   # Windows tests on a pull request, but only for a diff that can change Windows behaviour in
   # the launcher or the config writers. cross-platform above is skipped on PRs for cost, which
   # is how the launcher shipped 37 Windows-only failures (it spawns through `cmd /c`, has no

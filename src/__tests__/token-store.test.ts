@@ -347,3 +347,28 @@ describe('a secret never reaches a message', () => {
     expect(notes).toHaveLength(1);
   });
 });
+
+describe('probes and blob values', () => {
+  it.each([
+    ['darwin', 'security'],
+    ['win32', 'powershell'],
+    ['linux', 'secret-tool'],
+  ] as const)('%s: the availability probe uses the short read timeout, not the 15 s default', (platform, kind) => {
+    const tool = fakeTool(kind);
+    selectBackend({ platform, run: tool.run, blobFile: path.join(dir, 'blobs.json'), env: {} });
+    expect(tool.calls.length).toBeGreaterThan(0);
+    for (const c of tool.calls) expect(c.timeoutMs).toBeLessThanOrEqual(3_000);
+  });
+
+  it('a blob file with a non-string value is a loud failed read, left as it was', () => {
+    const file = path.join(dir, 'blobs.json');
+    fs.writeFileSync(file, JSON.stringify({ 'local:github': 5, 'local:slack': 'DPAPI-aa' }));
+    const before = fs.readFileSync(file, 'utf8');
+    const notes: string[] = [];
+    const vault = createTokenVault({ selection: selectBackend({ platform: 'win32', run: fakeTool('powershell').run, blobFile: file, env: {} }), notify: (m) => notes.push(m) });
+    expect(vault.read('local:slack', true).status).toBe('failed');
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toContain('blobs.json');
+    expect(fs.readFileSync(file, 'utf8')).toBe(before);
+  });
+});
