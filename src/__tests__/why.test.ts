@@ -22,6 +22,7 @@ vi.mock('../lib/config.js', () => ({
     getDefaultEnv: vi.fn().mockReturnValue('prod'),
     // Absent by default (nothing connected) - specific tests override per connector.
     getConnectorFields: vi.fn().mockReturnValue(null),
+    isConnected: vi.fn().mockReturnValue(false),
   })),
 }));
 
@@ -550,6 +551,7 @@ describe('align ask names a gap on a decision it returns', () => {
       getEnvironment: vi.fn().mockReturnValue({ gatewayUrl: 'http://localhost', authToken: 'tok' }),
       getDefaultEnv: vi.fn().mockReturnValue('prod'),
       getConnectorFields: vi.fn().mockReturnValue(null),
+    isConnected: vi.fn().mockReturnValue(false),
     });
     mockSynthesise.mockResolvedValueOnce({ ok: false, failure: { kind: 'no_provider' } });
     const program = new Command();
@@ -596,6 +598,7 @@ describe('align ask drops a synthetic hosted source', () => {
       getEnvironment: vi.fn().mockReturnValue({ gatewayUrl: 'http://localhost', authToken: 'tok' }),
       getDefaultEnv: vi.fn().mockReturnValue('prod'),
       getConnectorFields: vi.fn().mockReturnValue(null),
+    isConnected: vi.fn().mockReturnValue(false),
     });
     mockSynthesise.mockResolvedValueOnce({ ok: false, failure: { kind: 'no_provider' } });
     const program = new Command();

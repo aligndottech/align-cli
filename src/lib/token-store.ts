@@ -30,6 +30,11 @@ export const READ_TIMEOUT_MS = 3_000;
 const WRITE_TIMEOUT_MS = 15_000;
 
 export const realRun: Run = (cmd, args, opts) => {
+  // A test must never reach a real credential store (a CI runner's `security` can block past a hook timeout; a developer's would hold their own
+  // tokens). The vitest config pins ALIGN_TOKEN_STORE=file; this is the second lock, for any path that slips past it.
+  if (process.env['VITEST'] !== undefined && process.env['ALIGN_ALLOW_REAL_KEYCHAIN_IN_TESTS'] === undefined) {
+    return { status: null, stdout: '', stderr: 'refused: a test must not reach a real credential store' };
+  }
   const r = spawnSync(cmd, args, {
     input: opts?.input,
     encoding: 'utf8',
