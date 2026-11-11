@@ -372,3 +372,72 @@ describe('probes and blob values', () => {
     expect(fs.readFileSync(file, 'utf8')).toBe(before);
   });
 });
+
+describe('a token longer than one command line (macOS `security -i` reads a bounded line)', () => {
+  const mac = () => { const tool = fakeTool('security'); return { tool, b: backendFor('darwin', tool) }; };
+
+  it.each([500, 1500, 2500, 3000, 9000])('round-trips a %i character token', (n) => {
+    const { b } = mac();
+    const long = 'x'.repeat(n - 1) + 'Z';
+    b.set(ACCOUNT, long);
+    expect(b.get(ACCOUNT)).toBe(long);
+  });
+
+  it('never sends a line past the limit, and the secret is still not in argv', () => {
+    const { tool, b } = mac();
+    b.set(ACCOUNT, 'y'.repeat(3000));
+    for (const c of tool.calls) for (const l of (c.input ?? '').split('\n')) expect(l.length).toBeLessThanOrEqual(1024);
+    expect(argvOf(tool.calls)).not.toContain('yyyyyyyyyy');
+  });
+
+  it('remove deletes every part, so nothing of the token stays behind', () => {
+    const { tool, b } = mac();
+    b.set(ACCOUNT, 'y'.repeat(3000));
+    b.remove(ACCOUNT);
+    expect(b.get(ACCOUNT)).toBeNull();
+    expect(tool.store.size).toBe(0);
+  });
+
+  it('overwriting a long token with a short one leaves no stale parts', () => {
+    const { tool, b } = mac();
+    b.set(ACCOUNT, 'y'.repeat(3000));
+    b.set(ACCOUNT, 'short');
+    expect(b.get(ACCOUNT)).toBe('short');
+    expect([...tool.store.keys()]).toEqual([ACCOUNT]);
+  });
+
+  it('overwriting a long token with a shorter long one drops the extra parts', () => {
+    const { tool, b } = mac();
+    b.set(ACCOUNT, 'y'.repeat(3000));
+    const small = 'q'.repeat(1000);
+    b.set(ACCOUNT, small);
+    expect(b.get(ACCOUNT)).toBe(small);
+    const after = tool.store.size;
+    b.remove(ACCOUNT);
+    expect(tool.store.size).toBe(0);
+    expect(after).toBeLessThan(10);
+  });
+
+  it('a missing part is a failure, not a truncated token', () => {
+    const { tool, b } = mac();
+    b.set(ACCOUNT, 'y'.repeat(3000));
+    const part = [...tool.store.keys()].find((k) => k !== ACCOUNT)!;
+    tool.store.delete(part);
+    expect(() => b.get(ACCOUNT)).toThrow(/part|incomplete|missing/i);
+  });
+
+  it('an error that quotes a slice of the hex line surfaces none of it', () => {
+    const tool = fakeTool('security');
+    const sel = selectBackend({ platform: 'darwin', run: tool.run });
+    const fragmentRun: typeof tool.run = (cmd, args, opts) => {
+      if (opts?.input?.includes('add-generic-password')) return { status: 1, stdout: '', stderr: `security: unknown command "${Buffer.from(SECRET.slice(5, 30)).toString('hex')}"` };
+      return tool.run(cmd, args, opts);
+    };
+    const b = selectBackend({ platform: 'darwin', run: fragmentRun }).backend!;
+    let msg = '';
+    try { b.set(ACCOUNT, SECRET); } catch (e) { msg = (e as Error).message; }
+    expect(msg).not.toBe('');
+    expect(msg).not.toContain(Buffer.from(SECRET.slice(5, 30)).toString('hex').slice(0, 24));
+    void sel;
+  });
+});

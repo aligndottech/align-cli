@@ -5,6 +5,9 @@
  */
 import type { Run, RunResult } from '../../lib/token-store.js';
 
+/** A line `security -i` is assumed to accept. The real limit is unknown; 1024 is the strictest plausible one. */
+export const MAC_LINE_LIMIT = 1024;
+
 export interface Call { cmd: string; args: string[]; input: string | undefined; timeoutMs: number | undefined }
 export interface FakeTool {
   run: Run;
@@ -41,6 +44,10 @@ export function fakeTool(kind: 'security' | 'secret-tool' | 'powershell'): FakeT
   const security = (args: string[], input: string): RunResult => {
     if (args[0] === '-i') {
       // Interactive mode: the command line arrives on stdin, and a failure still exits 0.
+      // The real tool reads a bounded line: past it, the rest of the line is parsed as the NEXT command (seen on macOS with a 3,000 character token).
+      for (const l of input.split('\n')) {
+        if (l.length > MAC_LINE_LIMIT) return fail(1, `security: unknown command "${l.slice(MAC_LINE_LIMIT)}"`);
+      }
       const m = /^add-generic-password -U -a "([^"]+)" -s "align-cli" -X ([0-9a-f]+)$/m.exec(input);
       if (m && !swallow) store.set(m[1]!, Buffer.from(m[2]!, 'hex').toString('utf8'));
       return ok();

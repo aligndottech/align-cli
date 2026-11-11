@@ -82,17 +82,55 @@ export function scrub(text: string, secrets: readonly string[]): string {
     const hex = Buffer.from(secret, 'utf8').toString('hex');
     for (const form of [secret, hex, hex.toUpperCase(), Buffer.from(secret, 'utf8').toString('base64')]) out = out.split(form).join('[redacted]');
   }
-  return out;
+  // A tool that quotes only a SLICE of the line it could not parse (a bounded buffer cut it) leaves a fragment no whole-secret match can see.
+  // Any long run of hex digits in a tool's error text is a fragment of the hex-encoded command, never a message.
+  return secrets.length === 0 ? out : out.replace(/[0-9a-fA-F]{16,}/g, '[redacted]');
 }
 const notKept = (label: string): Error => new Error(`${label} accepted the write but did not keep the token`);
 
+/**
+ * `security -i` reads a bounded line: on a real macOS runner a 3,000 character token (6,000 hex digits on one line) was cut and the
+ * rest parsed as a second command. So a long token is stored as parts, each short enough to be one safe line, under
+ * `<account>.part<N>`, and the account itself holds a marker naming how many there are. A Microsoft Graph token is about 2,000
+ * characters, so this is the normal case for Teams and not an edge.
+ */
+const MAC_PART_CHARS = 400;
+const MAC_CHUNK_MARK = 'align-chunked-v1:';
+
 function macBackend(run: Run): TokenBackend {
   const label = 'macOS Keychain';
-  const get = (account: string): string | null => {
+  const partOf = (account: string, i: number): string => `${account}.part${String(i)}`;
+  const rawGet = (account: string): string | null => {
     const r = run('/usr/bin/security', ['find-generic-password', '-a', checkAccount(account), '-s', SERVICE, '-w'], { timeoutMs: READ_TIMEOUT_MS });
     if (r.status === 0) return r.stdout.replace(/\r?\n$/, '');
     if (r.status === 44) return null; // errSecItemNotFound
     throw new Error(`${label}: ${firstLine(r.stderr) || `security exited ${String(r.status)}`}`);
+  };
+  const rawSet = (account: string, secret: string): void => {
+    checkAccount(account);
+    // The command line goes on stdin, so the secret is not in argv. Hex, so no character in a token can end the argument.
+    const line = `add-generic-password -U -a "${account}" -s "${SERVICE}" -X ${Buffer.from(secret, 'utf8').toString('hex')}\n`;
+    const r = run('/usr/bin/security', ['-i'], { input: line });
+    if (r.status !== 0) throw new Error(`${label}: ${firstLine(scrub(r.stderr, [secret])) || `security exited ${String(r.status)}`}`);
+    if (rawGet(account) !== secret) throw notKept(label);
+  };
+  const rawRemove = (account: string): void => {
+    const r = run('/usr/bin/security', ['delete-generic-password', '-a', checkAccount(account), '-s', SERVICE]);
+    if (r.status !== 0 && r.status !== 44) throw new Error(`${label}: ${firstLine(r.stderr) || `security exited ${String(r.status)}`}`);
+  };
+  const partsOf = (v: string | null): number => (v !== null && v.startsWith(MAC_CHUNK_MARK) ? Number(v.slice(MAC_CHUNK_MARK.length)) || 0 : 0);
+  const get = (account: string): string | null => {
+    const v = rawGet(account);
+    if (v === null) return null;
+    if (!v.startsWith(MAC_CHUNK_MARK)) return v;
+    const n = partsOf(v);
+    let out = '';
+    for (let i = 1; i <= n; i++) {
+      const piece = rawGet(partOf(account, i));
+      if (piece === null) throw new Error(`${label}: part ${String(i)} of ${String(n)} of a long token is missing, so the token is incomplete`);
+      out += piece;
+    }
+    return out;
   };
   return {
     id: 'macos-keychain',
@@ -104,15 +142,24 @@ function macBackend(run: Run): TokenBackend {
     get,
     set(account, secret) {
       checkAccount(account);
-      // The command line goes on stdin, so the secret is not in argv. Hex, so no character in a token can end the argument.
-      const line = `add-generic-password -U -a "${account}" -s "${SERVICE}" -X ${Buffer.from(secret, 'utf8').toString('hex')}\n`;
-      const r = run('/usr/bin/security', ['-i'], { input: line });
-      if (r.status !== 0) throw new Error(`${label}: ${firstLine(scrub(r.stderr, [secret])) || `security exited ${String(r.status)}`}`);
+      const previousParts = partsOf(rawGet(account));
+      let newParts = 0;
+      if (secret.length <= MAC_PART_CHARS && !secret.startsWith(MAC_CHUNK_MARK)) {
+        rawSet(account, secret);
+      } else {
+        const pieces = secret.match(new RegExp(`[\\s\\S]{1,${String(MAC_PART_CHARS)}}`, 'g')) ?? [];
+        newParts = pieces.length;
+        pieces.forEach((piece, i) => { rawSet(partOf(account, i + 1), piece); });
+        // The marker goes last: until it does, a reader still sees the previous token, never a half of the new one.
+        rawSet(account, `${MAC_CHUNK_MARK}${String(newParts)}`);
+      }
+      for (let i = newParts + 1; i <= previousParts; i++) rawRemove(partOf(account, i));
       if (get(account) !== secret) throw notKept(label);
     },
     remove(account) {
-      const r = run('/usr/bin/security', ['delete-generic-password', '-a', checkAccount(account), '-s', SERVICE]);
-      if (r.status !== 0 && r.status !== 44) throw new Error(`${label}: ${firstLine(r.stderr) || `security exited ${String(r.status)}`}`);
+      const n = partsOf(rawGet(account));
+      for (let i = 1; i <= n; i++) rawRemove(partOf(account, i));
+      rawRemove(account);
     },
   };
 }

@@ -83,11 +83,21 @@ describe.skipIf(!enabled)('the real credential store', () => {
     expect(backend.get(a2)).toBe('value-two');
   });
 
-  it('stores a long token (3,000 characters, past any command-line limit) intact', () => {
-    const long = randomBytes(1500).toString('hex');
-    expect(long.length).toBe(3000);
+  // 2,000 is a Microsoft Graph access token (Teams). On macOS `security -i` reads a bounded line, so anything past a few hundred
+  // characters is stored in parts: these sizes sit on both sides of every boundary that matters.
+  it.each([1, 399, 400, 401, 800, 2000, 3000, 10000])('stores a %i character token intact', (n) => {
+    const long = randomBytes(Math.ceil(n / 2)).toString('hex').slice(0, n);
+    expect(long.length).toBe(n);
     backend.set(a1, long);
     expect(backend.get(a1)).toBe(long);
+  });
+
+  it('a long token is gone after remove, and a short one written over it leaves nothing of it', () => {
+    backend.set(a1, randomBytes(1500).toString('hex'));
+    backend.set(a1, 'short');
+    expect(backend.get(a1)).toBe('short');
+    backend.remove(a1);
+    expect(backend.get(a1)).toBeNull();
   });
 
   it('stores a token with symbols a real one can carry', () => {
