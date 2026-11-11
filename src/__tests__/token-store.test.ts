@@ -378,7 +378,7 @@ describe('a token longer than one command line (macOS `security -i` reads a boun
 
   it.each([500, 1500, 2500, 3000, 9000])('round-trips a %i character token', (n) => {
     const { b } = mac();
-    const long = 'x'.repeat(n - 1) + 'Z';
+    const long = `${'x'.repeat(n - 1)}Z`;
     b.set(ACCOUNT, long);
     expect(b.get(ACCOUNT)).toBe(long);
   });
