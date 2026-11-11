@@ -28,6 +28,8 @@ export type Run = (cmd: string, args: string[], opts?: { input?: string; timeout
 /** A read is on the hot path of every command and of the MCP loop, so a locked store must not hold it for long. */
 export const READ_TIMEOUT_MS = 3_000;
 const WRITE_TIMEOUT_MS = 15_000;
+/** A cold Windows PowerShell start took longer than 3 s on a CI runner, so its probe and reads wait longer than the other stores'. */
+const WINDOWS_PS_TIMEOUT_MS = 10_000;
 
 export const realRun: Run = (cmd, args, opts) => {
   // A test must never reach a real credential store (a CI runner's `security` can block past a hook timeout; a developer's would hold their own
@@ -264,7 +266,7 @@ function windowsBackend(run: Run, blobFile: string, env: Readonly<Record<string,
   const get = (account: string): string | null => {
     const blob = readBlobs()[checkAccount(account)];
     if (blob === undefined) return null;
-    const r = ps(PS_UNPROTECT, blob, READ_TIMEOUT_MS);
+    const r = ps(PS_UNPROTECT, blob, WINDOWS_PS_TIMEOUT_MS);
     if (r.status !== 0) throw new Error(`DPAPI: ${firstLine(r.stderr) || `powershell exited ${String(r.status)}`}`);
     return r.stdout.replace(/\r?\n$/, '');
   };
@@ -272,13 +274,13 @@ function windowsBackend(run: Run, blobFile: string, env: Readonly<Record<string,
     id: 'windows-dpapi',
     label,
     probe: () => {
-      const r = ps('exit 0', undefined, READ_TIMEOUT_MS);
+      const r = ps('exit 0', undefined, WINDOWS_PS_TIMEOUT_MS);
       return r.status === 0 ? null : (firstLine(r.stderr) || 'powershell.exe is not usable');
     },
     get,
     set(account, secret) {
       checkAccount(account);
-      const r = ps(PS_PROTECT, secret);
+      const r = ps(PS_PROTECT, secret, WINDOWS_PS_TIMEOUT_MS);
       const blob = r.stdout.trim();
       if (r.status !== 0 || blob === '') throw new Error(`DPAPI: ${firstLine(scrub(r.stderr, [secret])) || 'did not produce an encrypted value'}`);
       const before = readBlobs();

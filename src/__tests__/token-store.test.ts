@@ -353,11 +353,13 @@ describe('probes and blob values', () => {
     ['darwin', 'security'],
     ['win32', 'powershell'],
     ['linux', 'secret-tool'],
-  ] as const)('%s: the availability probe uses the short read timeout, not the 15 s default', (platform, kind) => {
+  ] as const)('%s: the availability probe and reads use a bounded timeout, not the 15 s default', (platform, kind) => {
     const tool = fakeTool(kind);
     selectBackend({ platform, run: tool.run, blobFile: path.join(dir, 'blobs.json'), env: {} });
     expect(tool.calls.length).toBeGreaterThan(0);
-    for (const c of tool.calls) expect(c.timeoutMs).toBeLessThanOrEqual(3_000);
+    if (platform === 'win32') expect(tool.calls.every((c) => c.timeoutMs === 10_000)).toBe(true);
+    // A cold Windows PowerShell start took longer than 3 s on a CI runner (the real-store job timed out in the probe), so Windows reads wait longer.
+    for (const c of tool.calls) expect(c.timeoutMs).toBeLessThanOrEqual(platform === 'win32' ? 10_000 : 3_000);
   });
 
   it('a blob file with a non-string value is a loud failed read, left as it was', () => {
