@@ -217,6 +217,7 @@ jobs:
   credential-store-linux:
     if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
@@ -230,9 +231,11 @@ jobs:
       - run: npm ci
 
       - name: Install the Secret Service
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
           sudo apt-get update
-          sudo apt-get install -y gnome-keyring libsecret-tools dbus-x11
+          sudo apt-get install -y --no-install-recommends gnome-keyring libsecret-tools dbus
 
       - name: Real credential store (Linux)
         env:
