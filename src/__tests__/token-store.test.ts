@@ -441,3 +441,22 @@ describe('a token longer than one command line (macOS `security -i` reads a boun
     void sel;
   });
 });
+
+describe('a token longer than the Secret Service keeps whole', () => {
+  it.each([2500, 4096, 10000])('round-trips a %i character token, stored in parts', (n) => {
+    const tool = fakeTool('secret-tool');
+    const b = backendFor('linux', tool);
+    const long = `${'k'.repeat(n - 1)}Z`;
+    b.set(ACCOUNT, long);
+    expect(b.get(ACCOUNT)).toBe(long);
+    for (const v of tool.store.values()) expect(v.length).toBeLessThanOrEqual(2000 + 20);
+  });
+
+  it('remove deletes every part', () => {
+    const tool = fakeTool('secret-tool');
+    const b = backendFor('linux', tool);
+    b.set(ACCOUNT, 'k'.repeat(10000));
+    b.remove(ACCOUNT);
+    expect(tool.store.size).toBe(0);
+  });
+});

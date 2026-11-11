@@ -8,6 +8,9 @@ import type { Run, RunResult } from '../../lib/token-store.js';
 /** A line `security -i` is assumed to accept. The real limit is unknown; 1024 is the strictest plausible one. */
 export const MAC_LINE_LIMIT = 1024;
 
+/** A value `secret-tool` is assumed to keep whole. The real limit is unknown; 3,000 is known good and 10,000 known bad. */
+export const SECRET_TOOL_VALUE_LIMIT = 4096;
+
 export interface Call { cmd: string; args: string[]; input: string | undefined; timeoutMs: number | undefined }
 export interface FakeTool {
   run: Run;
@@ -60,7 +63,8 @@ export function fakeTool(kind: 'security' | 'secret-tool' | 'powershell'): FakeT
   };
   const secretTool = (args: string[], input: string): RunResult => {
     const acct = args[args.indexOf('account') + 1]!;
-    if (args[0] === 'store') { if (!swallow) store.set(acct, input); return ok(); }
+    // Seen on a real Secret Service: a 10,000 character secret was accepted (exit 0) and read back different. Modelled as a silent cut.
+    if (args[0] === 'store') { if (!swallow) store.set(acct, input.slice(0, SECRET_TOOL_VALUE_LIMIT)); return ok(); }
     if (args[0] === 'lookup') return store.has(acct) ? ok(store.get(acct)!) : fail(1);
     if (args[0] === 'clear') { store.delete(acct); return ok(); }
     return fail(2, 'usage');
