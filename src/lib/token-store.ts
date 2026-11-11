@@ -18,6 +18,7 @@
  * removed its plaintext copy. A write that does not read back is a failed write.
  */
 import { spawnSync } from 'node:child_process';
+import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -97,45 +98,68 @@ const notKept = (label: string): Error => new Error(`${label} accepted the write
  * Service accepted a 10,000 character secret and read back something else. A Microsoft Graph token is about 2,000 characters, so
  * this is the normal case for Teams and not an edge.
  */
-const PART_MARK = 'align-chunked-v1:';
+const PART_MARK = 'align-chunked-v';
+const MARKER = /^align-chunked-v2:([0-9a-f]{8}):([1-9][0-9]*):([0-9a-f]{16})$/;
 
 type RawBackend = Pick<TokenBackend, 'get' | 'set' | 'remove'>;
+interface Marker { gen: string; n: number; sum: string }
 
+const digest = (s: string): string => createHash('sha256').update(s, 'utf8').digest('hex').slice(0, 16);
+
+/**
+ * Each long write goes under a fresh generation of part names, and the marker (generation, count, hash of the whole token) flips
+ * only after every part is in. So a failed or concurrent write leaves the previous token whole, never a mix of old and new parts.
+ */
 function withParts(raw: RawBackend, partChars: number, label: string): RawBackend {
-  const partOf = (account: string, i: number): string => `${account}.part${String(i)}`;
-  const partsOf = (v: string | null): number => (v !== null && v.startsWith(PART_MARK) ? Number(v.slice(PART_MARK.length)) || 0 : 0);
+  const partOf = (account: string, gen: string, i: number): string => `${account}.${gen}.part${String(i)}`;
+  const markerOf = (v: string | null): Marker | null => {
+    if (v === null || !v.startsWith(PART_MARK)) return null;
+    const m = MARKER.exec(v);
+    if (!m) throw new Error(`${label}: the marker for a long token is damaged, so the token cannot be read`);
+    return { gen: m[1]!, n: Number(m[2]), sum: m[3]! };
+  };
+  const removeParts = (account: string, gen: string, n: number): void => { for (let i = 1; i <= n; i++) raw.remove(partOf(account, gen, i)); };
   const get = (account: string): string | null => {
     const v = raw.get(account);
-    if (v === null || !v.startsWith(PART_MARK)) return v;
-    const n = partsOf(v);
+    const m = markerOf(v);
+    if (m === null) return v;
     let out = '';
-    for (let i = 1; i <= n; i++) {
-      const piece = raw.get(partOf(account, i));
-      if (piece === null) throw new Error(`${label}: part ${String(i)} of ${String(n)} of a long token is missing, so the token is incomplete`);
+    for (let i = 1; i <= m.n; i++) {
+      const piece = raw.get(partOf(account, m.gen, i));
+      if (piece === null) throw new Error(`${label}: part ${String(i)} of ${String(m.n)} of a long token is missing, so the token is incomplete`);
       out += piece;
     }
+    if (digest(out) !== m.sum) throw new Error(`${label}: a part of a long token changed after it was written, so the token cannot be trusted`);
     return out;
   };
   return {
     get,
     set(account, secret) {
-      const previousParts = partsOf(raw.get(account));
-      let newParts = 0;
+      let previous: Marker | null = null;
+      try { previous = markerOf(raw.get(account)); } catch { previous = null; } // a damaged marker is overwritten; its parts cannot be found
       if (secret.length <= partChars && !secret.startsWith(PART_MARK)) {
         raw.set(account, secret);
       } else {
-        const pieces = secret.match(new RegExp(`[\\s\\S]{1,${String(partChars)}}`, 'g')) ?? [];
-        newParts = pieces.length;
-        pieces.forEach((piece, i) => { raw.set(partOf(account, i + 1), piece); });
-        // The marker goes last: until it does, a reader still sees the previous token, never a half of the new one.
-        raw.set(account, `${PART_MARK}${String(newParts)}`);
+        // Split by character, not UTF-16 unit, so no part ends half way through a character.
+        const chars = Array.from(secret);
+        const pieces: string[] = [];
+        for (let i = 0; i < chars.length; i += partChars) pieces.push(chars.slice(i, i + partChars).join(''));
+        const gen = randomBytes(4).toString('hex');
+        let written = 0;
+        try {
+          for (const piece of pieces) { raw.set(partOf(account, gen, written + 1), piece); written++; }
+          raw.set(account, `align-chunked-v2:${gen}:${String(pieces.length)}:${digest(secret)}`);
+        } catch (e) {
+          try { removeParts(account, gen, written); } catch { /* the original failure is the one to report */ }
+          throw e;
+        }
       }
-      for (let i = newParts + 1; i <= previousParts; i++) raw.remove(partOf(account, i));
+      if (previous) removeParts(account, previous.gen, previous.n);
       if (get(account) !== secret) throw notKept(label);
     },
     remove(account) {
-      const n = partsOf(raw.get(account));
-      for (let i = 1; i <= n; i++) raw.remove(partOf(account, i));
+      const m = markerOf(raw.get(account));
+      if (m) removeParts(account, m.gen, m.n);
       raw.remove(account);
     },
   };

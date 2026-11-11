@@ -428,6 +428,67 @@ describe('a token longer than one command line (macOS `security -i` reads a boun
     expect(() => b.get(ACCOUNT)).toThrow(/part|incomplete|missing/i);
   });
 
+  // Fails the Nth write of a token part, as a locked keychain or a timeout would, and lets a test look in mid-write.
+  const failNthPartWrite = (tool: ReturnType<typeof fakeTool>, nth: number, during?: () => void): typeof tool.run => {
+    let partWrites = 0;
+    return (cmd, args, opts) => {
+      if (opts?.input?.includes('add-generic-password') && /\.part\d+"/.test(opts.input)) {
+        partWrites++;
+        if (partWrites === nth) { during?.(); return { status: 1, stdout: '', stderr: 'keychain locked' }; }
+      }
+      return tool.run(cmd, args, opts);
+    };
+  };
+
+  it('a failed long-over-long overwrite leaves the old token readable, never a mix of old and new', () => {
+    const tool = fakeTool('security');
+    const oldToken = `${'a'.repeat(1199)}A`;
+    const newToken = `${'b'.repeat(1199)}B`;
+    backendFor('darwin', tool).set(ACCOUNT, oldToken);
+    const b = selectBackend({ platform: 'darwin', run: failNthPartWrite(tool, 2) }).backend!;
+    expect(() => b.set(ACCOUNT, newToken)).toThrow();
+    expect(b.get(ACCOUNT)).toBe(oldToken);
+  });
+
+  it('a reader in the middle of a long overwrite sees the old token whole', () => {
+    const tool = fakeTool('security');
+    const oldToken = `${'a'.repeat(1199)}A`;
+    backendFor('darwin', tool).set(ACCOUNT, oldToken);
+    const reader = backendFor('darwin', tool);
+    let seen: string | null = 'not read';
+    const b = selectBackend({ platform: 'darwin', run: failNthPartWrite(tool, 3, () => { seen = reader.get(ACCOUNT); }) }).backend!;
+    expect(() => b.set(ACCOUNT, `${'b'.repeat(1199)}B`)).toThrow();
+    expect(seen).toBe(oldToken);
+  });
+
+  it('a failed first long write leaves no slice of the token in the keychain', () => {
+    const tool = fakeTool('security');
+    const b = selectBackend({ platform: 'darwin', run: failNthPartWrite(tool, 2) }).backend!;
+    expect(() => b.set(ACCOUNT, 'y'.repeat(1200))).toThrow();
+    expect(tool.store.size).toBe(0);
+  });
+
+  it.each(['align-chunked-v1:abc', 'align-chunked-v1:0', 'align-chunked-v1:', 'align-chunked-v2:zz'])('a damaged marker %s is a failure, not an empty token', (marker) => {
+    const tool = fakeTool('security');
+    tool.store.set(ACCOUNT, marker);
+    expect(() => backendFor('darwin', tool).get(ACCOUNT)).toThrow(/damaged|marker|incomplete/i);
+  });
+
+  it('a part that changed underneath is a failure, not a different token', () => {
+    const { tool, b } = mac();
+    b.set(ACCOUNT, 'y'.repeat(1200));
+    const part = [...tool.store.keys()].find((k) => k !== ACCOUNT)!;
+    tool.store.set(part, 'z'.repeat(tool.store.get(part)!.length));
+    expect(() => b.get(ACCOUNT)).toThrow(/changed|incomplete|damaged/i);
+  });
+
+  it('never splits a character across two parts', () => {
+    const { b } = mac();
+    const token = `${'x'.repeat(399)}😀${'y'.repeat(500)}`;
+    b.set(ACCOUNT, token);
+    expect(b.get(ACCOUNT)).toBe(token);
+  });
+
   it('an error that quotes a slice of the hex line surfaces none of it', () => {
     const tool = fakeTool('security');
     const sel = selectBackend({ platform: 'darwin', run: tool.run });
