@@ -22,10 +22,10 @@ class FakeChild extends EventEmitter {
 const tick = () => new Promise((r) => setImmediate(r));
 const allow = async (): Promise<BrokerVerdict> => ({ allow: true });
 
-function setup(over: { broker?: (a: ToolAsk) => Promise<BrokerVerdict>; env?: Record<string, string | undefined>; firstEventTimeoutMs?: number; spawnEvent?: (c: FakeChild) => void } = {}) {
+function setup(over: { trusted?: boolean; broker?: (a: ToolAsk) => Promise<BrokerVerdict>; env?: Record<string, string | undefined>; firstEventTimeoutMs?: number; spawnEvent?: (c: FakeChild) => void } = {}) {
   const child = new FakeChild();
   const spawn = vi.fn(() => { setImmediate(() => (over.spawnEvent ?? ((c) => c.emit('spawn')))(child)); return child; });
-  const engine = createClaudeCodeEngine({ cwd: '/work', env: over.env ?? { HOME: '/h' }, spawn: spawn as never, firstEventTimeoutMs: over.firstEventTimeoutMs });
+  const engine = createClaudeCodeEngine({ cwd: '/work', trusted: over.trusted, env: over.env ?? { HOME: '/h' }, spawn: spawn as never, firstEventTimeoutMs: over.firstEventTimeoutMs });
   const events: AgentUiEvent[] = [];
   const started = engine.start((e) => events.push(e), over.broker ?? allow);
   return { child, spawn, engine, events, started };
@@ -33,6 +33,20 @@ function setup(over: { broker?: (a: ToolAsk) => Promise<BrokerVerdict>; env?: Re
 const result = { type: 'result', subtype: 'success' };
 
 afterEach(() => { vi.useRealTimers(); });
+
+describe('setting sources', () => {
+  const sourcesFor = async (trusted: boolean | undefined): Promise<string> => {
+    const { spawn, started } = setup({ trusted });
+    await started;
+    const args = (spawn.mock.calls[0] as unknown as [string, string[]])[1];
+    return args[args.indexOf('--setting-sources') + 1]!;
+  };
+  it('loads project and local settings only when the folder is trusted', async () => {
+    expect(await sourcesFor(true)).toBe('user,project,local');
+    expect(await sourcesFor(false)).toBe('user');
+    expect(await sourcesFor(undefined)).toBe('user');
+  });
+});
 
 describe('conversation lines', () => {
   it('writes initialize first, then the user message', async () => {

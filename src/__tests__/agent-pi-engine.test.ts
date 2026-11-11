@@ -3,7 +3,7 @@
  * so nothing here calls a provider. What matters is that Pi's wire shapes become Align's vocabulary
  * (ToolAsk, AgentUiEvent) and that EVERY tool call waits on the broker, failing closed.
  */
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import * as piSdk from '@earendil-works/pi-coding-agent';
@@ -101,6 +101,24 @@ async function build(model = { provider: 'anthropic', modelId: 'claude-sonnet-5-
   const events: AgentUiEvent[] = [];
   return { fake, create, engine, events, options: () => create.mock.calls[0]![0] as Record<string, any> };
 }
+
+describe('createPiEngine trust', () => {
+  async function loaderOptions(trustedDir: string | undefined): Promise<Record<string, any>> {
+    const seen: Array<Record<string, any>> = [];
+    class Spy extends piSdk.DefaultResourceLoader {
+      constructor(o: ConstructorParameters<typeof piSdk.DefaultResourceLoader>[0]) { super(o); seen.push(o as never); }
+    }
+    const model = { provider: 'anthropic', modelId: 'claude-sonnet-5-5', apiKey: 'sk-ant-test', label: 'Anthropic claude-sonnet-5-5' };
+    const create = vi.fn(async () => ({ session: fakeSession().session }));
+    await createPiEngine({ cwd: stateDir, stateDir, model, tools: [], trustedDir }, { sdk: { ...piSdk, DefaultResourceLoader: Spy } as never, createAgentSession: create as never });
+    return seen[0]!;
+  }
+  it('hands the trusted folder to the loader, so its prompt folder is read only then', async () => {
+    mkdirSync(join(stateDir, '.pi', 'prompts'), { recursive: true });
+    expect((await loaderOptions(stateDir))['additionalPromptTemplatePaths']).toEqual([join(stateDir, '.pi', 'prompts')]);
+    expect((await loaderOptions(undefined))['additionalPromptTemplatePaths']).toEqual([]);
+  });
+});
 
 describe('createPiEngine', () => {
   it('labels the engine from the resolved model', async () => {

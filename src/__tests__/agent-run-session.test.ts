@@ -1,8 +1,16 @@
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { ASK_ONCE_GUIDANCE } from '../lib/agent/agent-guidance.js';
 import { describe, expect, it, vi } from 'vitest';
-import { runAgentSession, type SessionDeps } from '../lib/agent/run-agent-session.js';
+import { defaultSessionDeps, runAgentSession, type SessionDeps } from '../lib/agent/run-agent-session.js';
 import type { AgentEngine } from '../lib/agent/types.js';
 
+const TRUST_IT = 'Say yes to the trust question next time, or trust it in any agent you use.';
+const UNTRUSTED_CC = `This repo isn't trusted, so its settings, hooks and skills stay off. ${TRUST_IT}`;
+const UNTRUSTED_PI = `This repo isn't trusted, so its skills and prompts stay off. ${TRUST_IT}`;
+const TRUSTED_CC = "Loaded this repo's own settings, hooks and skills (you trust it in Claude Code).";
+const TRUSTED_PI = "Loaded this repo's own skills and prompts (you trust it in Codex).";
 const MODEL = { provider: 'anthropic', modelId: 'claude-sonnet-5-5', apiKey: 'sk-ant-saved', label: 'Anthropic claude-sonnet-5-5' };
 const fakeEngine = (label: string): AgentEngine => ({ label, start: vi.fn(), prompt: vi.fn(), abort: vi.fn(), close: vi.fn() });
 
@@ -30,6 +38,10 @@ function deps(over: Partial<SessionDeps> = {}) {
     runAgentUi: vi.fn(async () => 0),
     record: vi.fn(),
     backgroundSync: vi.fn(() => []),
+    trust: () => undefined,
+    askTrust: vi.fn(async () => undefined),
+    repoRoot: () => '/repo',
+    repoHasHarness: () => true,
     ...over,
   };
   return { d, lines, piEngine, ccEngine, remembered };
@@ -129,22 +141,23 @@ describe('runAgentSession: the background refresh', () => {
     });
     await runAgentSession({}, d);
     expect(order).toEqual(['sync', 'ui']);
-    expect(vi.mocked(d.runAgentUi).mock.calls[0]![0].notices).toEqual(['Refreshing jira in the background.']);
+    expect(vi.mocked(d.runAgentUi).mock.calls[0]![0].notices).toEqual([UNTRUSTED_PI, 'Refreshing jira in the background.']);
   });
   it('passes every line it gives, whatever they say', async () => {
     const { d } = deps({ backgroundSync: () => ['Refreshing slack, linear in the background.', 'Align cannot refresh notion: reconnect.'] });
     await runAgentSession({}, d);
-    expect(vi.mocked(d.runAgentUi).mock.calls[0]![0].notices).toEqual(['Refreshing slack, linear in the background.', 'Align cannot refresh notion: reconnect.']);
+    expect(vi.mocked(d.runAgentUi).mock.calls[0]![0].notices).toEqual([UNTRUSTED_PI, 'Refreshing slack, linear in the background.', 'Align cannot refresh notion: reconnect.']);
   });
   it('a refresh that throws never stops the agent opening', async () => {
     const { d } = deps({ backgroundSync: () => { throw new Error('lock dir unwritable'); } });
     expect(await runAgentSession({}, d)).toBe(0);
-    expect(vi.mocked(d.runAgentUi).mock.calls[0]![0].notices).toEqual([]);
+    expect(vi.mocked(d.runAgentUi).mock.calls[0]![0].notices).toEqual([UNTRUSTED_PI]);
   });
   it("setup's own lines (what it handed to the background) come first, then the refresh's", async () => {
     const { d } = deps({ backgroundSync: () => ['Align cannot refresh notion: reconnect.'] });
     await runAgentSession({ notices: ['Reading Jira, Linear in the background. Progress: align sync --status'] }, d);
     expect(vi.mocked(d.runAgentUi).mock.calls[0]![0].notices).toEqual([
+      UNTRUSTED_PI,
       'Reading Jira, Linear in the background. Progress: align sync --status',
       'Align cannot refresh notion: reconnect.',
     ]);
@@ -153,5 +166,77 @@ describe('runAgentSession: the background refresh', () => {
     const { d } = deps({ resolveModel: async () => undefined, findClaude: () => null });
     await runAgentSession({}, d);
     expect(d.backgroundSync).not.toHaveBeenCalled();
+  });
+});
+
+describe('runAgentSession: trusted folders', () => {
+  const piDeps = (over: Partial<SessionDeps>) => {
+    const createPiEngine = vi.fn(async () => fakeEngine(MODEL.label));
+    return { createPiEngine, ...deps({ loadPiEngine: async () => ({ createPiEngine }), ...over }) };
+  };
+  it('trusted Claude Code: project settings on, and the notice says settings, hooks and skills', async () => {
+    const t = deps({ trust: () => ({ dir: '/repo', by: 'Claude Code' }) });
+    await runAgentSession({ engine: 'claude' }, t.d);
+    expect(vi.mocked(t.d.createClaudeCodeEngine).mock.calls[0]![0].trusted).toBe(true);
+    expect(vi.mocked(t.d.runAgentUi).mock.calls[0]![0].notices).toEqual([TRUSTED_CC]);
+  });
+  it('trusted Align engine: the matched folder reaches the engine, and the notice says skills and prompts only', async () => {
+    const t = piDeps({ trust: () => ({ dir: '/repo/packages/api', by: 'Codex' }) });
+    await runAgentSession({ engine: 'align' }, t.d);
+    expect(t.createPiEngine.mock.calls[0]![0].trustedDir).toBe('/repo/packages/api');
+    expect(vi.mocked(t.d.runAgentUi).mock.calls[0]![0].notices).toEqual([TRUSTED_PI]);
+  });
+  it('untrusted: both engines get no trust, and each notice names only what stays off', async () => {
+    const cc = deps();
+    await runAgentSession({ engine: 'claude' }, cc.d);
+    expect(vi.mocked(cc.d.createClaudeCodeEngine).mock.calls[0]![0].trusted).toBe(false);
+    expect(vi.mocked(cc.d.runAgentUi).mock.calls[0]![0].notices).toEqual([UNTRUSTED_CC]);
+    const pi = piDeps({});
+    await runAgentSession({ engine: 'align' }, pi.d);
+    expect(pi.createPiEngine.mock.calls[0]![0].trustedDir).toBeUndefined();
+    expect(vi.mocked(pi.d.runAgentUi).mock.calls[0]![0].notices).toEqual([UNTRUSTED_PI]);
+  });
+  it('untrusted with harness content: asks once, and a yes loads it as trusted in Align', async () => {
+    const t = piDeps({ askTrust: vi.fn(async () => '/repo') });
+    await runAgentSession({ engine: 'align' }, t.d);
+    expect(t.d.askTrust).toHaveBeenCalledTimes(1);
+    expect(t.createPiEngine.mock.calls[0]![0].trustedDir).toBe('/repo');
+    expect(vi.mocked(t.d.runAgentUi).mock.calls[0]![0].notices).toEqual(["Loaded this repo's own skills and prompts (you trust it in Align)."]);
+    const cc = deps({ askTrust: vi.fn(async () => '/repo') });
+    await runAgentSession({ engine: 'claude' }, cc.d);
+    expect(vi.mocked(cc.d.createClaudeCodeEngine).mock.calls[0]![0].trusted).toBe(true);
+  });
+  it('Claude Code gets project settings only when the repo root is trusted, not a subfolder', async () => {
+    const t = deps({ trust: () => ({ dir: '/repo/packages/api', by: 'Claude Code' }) });
+    await runAgentSession({ engine: 'claude' }, t.d);
+    expect(vi.mocked(t.d.createClaudeCodeEngine).mock.calls[0]![0].trusted).toBe(false);
+    expect(vi.mocked(t.d.runAgentUi).mock.calls[0]![0].notices).toEqual([UNTRUSTED_CC]);
+  });
+  it('does not ask when an agent already trusts the folder, or the repo has no harness content', async () => {
+    const trusted = deps({ trust: () => ({ dir: '/repo', by: 'Gemini CLI' }) });
+    await runAgentSession({ engine: 'claude' }, trusted.d);
+    expect(trusted.d.askTrust).not.toHaveBeenCalled();
+    const bare = deps({ repoHasHarness: () => false });
+    await runAgentSession({ engine: 'claude' }, bare.d);
+    expect(bare.d.askTrust).not.toHaveBeenCalled();
+  });
+  it('untrusted and the repo has no harness content: no notice at all', async () => {
+    for (const engine of ['claude', 'align'] as const) {
+      const t = deps({ repoHasHarness: () => false });
+      await runAgentSession({ engine }, t.d);
+      expect(vi.mocked(t.d.runAgentUi).mock.calls[0]![0].notices).toEqual([]);
+    }
+  });
+  it('the real default reads the given home and the real cwd', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'align-session-home-'));
+    const cwd = realpathSync(process.cwd());
+    try {
+      const alignDir = join(home, '.align');
+      expect(defaultSessionDeps({ home, env: {}, alignDir }).trust()).toBeUndefined();
+      writeFileSync(join(home, '.claude.json'), JSON.stringify({ projects: { [cwd]: { hasTrustDialogAccepted: true } } }));
+      expect(defaultSessionDeps({ home, env: {}, alignDir }).trust()).toEqual({ dir: cwd, by: 'Claude Code' });
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });

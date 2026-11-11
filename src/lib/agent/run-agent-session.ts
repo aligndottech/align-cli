@@ -22,6 +22,7 @@ import { gitConfigRunsPrograms } from './git-runs-programs.js';
 import { type ClaudeCodeOpts, createClaudeCodeEngine } from './engines/claude-code.js';
 import { type ResolvedPiModel, resolvePiModel } from './engines/pi-models.js';
 import { createGraphTools, type GraphToolSpec } from './graph-tools.js';
+import { folderTrust, rememberAlignTrust, repoHasHarness, repoRoot, type TrustSource } from './trusted-folder.js';
 import { type EngineName, selectEngine } from './select-engine.js';
 import { type AgentUiOptions, runAgentUi } from './tui/app.js';
 import type { AgentEngine, GateOutcome, ToolAsk } from './types.js';
@@ -45,12 +46,20 @@ export interface SessionDeps {
   gitRunsPrograms: () => Promise<boolean>;
   graphTools: () => GraphToolSpec[];
   countDecisions: () => number;
-  loadPiEngine: () => Promise<{ createPiEngine: (o: { cwd: string; stateDir: string; model: ResolvedPiModel; tools: GraphToolSpec[] }) => Promise<AgentEngine> }>;
+  loadPiEngine: () => Promise<{ createPiEngine: (o: { cwd: string; stateDir: string; model: ResolvedPiModel; tools: GraphToolSpec[]; trustedDir?: string }) => Promise<AgentEngine> }>;
   createClaudeCodeEngine: (o: ClaudeCodeOpts) => AgentEngine;
   runAgentUi: (o: AgentUiOptions) => Promise<number>;
   record: (agent: 'align' | 'claude-code') => void;
   /** Starts the 15-minute refresh of connected sources if one is due, and returns its lines for the screen. */
   backgroundSync: () => string[];
+  /** The folder the user trusts in any agent they use, or in Align, and which one said so. Fails closed. */
+  trust: () => { dir: string; by: TrustSource } | undefined;
+  /** Asks once whether to trust this repo, records a yes, and returns the folder trusted. No terminal, no question. */
+  askTrust: () => Promise<string | undefined>;
+  /** The nearest folder above cwd holding .git, or cwd. Claude Code reads settings from there. */
+  repoRoot: () => string;
+  /** Does the repo root hold .claude, .agents or .pi content that trust would load? */
+  repoHasHarness: () => boolean;
 }
 
 const NOTHING_TO_RUN = [
@@ -59,6 +68,11 @@ const NOTHING_TO_RUN = [
   '  Use a local model:     ollama pull qwen2.5:7b',
   '  Or install Claude Code (your subscription works): https://claude.com/claude-code',
 ];
+const TRUST_IT = 'Say yes to the trust question next time, or trust it in any agent you use.';
+const LOADS = { 'claude-code': 'settings, hooks and skills', align: 'skills and prompts' } as const;
+const trustedNotice = (agent: keyof typeof LOADS, by: TrustSource): string => `Loaded this repo's own ${LOADS[agent]} (you trust it in ${by}).`;
+const untrustedNotice = (agent: keyof typeof LOADS): string => `This repo isn't trusted, so its ${LOADS[agent]} stay off. ${TRUST_IT}`;
+const TRUST_QUESTION = 'This repo has its own agent setup (skills, settings, hooks), which can run commands. Trust it and load it?';
 const CANNOT_RUN: Record<EngineName, string> = {
   align: 'Align\'s own engine has no model. Add a key with `align ai`, or start Ollama.',
   claude: 'Claude Code is not installed (no `claude` on PATH).',
@@ -84,10 +98,21 @@ export async function runAgentSession(opts: { engine?: EngineName; notices?: str
   }
   if (opts.engine) deps.remember(opts.engine);
 
+  let trust = deps.trust();
+  const hasHarness = deps.repoHasHarness();
+  if (trust === undefined && hasHarness) {
+    const dir = await deps.askTrust();
+    if (dir !== undefined) trust = { dir, by: 'Align' };
+  }
+  const trustedDir = trust?.dir;
+  // Claude Code reads project and local settings at the repo root too, so it gets them only when
+  // the root itself is trusted. A trusted subfolder still gets its skills in Align's own engine.
+  const trusted = trust !== undefined && trust.dir === deps.repoRoot();
   const claude = (): AgentEngine => deps.createClaudeCodeEngine({
     cwd: deps.cwd,
     bin: claudeBin ?? 'claude',
     extraArgs: claudeArgs(deps.projectState()),
+    trusted,
     // The user's own environment, not Align's: a key Align saved stays out of `claude`, and
     // ALIGN_WRAPPED stops an `align` run inside it from opening a second agent.
     env: childEnv(deps.env, deps.startupEnv, { ALIGN_WRAPPED: '1' }),
@@ -98,7 +123,7 @@ export async function runAgentSession(opts: { engine?: EngineName; notices?: str
   if (choice.engine === 'align' && model) {
     try {
       const { createPiEngine } = await deps.loadPiEngine();
-      engine = await createPiEngine({ cwd: deps.cwd, stateDir: alignConfigDir(), model, tools: deps.graphTools() });
+      engine = await createPiEngine({ cwd: deps.cwd, stateDir: alignConfigDir(), model, tools: deps.graphTools(), trustedDir });
     } catch (err) {
       if (!claudeBin || opts.engine === 'align') {
         deps.out(`Align's own engine could not start: ${(err as Error).message}`);
@@ -114,12 +139,14 @@ export async function runAgentSession(opts: { engine?: EngineName; notices?: str
 
   deps.record(agent);
   // Bare `align` opens here, not through the launcher, so the refresh starts here too.
-  let notices: string[] = [...(opts.notices ?? [])];
+  const loaded = agent === 'claude-code' ? trusted : trust !== undefined;
+  const trustNotice = loaded && trust !== undefined ? trustedNotice(agent, trust.by) : hasHarness ? untrustedNotice(agent) : undefined;
+  let notices: string[] = [...(trustNotice === undefined ? [] : [trustNotice]), ...(opts.notices ?? [])];
   try { notices = [...notices, ...deps.backgroundSync()]; } catch { /* no refresh this time; the agent still opens */ }
   return deps.runAgentUi({ engine, decisionCount: deps.countDecisions(), gate: deps.makeGate(), gitRunsPrograms: deps.gitRunsPrograms, notices });
 }
 
-export function defaultSessionDeps(): SessionDeps {
+export function defaultSessionDeps(o: { home?: string; env?: Record<string, string | undefined>; alignDir?: string } = {}): SessionDeps {
   const config = createConfigStore();
   const localEnv = config.getEnvironment('local');
   const client = createGatewayClient(localEnv);
@@ -142,6 +169,21 @@ export function defaultSessionDeps(): SessionDeps {
     }),
     gitRunsPrograms: () => gitConfigRunsPrograms(cwd),
     graphTools: () => createGraphTools({ client, env: localEnv }),
+    trust: () => folderTrust(cwd, { home: o.home ?? os.homedir(), env: o.env ?? process.env, platform: process.platform, alignDir: o.alignDir ?? alignConfigDir() }),
+    askTrust: async () => {
+      if (!process.stdin.isTTY || !process.stdout.isTTY) return undefined;
+      const yes = await confirm({ message: TRUST_QUESTION, initialValue: false });
+      if (isCancel(yes) || yes !== true) return undefined;
+      const root = repoRoot(cwd);
+      try {
+        rememberAlignTrust(root, o.alignDir ?? alignConfigDir());
+      } catch (err) {
+        process.stderr.write(`Trusted for this session only: ${(err as Error).message}.\n`);
+      }
+      return root;
+    },
+    repoRoot: () => repoRoot(cwd),
+    repoHasHarness: () => repoHasHarness(cwd),
     countDecisions: () => {
       if (!localEnv.localDbPath) return 0;
       const db = createLocalDb(localEnv.localDbPath);

@@ -79,3 +79,93 @@ describe('hostile repo', () => {
     expect(loaded).toBe(1);
   });
 });
+
+describe('trusted repo: the user\'s harness, never code', () => {
+  const skillMd = (name: string): string => `---\nname: ${name}\ndescription: A skill called ${name}.\n---\nBody of ${name}.\n`;
+  let home: string;
+  beforeEach(() => {
+    home = join(root, 'home');
+    mkdirSync(join(home, '.pi', 'agent', 'skills', 'my-own-skill'), { recursive: true });
+    writeFileSync(join(home, '.pi', 'agent', 'skills', 'my-own-skill', 'SKILL.md'), skillMd('my-own-skill'));
+    mkdirSync(join(cwd, '.pi', 'prompts'), { recursive: true });
+    writeFileSync(join(cwd, '.pi', 'prompts', 'repo-prompt.md'), '---\ndescription: Repo prompt\n---\nDo the repo thing.\n');
+  });
+
+  it('untrusted: the user\'s own skills load, the repo\'s skills and prompts do not', async () => {
+    const loader = createAlignResourceLoader({ sdk: piSdk, cwd, agentDir, home });
+    await loader.reload();
+    expect(loader.getSkills().skills.map((s) => s.name)).toEqual(['my-own-skill']);
+    expect(loader.getPrompts().prompts).toEqual([]);
+  });
+
+  it('trusted: the repo\'s skills and prompts load too, and its extensions still never run', async () => {
+    const loader = createAlignResourceLoader({ sdk: piSdk, cwd, agentDir, home, trustedDir: cwd });
+    await loader.reload({ resolveProjectTrust: async () => true });
+    expect(loader.getSkills().skills.map((s) => s.name).sort()).toEqual(['evil-skill', 'my-own-skill']);
+    expect(loader.getPrompts().prompts.map((p) => p.name)).toEqual(['repo-prompt']);
+    expect(existsSync(sentinel)).toBe(false);
+    expect(existsSync(settingsSentinel)).toBe(false);
+    expect(loader.getExtensions().extensions.map((e) => e.path).join('\n')).not.toContain('evil.ts');
+  });
+
+  it('passes noExtensions to Pi in both modes', () => {
+    for (const trustedDir of [undefined, cwd]) {
+      const seen: Array<Record<string, unknown>> = [];
+      class Spy { constructor(o: Record<string, unknown>) { seen.push(o); } }
+      createAlignResourceLoader({ sdk: { ...piSdk, DefaultResourceLoader: Spy } as never, cwd, agentDir, home, trustedDir });
+      expect(seen[0]!['noExtensions']).toBe(true);
+    }
+  });
+
+  it('reads Claude Code, Codex, Gemini CLI and Agent Skills folders: the user\'s always, the repo\'s (at the git root) only when trusted', async () => {
+    const put = (dir: string, name: string): void => {
+      mkdirSync(join(dir, name), { recursive: true });
+      writeFileSync(join(dir, name, 'SKILL.md'), skillMd(name));
+    };
+    put(join(home, '.claude', 'skills'), 'user-claude');
+    put(join(home, '.agents', 'skills'), 'user-agents');
+    put(join(home, '.codex', 'skills'), 'user-codex');
+    put(join(home, '.gemini', 'skills'), 'user-gemini');
+    mkdirSync(join(cwd, '.git'), { recursive: true });
+    const sub = join(cwd, 'packages', 'api');
+    mkdirSync(sub, { recursive: true });
+    put(join(cwd, '.claude', 'skills'), 'repo-claude');
+    put(join(cwd, '.agents', 'skills'), 'repo-agents');
+    put(join(cwd, '.codex', 'skills'), 'repo-codex');
+    put(join(cwd, '.gemini', 'skills'), 'repo-gemini');
+    const names = async (trusted: boolean): Promise<string[]> => {
+      const loader = createAlignResourceLoader({ sdk: piSdk, cwd: sub, agentDir, home, trustedDir: trusted ? cwd : undefined });
+      await loader.reload();
+      return loader.getSkills().skills.map((x) => x.name).sort();
+    };
+    const user = ['my-own-skill', 'user-agents', 'user-claude', 'user-codex', 'user-gemini'];
+    expect(await names(false)).toEqual(user);
+    expect(await names(true)).toEqual(['evil-skill', 'repo-agents', 'repo-claude', 'repo-codex', 'repo-gemini', ...user].sort());
+    expect(existsSync(sentinel)).toBe(false);
+    expect(existsSync(settingsSentinel)).toBe(false);
+  });
+
+  it('roots the repo skills at the folder whose trust matched, not the git root', async () => {
+    const put = (dir: string, name: string): void => {
+      mkdirSync(join(dir, name), { recursive: true });
+      writeFileSync(join(dir, name, 'SKILL.md'), skillMd(name));
+    };
+    mkdirSync(join(cwd, '.git'), { recursive: true });
+    const sub = join(cwd, 'packages', 'api');
+    put(join(cwd, '.claude', 'skills'), 'root-skill');
+    put(join(sub, '.claude', 'skills'), 'sub-skill');
+    const loader = createAlignResourceLoader({ sdk: piSdk, cwd: sub, agentDir, home, trustedDir: sub });
+    await loader.reload();
+    expect(loader.getSkills().skills.map((x) => x.name).sort()).toEqual(['my-own-skill', 'sub-skill']);
+  });
+
+  it('with a plain reload(), as production calls it, no extension runs in either mode', async () => {
+    for (const trustedDir of [undefined, cwd]) {
+      const loader = createAlignResourceLoader({ sdk: piSdk, cwd, agentDir, home, trustedDir });
+      await loader.reload();
+      expect(existsSync(sentinel)).toBe(false);
+      expect(existsSync(settingsSentinel)).toBe(false);
+      expect(loader.getExtensions().extensions.map((e) => e.path).join('\n')).not.toContain('evil.ts');
+    }
+  });
+});

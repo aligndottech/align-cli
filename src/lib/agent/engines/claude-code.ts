@@ -6,6 +6,8 @@ export interface ClaudeCodeOpts {
   cwd: string;
   bin?: string;
   extraArgs?: string[];
+  /** The user trusts this folder (in any agent, or in Align), so its project and local settings load. Default: no. */
+  trusted?: boolean;
   /** Exactly the child's env. The caller passes the user's startup env so a key Align saved never reaches `claude`. */
   env: Record<string, string | undefined>;
   spawn?: typeof nodeSpawn;
@@ -63,7 +65,7 @@ export function createClaudeCodeEngine(opts: ClaudeCodeOpts): AgentEngine {
       emit = onEvent;
       broker = onAsk;
       return new Promise<void>((resolve, reject) => {
-        const c = spawnFn(opts.bin ?? 'claude', buildArgs(opts.extraArgs), { cwd: opts.cwd, env: opts.env, stdio: ['pipe', 'pipe', 'pipe'] }) as ChildProcessWithoutNullStreams;
+        const c = spawnFn(opts.bin ?? 'claude', buildArgs(opts.extraArgs, opts.trusted === true), { cwd: opts.cwd, env: opts.env, stdio: ['pipe', 'pipe', 'pipe'] }) as ChildProcessWithoutNullStreams;
         child = c;
         c.stdout.on('data', (d: Buffer) => {
           buffer += String(d);
