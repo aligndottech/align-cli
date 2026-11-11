@@ -230,13 +230,15 @@ jobs:
 
       - run: npm ci
 
-      # Pinned to 24.04 for THIS job: `ubuntu-latest` is 26.04 now, and its azure mirror did not answer `apt-get update` (four
-      # 20 s timeouts, then the step's own limit), so nothing could be installed.
+      # Pinned to 24.04 for THIS job (`ubuntu-latest` is 26.04 now). Both images pointed apt at an Azure mirror that did not answer
+      # `apt-get update`, so the mirror is switched below.
       - name: Install the Secret Service
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
           set -x
+          # The runner's default apt mirror (azure.archive.ubuntu.com) stopped answering; the main archive does.
+          echo 'http://archive.ubuntu.com/ubuntu/ priority:1' | sudo tee /etc/apt/apt-mirrors.txt
           sudo timeout 120 apt-get update -o Acquire::Retries=2 -o Acquire::http::Timeout=20
           sudo timeout 240 apt-get install -y --no-install-recommends gnome-keyring libsecret-tools dbus
 
