@@ -1,0 +1,38 @@
+name: mac-probe
+on:
+  pull_request:
+    paths: ['.github/workflows/mac-probe.yml']
+jobs:
+  probe:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - name: keychain
+        shell: bash
+        run: |
+          set +e
+          security create-keychain -p ci-pass align-ci.keychain
+          security list-keychains -d user -s align-ci.keychain $(security list-keychains -d user | tr -d '"')
+          security default-keychain -s align-ci.keychain
+          security unlock-keychain -p ci-pass align-ci.keychain
+          security set-keychain-settings -t 3600 align-ci.keychain
+          security list-keychains
+          t() { perl -e 'alarm 12; exec @ARGV' "$@"; echo "rc=$?"; }
+          echo "--- 1: -i with -U -X, no exit"
+          printf 'add-generic-password -U -a "x1" -s "align-cli" -X 6162\n' | t security -i
+          echo "--- 2: -i with exit"
+          printf 'add-generic-password -U -a "x2" -s "align-cli" -X 6162\nexit\n' | t security -i
+          echo "--- 3: -i without -U"
+          printf 'add-generic-password -a "x3" -s "align-cli" -X 6162\nexit\n' | t security -i
+          echo "--- 4: argv form with -X (argv only for this probe)"
+          t security add-generic-password -U -a x4 -s align-cli -X 6162
+          echo "--- 5: find x4"
+          t security find-generic-password -a x4 -s align-cli -w
+          echo "--- 6: find x2"
+          t security find-generic-password -a x2 -s align-cli -w
+          echo "--- 7: explicit keychain path in -i"
+          printf 'add-generic-password -U -a "x7" -s "align-cli" -X 6162 align-ci.keychain\nexit\n' | t security -i
+          t security find-generic-password -a x7 -s align-cli -w
+          echo "--- 8: pty via script"
+          printf 'add-generic-password -U -a "x8" -s "align-cli" -X 6162\nexit\n' | t script -q /dev/null security -i
+          t security find-generic-password -a x8 -s align-cli -w
