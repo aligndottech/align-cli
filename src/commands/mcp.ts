@@ -11,7 +11,7 @@ import chalk from 'chalk';
 import { createConfigStore, type EnvironmentConfig, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { alignEntryTargetsElsewhere, alignServerEntry, detectEditors, removeMcpConfig, writeMcpConfig } from '../lib/mcp-setup.js';
-import { editedHookNotice } from '../lib/user-hooks.js';
+import { codexHookTrustNotice, editedHookNotice } from '../lib/user-hooks.js';
 import { commandIntro } from '../lib/brand.js';
 import { recordFunnelStage } from '../lib/usage-telemetry.js';
 import { inviteNudgeLine } from '../lib/invite-prompt.js';
@@ -899,6 +899,8 @@ async function runMcpSetup(env?: EnvName): Promise<void> {
       const files = writeMcpConfig(target, env === 'prod' || !env ? undefined : env, undefined, (f) => { editedHook = f; });
       spinner.stop(`${name}: align added to MCP servers${target.hooks ? ', pre-edit check hooked' : ''} (${files.join(', ')})${replaces ? ' - replaced the existing align entry, which pointed at a non-local graph' : ''}`);
       if (editedHook) p.log.warn(editedHookNotice(editedHook));
+      const trust = codexHookTrustNotice(target.hooks, files);
+      if (trust) p.log.info(trust);
     } catch (err) {
       spinner.stop(`${name}: failed - ${(err as Error).message}`);
     }

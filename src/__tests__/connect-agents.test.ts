@@ -63,6 +63,25 @@ describe('connectDetectedAgents without a prior yes', () => {
     expect(r).toEqual({ detected: 2, connected: 2, wired: ['Claude Desktop', 'Codex'] });
   });
 
+  it('tells the user to approve the Codex hook once, only when the Codex hook file was written', async () => {
+    const CODEX = { name: 'Codex', configPath: '/home/d/.codex/config.toml', format: 'codex', hooks: { host: 'codex', path: '/home/d/.codex/hooks.json' } };
+    const CURSOR_HOOKED = { ...CURSOR, hooks: { host: 'cursor', path: '/home/d/.cursor/hooks.json' } };
+    detectEditors.mockReturnValue([CODEX, CURSOR_HOOKED]);
+    writeMcpConfig.mockImplementation((t: { configPath: string; hooks: { path: string } }) => [t.configPath, t.hooks.path]);
+    multiselect.mockImplementationOnce(async (o: { initialValues: string[] }) => o.initialValues);
+    await connectDetectedAgents('local', { interactive: true });
+    expect(logged.filter((l) => l.includes('approve the Align hook'))).toHaveLength(1);
+  });
+
+  it('prints no Codex trust line when the Codex hook file was not written', async () => {
+    const CODEX = { name: 'Codex', configPath: '/home/d/.codex/config.toml', format: 'codex', hooks: { host: 'codex', path: '/home/d/.codex/hooks.json' } };
+    detectEditors.mockReturnValue([CODEX]);
+    writeMcpConfig.mockImplementation((t: { configPath: string }) => [t.configPath]);
+    multiselect.mockImplementationOnce(async (o: { initialValues: string[] }) => o.initialValues);
+    await connectDetectedAgents('local', { interactive: true });
+    expect(logged.some((l) => l.includes('approve the Align hook'))).toBe(false);
+  });
+
   it('an unticked agent is left alone and said so; the rest are written', async () => {
     detectEditors.mockReturnValue([CLAUDE, CURSOR]);
     multiselect.mockResolvedValueOnce(['Cursor']);

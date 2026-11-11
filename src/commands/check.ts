@@ -27,6 +27,8 @@ import { CHECK_DEPTHS, type CheckDepth } from '../lib/check-depth.js';
 import { gitHead, lastCheckFor, writeLastCheck } from '../lib/curation/last-check.js';
 import { quote } from '../lib/curation/text.js';
 import { detectDeterministicHits, ratifiedDeterministicRules, ruleDenyReason } from '../lib/inline-rules.js';
+import { dependencyIntentQuery } from '../lib/agent/dependency-intent.js';
+import { redactSecrets } from '../lib/share/secret-scan.js';
 import { decisionLinkFor } from '../lib/decision-links.js';
 import type { ChangeSource } from '../lib/co-change-check.js';
 import type { CoChangeViolation } from '../lib/co-change.js';
@@ -539,15 +541,24 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
     const writtenBy = pre ? decisionsThatWroteTheseLines(client, payload?.tool_input, cwd) : Promise.resolve<RelatedDecision[]>([]);
     let found: RelatedDecision[] | null = null;
     let markNotes: string[] = [];
-    try {
-      const result = await Promise.race([
+    // A dependency the edit adds is a sentence retrieval can match; raw JSON or an import line is not
+    // (src/lib/agent/dependency-intent.ts). Asked beside the raw text, in the same retrieval window.
+    const depQuery = dependencyIntentQuery(payload?.tool_input, payload?.cwd ?? cwd);
+    const related = (query: string): Promise<AlignmentResult | null> =>
+      Promise.race([
         // The SAME embedding retrieval `align check` uses, minus the adjudication. Plain
         // `searchDecisions` is keyword-based and returns nothing for a sentence of edit
         // content, which is why this path needed gateway #1415 rather than the search API.
-        client.checkAlignment(text, context, { depth: 'related' }),
+        client.checkAlignment(query, context, { depth: 'related' }),
         new Promise<null>((resolve) => setTimeout(() => resolve(null), RETRIEVAL_TIMEOUT_MS)),
       ]);
-      found = result === null ? null : (result.relevant_decisions ?? []);
+    try {
+      const [result, depResult] = await Promise.all([
+        related(text),
+        depQuery ? related(depQuery).catch(() => null) : Promise.resolve(null),
+      ]);
+      const merged = mergeRelated(result?.relevant_decisions, depResult?.relevant_decisions);
+      found = result === null && depResult === null ? null : merged;
       markNotes = result?.notes ?? [];
     } catch {
       found = null;
@@ -782,6 +793,82 @@ async function runDeferredAdjudication(payloadFile: string, env: EnvName): Promi
 }
 
 
+// Decisions from the raw-text retrieval first, then any the dependency sentence added, one per id.
+function mergeRelated<T extends { id: string }>(a: T[] | undefined, b: T[] | undefined): T[] {
+  const seen = new Set<string>();
+  return [...(a ?? []), ...(b ?? [])].filter((d) => !seen.has(d.id) && !!seen.add(d.id));
+}
+
+// What each listed decision says, so a heading-only title ("Architecture") is not all the agent
+// gets. Per decision, and in total across the block: hooks have small context budgets.
+export const EXCERPT_BUDGET_CHARS = 200;
+export const EXCERPT_TOTAL_BUDGET_CHARS = 800;
+// Below this a cut excerpt is a fragment, so the decision keeps its title alone.
+const MIN_EXCERPT_CHARS = 40;
+
+const flatten = (t: string): string => t.replace(/\s+/g, ' ').trim();
+// C0 controls (bar tab, LF, CR, which flatten already turned into spaces) and DEL: an ESC sequence in a
+// stored decision must not reach the agent's context or a terminal.
+// eslint-disable-next-line no-control-regex -- stripping control characters is the point
+const CONTROLS = /[\x00-\x08\x0b-\x1f\x7f]/g;
+// A decision that came from a commit: its source is a /commit/<sha> URL (local and cloud both carry it).
+const isCommitSource = (url: string | undefined): boolean => /\/commit\/[0-9a-f]{7,40}(?:[/?#]|$)/i.test(url ?? '');
+
+// A commit summary is `subject, body, Author, Date, Files changed` (formatCommitAsText), plus any
+// trailers the body carries. The metadata is noise that would eat the budget. Commits only: a doc
+// section may legitimately hold a line that starts with "Date:".
+function stripCommitMetadata(text: string): string {
+  const lines = text.split('\n');
+  const stop = lines.findIndex((l) => /^\s*(Author|Date|Files changed):/.test(l));
+  return (stop === -1 ? lines : lines.slice(0, stop)).filter((l) => !/^\s*(Co-Authored-By|Signed-off-by):/i.test(l)).join('\n');
+}
+
+// The title is already printed. Drop a leading copy of it when it is a LINE of its own (a commit
+// subject), never a prefix of a sentence: its words match across any whitespace, and only when a line
+// break or the end follows.
+function dropLeadingTitle(text: string, title: string): string {
+  const words = flatten(title).split(' ').map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  return text.replace(new RegExp(`^\\s*${words.join('\\s+')}[^\\S\\n]*(\\n|$)`), '');
+}
+
+function excerptOf(d: RelatedDecision, room: number): string {
+  // Redact first, on the whole text: a secret cut in half by the budget would no longer match its pattern.
+  const redacted = redactSecrets(d.summary ?? '').text;
+  const own = dropLeadingTitle(isCommitSource(d.url) ? stripCommitMetadata(redacted) : redacted, d.title);
+  // By code point, so the cut can never split a surrogate pair.
+  const chars = Array.from(flatten(own).replace(CONTROLS, ''));
+  const limit = Math.min(EXCERPT_BUDGET_CHARS, room);
+  if (limit < MIN_EXCERPT_CHARS) return '';
+  if (chars.length <= limit) return chars.join('');
+  const cut = chars.slice(0, limit - 3);
+  // Cut on a word boundary: drop the partial word unless the cut already fell on a space.
+  const atBoundary = chars[limit - 3] === ' ';
+  const body = atBoundary ? cut.join('') : cut.join('').replace(/\s+\S*$/, '');
+  return `${body.trimEnd()}...`;
+}
+
+// A decision a person marked as replaced still comes back from retrieval (local mode carries `status` and
+// `successor`); the agent must not follow it as current. Only the local result carries this today.
+function replacedNote(d: RelatedDecision): string {
+  if (d.status !== 'superseded') return '';
+  return d.successor?.title ? ` (replaced by: ${safeTitle(d.successor.title)})` : ' (replaced)';
+}
+
+// A title reaches the agent too, so it gets the excerpt's redaction and control stripping.
+function safeTitle(title: string): string {
+  return flatten(redactSecrets(title).text).replace(CONTROLS, '');
+}
+
+// One writer of the bullet format. `budget.left` is shared by every list in one output.
+function decisionBullets(decisions: RelatedDecision[], budget: { left: number }): string[] {
+  return decisions.flatMap((d) => {
+    const excerpt = excerptOf(d, budget.left);
+    budget.left -= excerpt.length;
+    const head = `- ${safeTitle(d.title)}${replacedNote(d)}`;
+    return excerpt ? [head, `  ${excerpt}`] : [head];
+  });
+}
+
 // Retrieval finds decisions on the same SUBJECT. It does not encode opposition - a measurement
 // put the agreeing pair at cosine 0.38 against the contradicting pair at 0.31 - so this
 // wording must never assert a conflict. Saying "related" is the honest claim and the useful one.
@@ -792,12 +879,12 @@ export function buildRelatedOutput(
   retrievalFailed = false,
   verdict: VerdictOutcome = { kind: 'not_requested' },
 ): unknown | null {
-  const lines = decisions.map((d) => `- ${d.title}`);
+  const budget = { left: EXCERPT_TOTAL_BUDGET_CHARS };
   // `git blame` names these deterministically: they are not a guess about the subject, they put these exact lines here.
   const writerBlock = wrote.length
     ? [
         `Align decision graph: the lines this edit changes were written by ${wrote.length > 1 ? `${wrote.length} prior decisions` : 'a prior decision'} (found with git blame, not content search):`,
-        ...wrote.map((d) => `- ${d.title}`),
+        ...decisionBullets(wrote, budget),
         'Check that this change still honours what they decided before continuing.',
       ]
     : [];
@@ -816,7 +903,7 @@ export function buildRelatedOutput(
     : decisions.length
     ? [
         `${wrote.length ? 'Also, ' : 'Align decision graph: '}${decisions.length} prior decision${decisions.length > 1 ? 's relate' : ' relates'} to this change:`,
-        ...lines,
+        ...decisionBullets(decisions, budget),
         'These are related by content search and have NOT been adjudicated. Check whether any of them opposes this change before continuing.',
       ]
     : [];

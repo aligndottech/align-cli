@@ -18,6 +18,15 @@ align
 
 No Node? `curl -fsSL https://align.tech/install.sh | sh` installs a standalone binary instead.
 
+## What Align can and can't touch
+
+Align is open source ([MIT](./LICENSE)). In local mode the graph is a SQLite file on your machine,
+`~/.align/local.db`. Tokens you paste for a connector go in your OS credential store (Keychain,
+Secret Service or DPAPI), or in `config.json` if there is none. In local-only mode the only thing
+sent to Align is anonymous usage counts, never code or decision text, unless you run `align share`. Turn them off with `align telemetry off` or
+`DO_NOT_TRACK=1`. Model calls go only to the provider key you set, or to a local model. npm
+releases are published with provenance. Details: [Privacy and telemetry](#privacy-and-telemetry).
+
 ![The same prompt to Claude Code, without Align and with it](docs/demo/demo.gif)
 
 *The same prompt, two real runs on Align's own repo (14 Oct 2026). The text is
@@ -129,6 +138,8 @@ Hook limits worth knowing:
   repo's MCP servers until you trust the project, and Align's entry counts as one, so accept pi's
   trust prompt or Align's tools won't load. `pi -p` skips the prompt and runs without them.
 - Claude Code asks you to approve a committed hook the first time. Accept, or it won't run.
+- Codex skips a hook in `~/.codex/hooks.json` until you approve it in Codex's one-time hook trust review, and `codex exec` never asks, so open Codex once interactively after `align setup`.
+- In a headless run (`claude -p`) Claude Code can't ask you to approve tools, so it denies Align's MCP tools unless you allow them, for example `"permissions": {"allow": ["mcp__align"]}` in `.claude/settings.json`. `align setup` deliberately doesn't add that for you. The edit hook needs no permission and runs either way.
 
 [Per-host details](docs/agent-hooks.md).
 
