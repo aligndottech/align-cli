@@ -244,3 +244,28 @@ describe('on-device embeddings (local graph only)', () => {
     expect(ensure).not.toHaveBeenCalled();
   });
 });
+
+describe('where connector tokens are stored', () => {
+  it('names the OS keychain when that is the store', async () => {
+    const c = byId(await runDoctor(deps({ tokenStore: () => ({ store: 'keychain', label: 'macOS Keychain', reason: null, forced: false }) })), 'tokens');
+    expect(c.status).toBe('pass');
+    expect(c.detail).toContain('macOS Keychain');
+  });
+
+  it('names the file and why, and never reads as a failure', async () => {
+    const c = byId(await runDoctor(deps({ tokenStore: () => ({ store: 'file', label: 'the config file', reason: 'no secret service', forced: false }) })), 'tokens');
+    expect(c.status).toBe('pass');
+    expect(c.detail).toContain('config file');
+    expect(c.detail).toContain('no secret service');
+    expect(c.detail).toMatch(/0600|owner-only/);
+  });
+
+  it('says the file was chosen on purpose when it was', async () => {
+    const c = byId(await runDoctor(deps({ tokenStore: () => ({ store: 'file', label: 'the config file', reason: 'ALIGN_TOKEN_STORE=file', forced: true }) })), 'tokens');
+    expect(c.detail).toContain('ALIGN_TOKEN_STORE=file');
+  });
+
+  it('adds no check when the install has no connector tokens to store', async () => {
+    expect((await runDoctor(deps())).some((c) => c.id === 'tokens')).toBe(false);
+  });
+});

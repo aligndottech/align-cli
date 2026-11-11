@@ -34,9 +34,9 @@ This repository is the open-source Align CLI and MCP server (`@aligndottech/cli`
 The local graph is a plain SQLite file and is **not encrypted, by design**: a key would have to sit on the same
 machine as the file. Use your operating system's disk encryption. What Align does instead:
 
-- On macOS and Linux the graph, its `-wal` and `-shm` files, `config.json` (which holds the read-only tokens you
-  pasted) and every state and cache file are owner-only (`0600`, folders `0700`), set on create whatever the
+- On macOS and Linux the graph, its `-wal` and `-shm` files, `config.json` and every state and cache file are owner-only (`0600`, folders `0700`), set on create whatever the
   `umask`, and checked again on every open. On Windows the files rely on your user profile's default permissions.
+- The read-only connector tokens you paste go to the OS credential store (macOS Keychain, Linux Secret Service, Windows DPAPI), passed on stdin and never on a command line. With no store available they stay in `config.json` (`0600`) and Align says so once. Tokens an older version wrote there move into the store on the next read. `align doctor` shows which store is in use. [Details](docs/importing.md#local-mode-tokens-where-they-live-and-how-to-supply-them).
 - Every capture, import, `align mark` note and MCP `align_capture` replaces matched API keys, tokens, passwords
   and private keys with a placeholder such as `<GITHUB_TOKEN>` before anything is written. The scanner matches
   patterns, so it does not catch every secret.

@@ -71,6 +71,7 @@ export function registerDoctorCommand(program: Command): void {
             clearTimeout(timer);
           }
         },
+        tokenStore: env.mode === 'local-embedded' ? () => config.tokenStoreStatus() : undefined,
         ensureEmbeddings: env.mode === 'local-embedded' ? ensureEmbeddingsForDoctor : undefined,
         askViaMcp: (bin) => askViaMcp(bin, envName, env.mode === 'local-embedded' ? LOCAL_ASK_TIMEOUT_MS : undefined),
       };

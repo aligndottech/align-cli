@@ -185,7 +185,7 @@ is listed on its own page, and a test keeps that page true.
 | What | Where (Linux / macOS / Windows) |
 |---|---|
 | The decision graph: `local.db` plus its `local.db-wal` and `local.db-shm` files | `~/.align/` (on every platform) |
-| Settings and the read-only tokens you pasted: `config.json`. It also holds any AI provider key you saved with `align ai` and your per-repo choices of what to read from each connected tool (project keys, page ids and names, "skip in this repo"), keyed by the repo's identity | the same folder |
+| Settings: `config.json`. It also holds the read-only tokens you pasted only when your OS has no credential store (otherwise they are in the Keychain, Secret Service or, on Windows, an encrypted `token-blobs.json`; see [Importing](importing.md#local-mode-tokens-where-they-live-and-how-to-supply-them)). It also holds any AI provider key you saved with `align ai` and your per-repo choices of what to read from each connected tool (project keys, page ids and names, "skip in this repo"), keyed by the repo's identity | the same folder |
 | Short-lived state: sync locks, share requests waiting for approval, the last check | `~/.local/state/align-cli/` (Linux and macOS) / `%LOCALAPPDATA%\align-cli\` |
 | Editor-hook scratch files: recent check verdicts and which decisions were just shown | `align-<your user id>/` in the system temp folder (`$TMPDIR` or `/tmp`) |
 | The embedding model (public, not your data), on both installs, and the native runtime on npm installs | `~/.cache/align-cli/models/` / `%LOCALAPPDATA%\align-cli\models\` |

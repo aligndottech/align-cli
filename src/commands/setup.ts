@@ -196,8 +196,14 @@ export function buildSources(gitAvailable: boolean): SetupSource[] {
       oauthKey: 'slack-personal',
       // Local-mode token paste: a Slack user token (xoxp-) with read scopes only.
       tokenLabel: 'User token (xoxp-...)',
-      tokenHint: 'User token with read scopes only: channels:read, channels:history, groups:read, groups:history',
-      tokenUrl: 'https://api.slack.com/apps',
+      tokenHint: 'The app is pre-filled with read scopes only (channels:read, channels:history, groups:read, groups:history). Create it, install it to your workspace, then copy the User OAuth Token (xoxp-...)',
+      // Slack documents a "create an app from this manifest" link (docs.slack.dev, app manifests: api.slack.com/apps?new_app=1&manifest_json=).
+      // The manifest asks for the four read scopes as USER scopes and declares no bot user, so the app cannot write. No expiry is
+      // set: Slack's token rotation is a separate opt-in that needs a refresh flow this paste path does not have.
+      tokenUrl: 'https://api.slack.com/apps?new_app=1&manifest_json=' + encodeURIComponent(JSON.stringify({
+        display_information: { name: 'Align CLI (read-only)', description: 'Reads your Slack threads into your local Align graph. It cannot post.' },
+        oauth_config: { scopes: { user: ['channels:read', 'channels:history', 'groups:read', 'groups:history'] } },
+      })),
       fetch: async (t, w = parseSince(undefined), o) => {
         const { fetchSlackItems } = await import('../lib/fetchers/slack.js');
         return fetchSlackItems({ token: t['token']!, ...fetchWindow('slack', w), ...windowExtras(o) });

@@ -159,6 +159,8 @@ align check                          # check your staged diff against the graph
 align mcp --setup                    # wire your agent to the graph
 ```
 
+Local mode keeps the read-only tokens you paste in your OS credential store, and reads `ALIGN_<SOURCE>_TOKEN` first if you use a password manager. See [Importing](docs/importing.md#local-mode-tokens-where-they-live-and-how-to-supply-them).
+
 `align --help` lists `ask`, `connect`, `check`, `share` (alias `push`), `mcp` and `agents`. The
 rest (`search`, `decisions`, `stale`, `export`, `ratify`, `context`, ...) still work and are in
 [docs/commands.md](docs/commands.md).

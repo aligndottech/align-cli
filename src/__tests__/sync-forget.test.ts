@@ -11,8 +11,9 @@ vi.mock('../lib/config.js', () => ({
   createConfigStore: () => ({
     getEnvironment: () => ({ mode: 'local-embedded', localDbPath: state.db }),
     getConnectorFields: (_e: string, id: string) => state.tokens.get(id) ?? null,
-    forgetConnector: (_e: string, id: string) => { state.forgotten.push(id); state.tokens.delete(id); },
-    forgetAllConnectors: () => { state.forgotten.push('*'); state.tokens.clear(); },
+    forgetConnector: (_e: string, id: string) => { state.forgotten.push(id); state.tokens.delete(id); return { keychainFailed: false }; },
+    forgetAllConnectors: () => { state.forgotten.push('*'); state.tokens.clear(); return { keychainFailed: false }; },
+    tokenStoreStatus: () => ({ store: 'file', label: 'the config file', reason: null, forced: true }),
   }),
 }));
 
