@@ -123,10 +123,16 @@ describe('isolatedEnv: what a child must never inherit', () => {
     expect(PROVIDER_ENV_VARS.length).toBeGreaterThan(10);
     for (const k of Object.keys(base)) expect(base[k]).toBeDefined();
     const env = isolatedEnv(join(tmpdir(), 'align-demo-x'), base);
-    for (const k of [...PROVIDER_ENV_VARS, 'ALIGN_LLM_ANYTHING', 'ALIGN_OLLAMA_HOST', 'ALIGN_TOKEN_STORE', 'ALIGN_DETECTOR', 'ALIGN_ORT_RUNTIME_URL']) {
+    for (const k of [...PROVIDER_ENV_VARS, 'ALIGN_LLM_ANYTHING', 'ALIGN_OLLAMA_HOST', 'ALIGN_DETECTOR', 'ALIGN_ORT_RUNTIME_URL']) {
       expect(env[k], k).toBeUndefined();
     }
     expect(env['PATH']).toBe('/usr/bin');
+  });
+
+  it('forces the file token store, so no child can reach the OS keychain, which a temp HOME does not isolate', () => {
+    // Distinct caller values: the caller's own choice must not win.
+    expect(isolatedEnv(join(tmpdir(), 'align-demo-x'), { PATH: 'p', ALIGN_TOKEN_STORE: 'keychain' })['ALIGN_TOKEN_STORE']).toBe('file');
+    expect(isolatedEnv(join(tmpdir(), 'align-demo-x'), { PATH: 'p' })['ALIGN_TOKEN_STORE']).toBe('file');
   });
 
   it('strips every GIT_ variable, so a run inside a git hook cannot write to the caller\'s repo', () => {

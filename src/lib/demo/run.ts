@@ -63,6 +63,8 @@ export function isolatedEnv(root: string, base: Record<string, string | undefine
   for (const k of Object.keys(env)) {
     if (exact.has(k) || k.startsWith('ALIGN_LLM_') || k.startsWith('ALIGN_OLLAMA_') || k.startsWith('GIT_')) delete env[k];
   }
+  // The OS keychain is per user, not per HOME, so the temp HOME does not isolate it: force the file store.
+  env.ALIGN_TOKEN_STORE = 'file';
   return env;
 }
 
