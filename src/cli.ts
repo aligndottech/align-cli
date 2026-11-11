@@ -4,6 +4,7 @@ import { COMMAND_REGISTRY, ROOT_SUMMARY, visibleEntries } from './commands/regis
 import { runDefaultAction } from './commands/default-action.js';
 import { addSetupOptions } from './commands/setup.js';
 import { createConfigStore, savedLlmConfig } from './lib/config.js';
+import { topLevelCommandName } from './lib/demo/invoked.js';
 import { setSavedLlmSource } from './lib/local-llm.js';
 import { setWriteRecorder } from './lib/safe-config-write.js';
 import { printRedactionNotice } from './lib/redaction-notice.js';
@@ -104,7 +105,7 @@ export function buildProgram(options: BuildProgramOptions = {}): Command {
   program.hook('preAction', (_thisCommand, actionCommand) => {
     // `align demo` promises to write nothing under the caller's ~/.align, and opening the
     // config store creates it. Its children run in a temp HOME and do all of this there.
-    if (actionCommand.name() === 'demo') return;
+    if (topLevelCommandName(actionCommand) === 'demo') return;
     try {
       const config = createConfigStore();
       setWriteRecorder((file, entry) => config.recordWrittenConfig(file, entry), (file) => config.getWrittenConfigs()[file]);
@@ -120,7 +121,7 @@ export function buildProgram(options: BuildProgramOptions = {}): Command {
   // so a slow or blackholed gateway cannot delay the output the user came for.
   program.hook('postAction', async (_thisCommand, actionCommand) => {
     // No ping for `align demo` itself: reading the consent state opens ~/.align (see preAction).
-    if (actionCommand.name() === 'demo') return;
+    if (topLevelCommandName(actionCommand) === 'demo') return;
     const { envFlagOf, invocationCommandPath, recordInvocationUsage } = await import('./lib/usage-telemetry.js');
     // Full path ("local ask"), not the leaf name ("ask"), so recordCommandUsage can exclude the
     // offline `local` group - a cloud-logged-in user running it still has a token in hand. The

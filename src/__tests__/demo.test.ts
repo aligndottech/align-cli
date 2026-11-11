@@ -17,12 +17,17 @@
  *    removed, and kept under --keep
  */
 import { afterAll, describe, expect, it } from 'vitest';
+import { EventEmitter } from 'node:events';
+import { Command } from 'commander';
 import { execFile } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
+import { PROVIDER_ENV_VARS } from '../lib/llm-providers.js';
+import { modelCacheDir } from '../lib/model-cache.js';
+import { invokedCommandName, topLevelCommandName } from '../lib/demo/invoked.js';
 import { DEMO_COMMIT_BODY, DEMO_COMMIT_SUBJECT, DEMO_EDITS, DEMO_FILES } from '../lib/demo/fixture.js';
 import { hookReply, isolatedEnv, type Run, runDemo, type RunResult } from '../lib/demo/run.js';
 
@@ -105,6 +110,88 @@ describe('isolatedEnv', () => {
   });
 });
 
+describe('isolatedEnv: what a child must never inherit', () => {
+  const callerEnv = (): Record<string, string> => {
+    const env: Record<string, string> = { PATH: '/usr/bin', ALIGN_LLM_ANYTHING: 'x', ALIGN_OLLAMA_HOST: 'h', ALIGN_TOKEN_STORE: 'file', ALIGN_DETECTOR: 'v0', ALIGN_ORT_RUNTIME_URL: 'https://mirror.example' };
+    for (const k of PROVIDER_ENV_VARS) env[k] = `value-of-${k}`;
+    return env;
+  };
+
+  it('strips every provider key and model variable llm-providers defines, plus ALIGN_LLM_*, the token store, the detector and the runtime mirror', () => {
+    const base = callerEnv();
+    // Positive control: the list is not empty, and every name really is in the caller's env.
+    expect(PROVIDER_ENV_VARS.length).toBeGreaterThan(10);
+    for (const k of Object.keys(base)) expect(base[k]).toBeDefined();
+    const env = isolatedEnv(join(tmpdir(), 'align-demo-x'), base);
+    for (const k of [...PROVIDER_ENV_VARS, 'ALIGN_LLM_ANYTHING', 'ALIGN_OLLAMA_HOST', 'ALIGN_TOKEN_STORE', 'ALIGN_DETECTOR', 'ALIGN_ORT_RUNTIME_URL']) {
+      expect(env[k], k).toBeUndefined();
+    }
+    expect(env['PATH']).toBe('/usr/bin');
+  });
+
+  it('strips every GIT_ variable, so a run inside a git hook cannot write to the caller\'s repo', () => {
+    const env = isolatedEnv(join(tmpdir(), 'align-demo-x'), { GIT_DIR: '/real/.git', GIT_INDEX_FILE: '/real/.git/index', GIT_WORK_TREE: '/real', GIT_AUTHOR_NAME: 'x', PATH: 'p' });
+    expect(Object.keys(env).filter((k) => k.startsWith('GIT_'))).toEqual([]);
+    expect(env['PATH']).toBe('p');
+  });
+
+  it('points the model cache at the CALLER\'s cache, absolute, so a warm cache is reused', () => {
+    const base = { XDG_CACHE_HOME: join(tmpdir(), 'real-cache'), HOME: join(tmpdir(), 'real-home') };
+    const env = isolatedEnv(join(tmpdir(), 'align-demo-x'), base);
+    expect(env['ALIGN_MODEL_CACHE']).toBe(modelCacheDir(base));
+    expect(isAbsolute(env['ALIGN_MODEL_CACHE'] as string)).toBe(true);
+    expect(env['ALIGN_MODEL_CACHE']?.startsWith(join(tmpdir(), 'align-demo-x'))).toBe(false);
+  });
+});
+
+describe('which command was invoked', () => {
+  it('reads the command word from argv, skipping options', () => {
+    expect(invokedCommandName(['node', 'align', 'demo'])).toBe('demo');
+    expect(invokedCommandName(['node', 'align', '--version'])).toBeUndefined();
+    expect(invokedCommandName(['node', 'align', 'ask', 'demo'])).toBe('ask');
+    expect(invokedCommandName(['node', 'align'])).toBeUndefined();
+  });
+
+  it('names the TOP-LEVEL command, so a future `align foo demo` is not mistaken for `align demo`', () => {
+    const program = new Command('align');
+    const foo = program.command('foo');
+    const nested = foo.command('demo');
+    const top = program.command('demo');
+    expect(topLevelCommandName(nested)).toBe('foo');
+    expect(topLevelCommandName(top)).toBe('demo');
+  });
+});
+
+describe('startup leaves the caller\'s ~/.align alone for `demo`', () => {
+  function seededHome(): string {
+    const home = scratch('align-demo-legacy-');
+    // The two places an older install left a config. Both resolve under this HOME.
+    for (const dir of [join(home, '.config', 'align-cli'), join(home, '.config', 'align-cli-nodejs')]) {
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'config.json'), JSON.stringify({ environments: {}, defaultEnv: 'prod' }), 'utf8');
+    }
+    return home;
+  }
+  const run = (home: string, args: string[]) =>
+    exec(process.execPath, [TSX, ENTRY, ...args], {
+      cwd: home,
+      env: { ...process.env, HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: join(home, '.config'), APPDATA: join(home, 'AppData', 'Roaming'), LOCALAPPDATA: join(home, 'AppData', 'Local'), DO_NOT_TRACK: '1' },
+      timeout: 60_000,
+    });
+
+  it('control: a different command DOES run the migration and create ~/.align from the legacy config', async () => {
+    const home = seededHome();
+    await run(home, ['--version']);
+    expect(existsSync(join(home, '.align', 'config.json'))).toBe(true);
+  }, 70_000);
+
+  it('`demo` does not create ~/.align before it starts', async () => {
+    const home = seededHome();
+    await run(home, ['demo', '--help']);
+    expect(existsSync(join(home, '.align'))).toBe(false);
+  }, 70_000);
+});
+
 describe('hookReply', () => {
   it('reads the additionalContext the agent would be given', () => {
     expect(hookReply(hookJson([TITLE]))?.text).toContain(`- ${TITLE}`);
@@ -182,7 +269,95 @@ describe('runDemo', () => {
   });
 });
 
-describe('align demo, end to end through the real CLI', () => {
+describe('runDemo: environment, messages and interruption', () => {
+  it('runs every child, git included, without GIT_ variables or provider keys from the caller', async () => {
+    const root = scratch();
+    const seen: Array<Record<string, string | undefined>> = [];
+    const { run } = fakeRun({ violating: hookJson([TITLE]) });
+    const spy: Run = async (cmd, args, o) => {
+      if (!(cmd === 'git' && args[0] === '--version')) seen.push(o.env);
+      return run(cmd, args, o);
+    };
+    await runDemo({}, { run: spy, write: () => undefined, tmpRoot: root, env: { PATH: 'p', GIT_DIR: '/real/.git', ANTHROPIC_API_KEY: 'k', ALIGN_LLM_API_KEY: 'k' } });
+    expect(seen.length).toBeGreaterThanOrEqual(6);
+    for (const env of seen) {
+      expect(Object.keys(env).filter((k) => k.startsWith('GIT_'))).toEqual([]);
+      expect(env['ANTHROPIC_API_KEY']).toBeUndefined();
+      expect(env['ALIGN_LLM_API_KEY']).toBeUndefined();
+    }
+  });
+
+  it('says a timed-out step is a slow connection, not "offline"', async () => {
+    const out = collect();
+    const { run } = fakeRun();
+    const slow: Run = async (cmd, args, o) => (args.join(' ').includes('connect git') ? { code: null, stdout: '', stderr: 'timed out after 120s' } : run(cmd, args, o));
+    const code = await runDemo({}, { run: slow, write: out.write, tmpRoot: scratch() });
+    expect(code).toBe(1);
+    expect(out.text()).toMatch(/slow connection/i);
+    expect(out.text()).not.toMatch(/offline/i);
+  });
+
+  it('describes the model download accurately: once, kept in the align cache, not in the demo folder', async () => {
+    const out = collect();
+    const { run } = fakeRun({ violating: hookJson([TITLE]) });
+    await runDemo({}, { run, write: out.write, tmpRoot: scratch() });
+    expect(out.text()).toMatch(/align cache/i);
+    expect(out.text()).toMatch(/once|one-time/i);
+  });
+
+  class FakeProc extends EventEmitter {
+    exits: number[] = [];
+    exit(code: number): void { this.exits.push(code); }
+  }
+  const SIGNALS = process.platform === 'win32' ? ['SIGINT', 'SIGTERM'] : ['SIGINT', 'SIGTERM', 'SIGHUP'];
+
+  it.each(SIGNALS)('on %s it kills the in-flight child, removes the temp dir and exits 130', async (sig) => {
+    const root = scratch();
+    const proc = new FakeProc();
+    let release: (r: RunResult) => void = () => undefined;
+    let reached: () => void = () => undefined;
+    const atStep = new Promise<void>((r) => (reached = r));
+    let killed = 0;
+    const { run } = fakeRun();
+    const hang: Run = async (cmd, args, o) => {
+      if (args.join(' ').includes('connect git')) {
+        reached();
+        return new Promise<RunResult>((r) => (release = r));
+      }
+      return run(cmd, args, o);
+    };
+    const done = runDemo({}, { run: hang, write: () => undefined, tmpRoot: root, proc, kill: () => { killed++; release({ code: null, stdout: '', stderr: 'killed' }); } });
+    await atStep;
+    expect(readdirSync(root).filter((n) => n.startsWith('align-demo-'))).toHaveLength(1);
+    proc.emit(sig);
+    await done;
+    expect(killed).toBe(1);
+    expect(proc.exits).toContain(130);
+    expect(readdirSync(root)).toEqual([]);
+    for (const s of SIGNALS) expect(proc.listenerCount(s), s).toBe(0);
+  });
+
+  it('removes its signal handlers when the run finishes normally', async () => {
+    const proc = new FakeProc();
+    const { run } = fakeRun({ violating: hookJson([TITLE]) });
+    let during = 0;
+    const spy: Run = async (cmd, args, o) => {
+      during = Math.max(during, ...SIGNALS.map((s) => proc.listenerCount(s)));
+      return run(cmd, args, o);
+    };
+    await runDemo({}, { run: spy, write: () => undefined, tmpRoot: scratch(), proc });
+    expect(during).toBe(1);
+    for (const s of SIGNALS) expect(proc.listenerCount(s), s).toBe(0);
+    expect(proc.exits).toEqual([]);
+  });
+});
+
+// Needs the on-device model. Runs when this machine already has the model cache, or when ALIGN_DEMO_E2E=1
+// says to fetch it. Same shape as the other environment-gated suites (describe.skipIf at module level).
+const REAL_MODEL_CACHE = modelCacheDir(process.env);
+const haveModel = process.env['ALIGN_DEMO_E2E'] === '1' || (existsSync(REAL_MODEL_CACHE) && readdirSync(REAL_MODEL_CACHE).length > 0);
+
+describe.skipIf(!haveModel)('align demo, end to end through the real CLI', () => {
   async function runCli(args: string[]): Promise<{ out: string; home: string; tmp: string }> {
     const home = scratch('align-demo-e2e-home-');
     const tmp = scratch('align-demo-e2e-tmp-');
@@ -198,6 +373,7 @@ describe('align demo, end to end through the real CLI', () => {
         TMPDIR: tmp,
         TEMP: tmp,
         TMP: tmp,
+        ALIGN_MODEL_CACHE: REAL_MODEL_CACHE,
         DO_NOT_TRACK: '1',
       },
       timeout: 170_000,

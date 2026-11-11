@@ -1,7 +1,9 @@
-import { spawn } from 'node:child_process';
+import { type ChildProcess, spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { OPENROUTER_KEY_ENV, OPENROUTER_MODEL_ENV, PROVIDER_ENV_VARS } from '../llm-providers.js';
+import { modelCacheDir } from '../model-cache.js';
 import { DEMO_COMMIT_BODY, DEMO_COMMIT_SUBJECT, DEMO_EDITS, DEMO_FILES } from './fixture.js';
 
 export interface RunResult { code: number | null; stdout: string; stderr: string; error?: Error & { code?: string } }
@@ -14,21 +16,37 @@ export interface DemoDeps {
   tmpRoot?: string;
   /** How to start this CLI again. Defaults to the running entry point. */
   align?: { cmd: string; args: string[] };
+  /** The caller's environment, which the children's is derived from. Defaults to process.env. */
+  env?: Record<string, string | undefined>;
+  /** Where interrupt signals are heard and the process is ended. Defaults to the real process. */
+  proc?: DemoProcess;
+  /** Stops whatever child is running. Defaults to killing the children the default runner started. */
+  kill?: () => void;
+}
+export interface DemoProcess {
+  on(signal: string, listener: () => void): unknown;
+  off(signal: string, listener: () => void): unknown;
+  exit(code: number): void;
 }
 
 const STEP_TIMEOUT_MS = 120_000;
 const HOOK_TIMEOUT_MS = 30_000;
-/** Variables that would point a child at a cloud graph or a saved login. */
-const CLOUD_VARS = ['ALIGN_TOKEN', 'ALIGN_TENANT_ID', 'ALIGN_GATEWAY_URL', 'ALIGN_ENV'] as const;
-
 /**
- * The environment every child runs in: each variable a platform uses to find "home" points inside
- * the temp root (POSIX HOME and XDG, Windows USERPROFILE and APPDATA), so nothing can land in the
- * caller's ~/.align. Cloud-pointing variables are dropped, and telemetry is off for the children
- * (the caller's own DO_NOT_TRACK and friends pass through untouched).
+ * The environment every child runs in. Three jobs:
+ *  - every variable a platform uses to find "home" points inside the temp root (POSIX HOME and XDG,
+ *    Windows USERPROFILE and APPDATA), so nothing can land in the caller's ~/.align;
+ *  - nothing that could send the fixture anywhere or change what runs is inherited: every provider
+ *    key and model variable llm-providers defines (derived from that module, not copied), the
+ *    ALIGN_LLM_* and ALIGN_OLLAMA_* families, the cloud pointers, the token store, the detector, the
+ *    runtime mirror, and every GIT_ variable (a demo run inside a git hook must not write to the
+ *    caller's repo);
+ *  - the on-device model cache stays the CALLER's (absolute, outside ~/.align), so a warm cache is
+ *    reused instead of downloading about 50 MB into a folder that is then deleted.
+ * Telemetry is off for the children; the caller's own DO_NOT_TRACK and friends pass through.
  */
 export function isolatedEnv(root: string, base: Record<string, string | undefined> = process.env): Record<string, string | undefined> {
   const home = join(root, 'home');
+  const modelCache = modelCacheDir(base);
   const env: Record<string, string | undefined> = {
     ...base,
     HOME: home,
@@ -38,9 +56,13 @@ export function isolatedEnv(root: string, base: Record<string, string | undefine
     XDG_CACHE_HOME: join(home, '.cache'),
     APPDATA: join(home, 'AppData', 'Roaming'),
     LOCALAPPDATA: join(home, 'AppData', 'Local'),
+    ALIGN_MODEL_CACHE: modelCache,
     ALIGN_TELEMETRY: '0',
   };
-  for (const k of CLOUD_VARS) delete env[k];
+  const exact = new Set<string>([...PROVIDER_ENV_VARS, OPENROUTER_KEY_ENV, OPENROUTER_MODEL_ENV, 'ALIGN_TOKEN', 'ALIGN_TENANT_ID', 'ALIGN_GATEWAY_URL', 'ALIGN_ENV', 'ALIGN_TOKEN_STORE', 'ALIGN_DETECTOR', 'ALIGN_ORT_RUNTIME_URL']);
+  for (const k of Object.keys(env)) {
+    if (exact.has(k) || k.startsWith('ALIGN_LLM_') || k.startsWith('ALIGN_OLLAMA_') || k.startsWith('GIT_')) delete env[k];
+  }
   return env;
 }
 
@@ -68,18 +90,25 @@ function selfInvocation(): { cmd: string; args: string[] } {
   return compiled ? { cmd: process.execPath, args: [] } : { cmd: process.execPath, args: [...process.execArgv, entry] };
 }
 
+const liveChildren = new Set<ChildProcess>();
+function killLiveChildren(): void {
+  for (const c of liveChildren) c.kill();
+}
+
 const defaultRun: Run = (cmd, args, o) =>
   new Promise((resolve) => {
     let stdout = '';
     let stderr = '';
     let settled = false;
     const done = (r: RunResult): void => {
+      liveChildren.delete(child);
       if (!settled) {
         settled = true;
         resolve(r);
       }
     };
     const child = spawn(cmd, args, { cwd: o.cwd, env: o.env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    liveChildren.add(child);
     const timer = setTimeout(() => {
       child.kill();
       done({ code: null, stdout, stderr: `${stderr}timed out after ${Math.round(o.timeoutMs / 1000)}s`.trim() });
@@ -124,6 +153,8 @@ export async function runDemo(opts: DemoOptions, deps: DemoDeps = {}): Promise<n
   const run = deps.run ?? defaultRun;
   const say = deps.write ?? ((l: string) => console.log(l));
   const align = deps.align ?? selfInvocation();
+  const proc: DemoProcess = deps.proc ?? process;
+  const kill = deps.kill ?? killLiveChildren;
 
   // Git is how the bundled repo gets its history. Checked before anything is made.
   const git = await run('git', ['--version'], { cwd: deps.tmpRoot ?? tmpdir(), env: process.env, timeoutMs: 15_000 });
@@ -135,11 +166,21 @@ export async function runDemo(opts: DemoOptions, deps: DemoDeps = {}): Promise<n
 
   const root = mkdtempSync(join(deps.tmpRoot ?? tmpdir(), 'align-demo-'));
   const repo = join(root, 'repo');
-  const env = isolatedEnv(root);
+  const env = isolatedEnv(root, deps.env);
+
+  // Node skips `finally` on a signal, so Ctrl-C would leave the repo, the graph and anything
+  // downloaded behind. For the length of the run: stop the child, delete the folder, exit 130.
+  const signals = process.platform === 'win32' ? ['SIGINT', 'SIGTERM'] : ['SIGINT', 'SIGTERM', 'SIGHUP'];
+  const onSignal = (): void => {
+    kill();
+    removeTemp(root);
+    proc.exit(130);
+  };
+  for (const sig of signals) proc.on(sig, onSignal);
   try {
     say('align demo: watch Align catch a decision before an agent edits your code.');
     say('Everything runs in a temp folder. Your repo and ~/.align are not touched, and no account or AI key is used.');
-    say('The first run may download a small on-device model (about 50 MB, once) if it is not on this machine yet.');
+    say('Align needs a small on-device model (about 50 MB). If this machine has not fetched it before, it downloads once into your align cache and is reused after that, not kept in the demo folder.');
     say('');
 
     mkdirSync(join(root, 'home'), { recursive: true });
@@ -173,7 +214,11 @@ export async function runDemo(opts: DemoOptions, deps: DemoDeps = {}): Promise<n
       if (r.error || r.code !== 0) {
         say(`   The setup step "align ${step.join(' ')}" failed.`);
         say(tail(`${r.stderr}\n${r.stdout}${r.error?.message ?? ''}`));
-        say('   If you are offline, the on-device model could not be downloaded. Connect and run align demo again.');
+        if (/timed out/.test(r.stderr)) {
+          say('   This step ran out of time, which usually means a slow connection while the on-device model downloads. Run align demo again.');
+        } else {
+          say('   If the on-device model could not be downloaded, check your connection and run align demo again.');
+        }
         return 1;
       }
     }
@@ -211,6 +256,7 @@ export async function runDemo(opts: DemoOptions, deps: DemoDeps = {}): Promise<n
     say('   cd your-repo && align');
     return 0;
   } finally {
+    for (const sig of signals) proc.off(sig, onSignal);
     if (opts.keep) {
       say('');
       say(`Kept the demo folder: ${root}`);
