@@ -56,6 +56,8 @@ export interface SessionDeps {
   trust: () => { dir: string; by: TrustSource } | undefined;
   /** Asks once whether to trust this repo, records a yes, and returns the folder trusted. No terminal, no question. */
   askTrust: () => Promise<string | undefined>;
+  /** The nearest folder above cwd holding .git, or cwd. Claude Code reads settings from there. */
+  repoRoot: () => string;
   /** Does the repo root hold .claude, .agents or .pi content that trust would load? */
   repoHasHarness: () => boolean;
 }
@@ -103,7 +105,9 @@ export async function runAgentSession(opts: { engine?: EngineName; notices?: str
     if (dir !== undefined) trust = { dir, by: 'Align' };
   }
   const trustedDir = trust?.dir;
-  const trusted = trust !== undefined;
+  // Claude Code reads project and local settings at the repo root too, so it gets them only when
+  // the root itself is trusted. A trusted subfolder still gets its skills in Align's own engine.
+  const trusted = trust !== undefined && trust.dir === deps.repoRoot();
   const claude = (): AgentEngine => deps.createClaudeCodeEngine({
     cwd: deps.cwd,
     bin: claudeBin ?? 'claude',
@@ -135,7 +139,8 @@ export async function runAgentSession(opts: { engine?: EngineName; notices?: str
 
   deps.record(agent);
   // Bare `align` opens here, not through the launcher, so the refresh starts here too.
-  const trustNotice = trust !== undefined ? trustedNotice(agent, trust.by) : hasHarness ? untrustedNotice(agent) : undefined;
+  const loaded = agent === 'claude-code' ? trusted : trust !== undefined;
+  const trustNotice = loaded && trust !== undefined ? trustedNotice(agent, trust.by) : hasHarness ? untrustedNotice(agent) : undefined;
   let notices: string[] = [...(trustNotice === undefined ? [] : [trustNotice]), ...(opts.notices ?? [])];
   try { notices = [...notices, ...deps.backgroundSync()]; } catch { /* no refresh this time; the agent still opens */ }
   return deps.runAgentUi({ engine, decisionCount: deps.countDecisions(), gate: deps.makeGate(), gitRunsPrograms: deps.gitRunsPrograms, notices });
@@ -170,9 +175,14 @@ export function defaultSessionDeps(o: { home?: string; env?: Record<string, stri
       const yes = await confirm({ message: TRUST_QUESTION, initialValue: false });
       if (isCancel(yes) || yes !== true) return undefined;
       const root = repoRoot(cwd);
-      rememberAlignTrust(root, o.alignDir ?? alignConfigDir());
+      try {
+        rememberAlignTrust(root, o.alignDir ?? alignConfigDir());
+      } catch (err) {
+        process.stderr.write(`Trusted for this session only: ${(err as Error).message}.\n`);
+      }
       return root;
     },
+    repoRoot: () => repoRoot(cwd),
     repoHasHarness: () => repoHasHarness(cwd),
     countDecisions: () => {
       if (!localEnv.localDbPath) return 0;

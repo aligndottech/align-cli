@@ -107,6 +107,13 @@ const alignTrustedList = (alignDir: string): string[] => {
 
 /** Records the user's yes to Align's own trust prompt, so the next session in this folder loads it too. */
 export function rememberAlignTrust(dir: string, alignDir: string): void {
+  const file = alignTrustFile(alignDir);
+  // A file that exists but is not { folders: [...] } is left alone: overwriting it would lose
+  // entries the user could still recover by fixing it.
+  if (existsSync(file)) {
+    const data = readJsonFile(file);
+    if (!isRecord(data) || !Array.isArray(data['folders'])) throw new Error(`${file} is not valid, so it was left as is`);
+  }
   const folders = alignTrustedList(alignDir);
   if (folders.includes(dir)) return;
   mkdirSync(alignDir, { recursive: true, mode: 0o700 });

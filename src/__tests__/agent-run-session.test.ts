@@ -40,6 +40,7 @@ function deps(over: Partial<SessionDeps> = {}) {
     backgroundSync: vi.fn(() => []),
     trust: () => undefined,
     askTrust: vi.fn(async () => undefined),
+    repoRoot: () => '/repo',
     repoHasHarness: () => true,
     ...over,
   };
@@ -204,6 +205,12 @@ describe('runAgentSession: trusted folders', () => {
     const cc = deps({ askTrust: vi.fn(async () => '/repo') });
     await runAgentSession({ engine: 'claude' }, cc.d);
     expect(vi.mocked(cc.d.createClaudeCodeEngine).mock.calls[0]![0].trusted).toBe(true);
+  });
+  it('Claude Code gets project settings only when the repo root is trusted, not a subfolder', async () => {
+    const t = deps({ trust: () => ({ dir: '/repo/packages/api', by: 'Claude Code' }) });
+    await runAgentSession({ engine: 'claude' }, t.d);
+    expect(vi.mocked(t.d.createClaudeCodeEngine).mock.calls[0]![0].trusted).toBe(false);
+    expect(vi.mocked(t.d.runAgentUi).mock.calls[0]![0].notices).toEqual([UNTRUSTED_CC]);
   });
   it('does not ask when an agent already trusts the folder, or the repo has no harness content', async () => {
     const trusted = deps({ trust: () => ({ dir: '/repo', by: 'Gemini CLI' }) });

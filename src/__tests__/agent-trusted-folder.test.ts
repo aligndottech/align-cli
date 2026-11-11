@@ -176,6 +176,14 @@ describe('folderTrust across agents', () => {
     rememberAlignTrust(repo, alignDir());
     expect(JSON.parse(readFileSync(join(alignDir(), 'trusted-folders.json'), 'utf8'))).toEqual({ folders: [other, repo] });
   });
+  it('refuses to overwrite a trust file it cannot read, and leaves it byte for byte', () => {
+    const file = join(alignDir(), 'trusted-folders.json');
+    for (const text of ['{ "folders": [ "/a", ', '{"folders": "/a"}']) {
+      write(file, text);
+      expect(() => rememberAlignTrust(repo, alignDir())).toThrow('is not valid');
+      expect(readFileSync(file, 'utf8')).toBe(text);
+    }
+  });
   it('no agent record trusts the home directory, whoever wrote it', () => {
     mkdirSync(join(home, '.git'), { recursive: true });
     write(join(home, '.codex', 'config.toml'), `[projects."${home}"]\ntrust_level = "trusted"\n`);
