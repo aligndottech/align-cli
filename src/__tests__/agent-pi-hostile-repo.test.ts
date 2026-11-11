@@ -117,25 +117,30 @@ describe('trusted repo: the user\'s harness, never code', () => {
     }
   });
 
-  it('reads Claude Code and Agent Skills folders: the user\'s always, the repo\'s (at the git root) only when trusted', async () => {
+  it('reads Claude Code, Codex, Gemini CLI and Agent Skills folders: the user\'s always, the repo\'s (at the git root) only when trusted', async () => {
     const put = (dir: string, name: string): void => {
       mkdirSync(join(dir, name), { recursive: true });
       writeFileSync(join(dir, name, 'SKILL.md'), skillMd(name));
     };
     put(join(home, '.claude', 'skills'), 'user-claude');
     put(join(home, '.agents', 'skills'), 'user-agents');
+    put(join(home, '.codex', 'skills'), 'user-codex');
+    put(join(home, '.gemini', 'skills'), 'user-gemini');
     mkdirSync(join(cwd, '.git'), { recursive: true });
     const sub = join(cwd, 'packages', 'api');
     mkdirSync(sub, { recursive: true });
     put(join(cwd, '.claude', 'skills'), 'repo-claude');
     put(join(cwd, '.agents', 'skills'), 'repo-agents');
+    put(join(cwd, '.codex', 'skills'), 'repo-codex');
+    put(join(cwd, '.gemini', 'skills'), 'repo-gemini');
     const names = async (trusted: boolean): Promise<string[]> => {
       const loader = createAlignResourceLoader({ sdk: piSdk, cwd: sub, agentDir, home, trustedDir: trusted ? cwd : undefined });
       await loader.reload();
       return loader.getSkills().skills.map((x) => x.name).sort();
     };
-    expect(await names(false)).toEqual(['my-own-skill', 'user-agents', 'user-claude']);
-    expect(await names(true)).toEqual(['evil-skill', 'my-own-skill', 'repo-agents', 'repo-claude', 'user-agents', 'user-claude']);
+    const user = ['my-own-skill', 'user-agents', 'user-claude', 'user-codex', 'user-gemini'];
+    expect(await names(false)).toEqual(user);
+    expect(await names(true)).toEqual(['evil-skill', 'repo-agents', 'repo-claude', 'repo-codex', 'repo-gemini', ...user].sort());
     expect(existsSync(sentinel)).toBe(false);
     expect(existsSync(settingsSentinel)).toBe(false);
   });

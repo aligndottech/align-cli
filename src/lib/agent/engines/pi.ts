@@ -9,6 +9,7 @@ import type { HookToolInput } from '../../hook-payload.js';
 import { ASK_ONCE_GUIDANCE } from '../agent-guidance.js';
 import { failureTail } from '../failure-tail.js';
 import type { GraphToolSpec } from '../graph-tools.js';
+import { SKILL_DIRS } from '../trusted-folder.js';
 import type { AgentEngine, AgentUiEvent, BrokerVerdict, ToolAsk } from '../types.js';
 import type { ResolvedPiModel } from './pi-models.js';
 
@@ -38,13 +39,14 @@ const READ_TOOLS = new Set(['read', 'grep', 'find', 'ls']);
  * settings are in-memory as well, so no project or home settings file reaches the session (loading
  * project settings could name extensions elsewhere in the repo).
  *
- * Skills and prompt templates are text the model reads. The user's own (`~/.pi/agent/skills`) always
- * load, as do `~/.claude/skills` and `~/.agents/skills`. The repo's (`.pi/skills`, `.claude/skills`,
- * `.agents/skills` and `.pi/prompts`, under the folder whose trust matched) load only when
- * `trustedDir` is set, meaning the user already
- * accepted Claude Code's trust prompt for this folder. Pi's own discovery is off (`noSkills`,
- * `noPromptTemplates`) and the wanted folders go in as explicit paths, so the repo/user split
- * stays ours. Context files (AGENTS.md, CLAUDE.md) stay on in both modes.
+ * Skills and prompt templates are text the model reads. The user's own always load, from
+ * `~/.pi/agent/skills` and the `skills` folder under `~/.claude`, `~/.agents`, `~/.codex` and
+ * `~/.gemini`. The repo's (`skills` under `.pi`, `.claude`, `.agents`, `.codex` and `.gemini`, plus
+ * `.pi/prompts`, in the folder whose trust matched) load only when `trustedDir` is set, meaning the
+ * user trusts this folder in an agent they use or said yes to Align's own question. Pi's own
+ * discovery is off (`noSkills`, `noPromptTemplates`) and the wanted folders go in as explicit
+ * paths, so the repo/user split stays ours. Context files (AGENTS.md, CLAUDE.md) stay on in both
+ * modes.
  */
 /** The parts of Pi's SDK the engine uses. */
 export type PiSdk = Pick<typeof PiCodingAgent, 'DefaultResourceLoader' | 'ModelRuntime' | 'createAgentSession' | 'SessionManager' | 'SettingsManager'>;
@@ -57,17 +59,17 @@ export function createAlignResourceLoader(o: {
   extensionFactories?: ExtensionFactory[];
   /** Where the user's `.pi/agent/skills` lives. Default: the real home. */
   home?: string;
-  /** The folder whose trust Claude Code recorded. Undefined means untrusted, and no repo skills or prompts load. */
+  /** The folder the user trusts in an agent they use, or in Align. Undefined means untrusted, and no repo skills or prompts load. */
   trustedDir?: string;
 }): DefaultResourceLoader {
   const present = (paths: string[]): string[] => paths.filter((p) => existsSync(p));
   const home = o.home ?? homedir();
   // Pi reads the Agent Skills layout (a folder holding SKILL.md with name and description), which is
-  // also what Claude Code uses, so those folders are read too. Skills are text: Pi parses their
+  // also what Claude Code, Codex and Gemini CLI use, so their folders are read too. Skills are text: Pi parses their
   // frontmatter and never runs them.
-  const userSkills = [join(home, '.pi', 'agent', 'skills'), join(home, '.claude', 'skills'), join(home, '.agents', 'skills')];
+  const userSkills = SKILL_DIRS.map((d) => join(home, ...(d === '.pi' ? ['.pi', 'agent'] : [d]), 'skills'));
   const dir = o.trustedDir;
-  const repoSkills = dir === undefined ? [] : [join(dir, '.pi', 'skills'), join(dir, '.claude', 'skills'), join(dir, '.agents', 'skills')];
+  const repoSkills = dir === undefined ? [] : SKILL_DIRS.map((d) => join(dir, d, 'skills'));
   return new o.sdk.DefaultResourceLoader({
     cwd: o.cwd,
     agentDir: o.agentDir,

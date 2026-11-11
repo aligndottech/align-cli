@@ -27,8 +27,8 @@ export function buildArgs(extra: string[] = [], trusted = false): string[] {
   return ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
     '--include-partial-messages', '--permission-mode', 'manual', '--permission-prompts', 'host',
     '--permission-prompt-tool', 'stdio',
-    // The user's own settings only, unless the user already accepted Claude Code's trust prompt for
-    // this folder. A repo's .claude/settings.json could otherwise run its hooks and pre-approve tools
+    // The user's own settings only, unless the user trusts this folder in an agent they use or
+    // said yes to Align's question. A repo's .claude/settings.json could otherwise run its hooks and pre-approve tools
     // before Align is asked, and headless claude shows no trust prompt for it.
     '--setting-sources', trusted ? 'user,project,local' : 'user', ...extra];
 }

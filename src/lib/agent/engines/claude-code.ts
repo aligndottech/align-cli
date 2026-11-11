@@ -6,7 +6,7 @@ export interface ClaudeCodeOpts {
   cwd: string;
   bin?: string;
   extraArgs?: string[];
-  /** The folder is trusted in Claude Code, so its project and local settings load. Default: no. */
+  /** The user trusts this folder (in any agent, or in Align), so its project and local settings load. Default: no. */
   trusted?: boolean;
   /** Exactly the child's env. The caller passes the user's startup env so a key Align saved never reaches `claude`. */
   env: Record<string, string | undefined>;

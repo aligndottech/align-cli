@@ -6,11 +6,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { defaultSessionDeps, runAgentSession, type SessionDeps } from '../lib/agent/run-agent-session.js';
 import type { AgentEngine } from '../lib/agent/types.js';
 
-const OPEN_IT = 'Open it in Claude Code once and accept the trust prompt to load them.';
-const UNTRUSTED_CC = `This repo isn't trusted in Claude Code, so its hooks, settings and skills stay off. ${OPEN_IT}`;
-const UNTRUSTED_PI = `This repo isn't trusted in Claude Code, so its skills and prompts stay off. ${OPEN_IT}`;
-const TRUSTED_CC = "Loaded this repo's own settings, hooks and skills (trusted in Claude Code).";
-const TRUSTED_PI = "Loaded this repo's skills and prompts (trusted in Claude Code).";
+const TRUST_IT = 'Say yes to the trust question next time, or trust it in any agent you use.';
+const UNTRUSTED_CC = `This repo isn't trusted, so its settings, hooks and skills stay off. ${TRUST_IT}`;
+const UNTRUSTED_PI = `This repo isn't trusted, so its skills and prompts stay off. ${TRUST_IT}`;
+const TRUSTED_CC = "Loaded this repo's own settings, hooks and skills (you trust it in Claude Code).";
+const TRUSTED_PI = "Loaded this repo's own skills and prompts (you trust it in Codex).";
 const MODEL = { provider: 'anthropic', modelId: 'claude-sonnet-5-5', apiKey: 'sk-ant-saved', label: 'Anthropic claude-sonnet-5-5' };
 const fakeEngine = (label: string): AgentEngine => ({ label, start: vi.fn(), prompt: vi.fn(), abort: vi.fn(), close: vi.fn() });
 
@@ -38,7 +38,8 @@ function deps(over: Partial<SessionDeps> = {}) {
     runAgentUi: vi.fn(async () => 0),
     record: vi.fn(),
     backgroundSync: vi.fn(() => []),
-    trustedDir: () => undefined,
+    trust: () => undefined,
+    askTrust: vi.fn(async () => undefined),
     repoHasHarness: () => true,
     ...over,
   };
@@ -173,13 +174,13 @@ describe('runAgentSession: trusted folders', () => {
     return { createPiEngine, ...deps({ loadPiEngine: async () => ({ createPiEngine }), ...over }) };
   };
   it('trusted Claude Code: project settings on, and the notice says settings, hooks and skills', async () => {
-    const t = deps({ trustedDir: () => '/repo' });
+    const t = deps({ trust: () => ({ dir: '/repo', by: 'Claude Code' }) });
     await runAgentSession({ engine: 'claude' }, t.d);
     expect(vi.mocked(t.d.createClaudeCodeEngine).mock.calls[0]![0].trusted).toBe(true);
     expect(vi.mocked(t.d.runAgentUi).mock.calls[0]![0].notices).toEqual([TRUSTED_CC]);
   });
   it('trusted Align engine: the matched folder reaches the engine, and the notice says skills and prompts only', async () => {
-    const t = piDeps({ trustedDir: () => '/repo/packages/api' });
+    const t = piDeps({ trust: () => ({ dir: '/repo/packages/api', by: 'Codex' }) });
     await runAgentSession({ engine: 'align' }, t.d);
     expect(t.createPiEngine.mock.calls[0]![0].trustedDir).toBe('/repo/packages/api');
     expect(vi.mocked(t.d.runAgentUi).mock.calls[0]![0].notices).toEqual([TRUSTED_PI]);
@@ -194,6 +195,24 @@ describe('runAgentSession: trusted folders', () => {
     expect(pi.createPiEngine.mock.calls[0]![0].trustedDir).toBeUndefined();
     expect(vi.mocked(pi.d.runAgentUi).mock.calls[0]![0].notices).toEqual([UNTRUSTED_PI]);
   });
+  it('untrusted with harness content: asks once, and a yes loads it as trusted in Align', async () => {
+    const t = piDeps({ askTrust: vi.fn(async () => '/repo') });
+    await runAgentSession({ engine: 'align' }, t.d);
+    expect(t.d.askTrust).toHaveBeenCalledTimes(1);
+    expect(t.createPiEngine.mock.calls[0]![0].trustedDir).toBe('/repo');
+    expect(vi.mocked(t.d.runAgentUi).mock.calls[0]![0].notices).toEqual(["Loaded this repo's own skills and prompts (you trust it in Align)."]);
+    const cc = deps({ askTrust: vi.fn(async () => '/repo') });
+    await runAgentSession({ engine: 'claude' }, cc.d);
+    expect(vi.mocked(cc.d.createClaudeCodeEngine).mock.calls[0]![0].trusted).toBe(true);
+  });
+  it('does not ask when an agent already trusts the folder, or the repo has no harness content', async () => {
+    const trusted = deps({ trust: () => ({ dir: '/repo', by: 'Gemini CLI' }) });
+    await runAgentSession({ engine: 'claude' }, trusted.d);
+    expect(trusted.d.askTrust).not.toHaveBeenCalled();
+    const bare = deps({ repoHasHarness: () => false });
+    await runAgentSession({ engine: 'claude' }, bare.d);
+    expect(bare.d.askTrust).not.toHaveBeenCalled();
+  });
   it('untrusted and the repo has no harness content: no notice at all', async () => {
     for (const engine of ['claude', 'align'] as const) {
       const t = deps({ repoHasHarness: () => false });
@@ -205,9 +224,10 @@ describe('runAgentSession: trusted folders', () => {
     const home = mkdtempSync(join(tmpdir(), 'align-session-home-'));
     const cwd = realpathSync(process.cwd());
     try {
-      expect(defaultSessionDeps({ home, env: {} }).trustedDir()).toBeUndefined();
+      const alignDir = join(home, '.align');
+      expect(defaultSessionDeps({ home, env: {}, alignDir }).trust()).toBeUndefined();
       writeFileSync(join(home, '.claude.json'), JSON.stringify({ projects: { [cwd]: { hasTrustDialogAccepted: true } } }));
-      expect(defaultSessionDeps({ home, env: {} }).trustedDir()).toBe(cwd);
+      expect(defaultSessionDeps({ home, env: {}, alignDir }).trust()).toEqual({ dir: cwd, by: 'Claude Code' });
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
