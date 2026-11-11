@@ -113,6 +113,8 @@ beforeEach(async () => {
     XDG_STATE_HOME: path.join(home, '.local', 'state'), XDG_CACHE_HOME: path.join(home, '.cache'),
     ALIGN_GATEWAY_URL: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
     ALIGN_NO_LAUNCH: '1',
+    // A hand-built env does not inherit the test pin, and a real child would probe the machine's keychain (it blocked a macOS runner's hook).
+    ALIGN_TOKEN_STORE: 'file',
     PATH: process.env['PATH'] ?? '',
   };
   // Windows ignores HOME and XDG_*: it reads the profile from USERPROFILE and config from %APPDATA%. Left

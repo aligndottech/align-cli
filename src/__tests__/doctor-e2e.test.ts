@@ -92,6 +92,8 @@ beforeEach(async () => {
     ALIGN_TOKEN: GOOD_TOKEN,
     ALIGN_TENANT_ID: 't-1',
     ALIGN_NO_LAUNCH: '1',
+    // A hand-built env does not inherit the test pin, and a real child would probe the machine's keychain (it blocked a macOS runner's hook).
+    ALIGN_TOKEN_STORE: 'file',
     PATH: `${realBinDir}${path.delimiter}${process.env['PATH'] ?? ''}`,
   };
   for (const d of [env['XDG_CONFIG_HOME']!, env['XDG_DATA_HOME']!, env['XDG_STATE_HOME']!, env['XDG_CACHE_HOME']!]) fs.mkdirSync(d, { recursive: true });
