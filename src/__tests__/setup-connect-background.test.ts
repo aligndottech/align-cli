@@ -75,13 +75,15 @@ const mockSaveConnectorFields = vi.hoisted(() => vi.fn());
 const mockSetConnectorScope = vi.hoisted(() => vi.fn());
 const mockGetScope = vi.hoisted(() => vi.fn((_e: string, _s: string): unknown => null));
 const mockMarkDisclosed = vi.hoisted(() => vi.fn());
-const mockForget = vi.hoisted(() => vi.fn());
+const mockForget = vi.hoisted(() => vi.fn(() => ({ keychainFailed: false })));
 vi.mock('../lib/config.js', async (importOriginal) => ({
   ...(await importOriginal<object>()),
   createConfigStore: vi.fn(() => ({
     getEnvironment: vi.fn(() => ({ gatewayUrl: 'http://localhost', authToken: null, tenantId: null, mode: 'local-embedded', localDbPath: '/tmp/local.db' })),
     getDefaultEnv: vi.fn(() => 'prod'),
     getConnectorFields: mockGetConnectorFields,
+    isConnected: (e: string, id: string) => Boolean(mockGetConnectorFields(e, id)?.['token']),
+    tokenStoreStatus: () => ({ store: 'file', label: 'the config file', reason: null, forced: true }),
     saveConnectorFields: mockSaveConnectorFields,
     forgetConnector: mockForget,
     getConnectorScope: mockGetScope, setConnectorScope: mockSetConnectorScope, clearConnectorScope: vi.fn(),

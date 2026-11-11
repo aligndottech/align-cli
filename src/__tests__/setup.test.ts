@@ -80,7 +80,7 @@ const mockSaveConnectorFields = vi.hoisted(() => vi.fn());
 // Setup hands paste-token sources (not GitHub, GitLab or Teams) to one background child. Never spawn a real one here.
 const mockStartSync = vi.hoisted(() => vi.fn().mockResolvedValue({ ok: true, pid: 1 }));
 vi.mock('../lib/sync/spawn-background.js', async (orig) => ({ ...(await orig<object>()), startSyncChild: mockStartSync }));
-const mockForgetConnector = vi.hoisted(() => vi.fn());
+const mockForgetConnector = vi.hoisted(() => vi.fn(() => ({ keychainFailed: false })));
 // Nothing saved by default, so every pre-existing test keeps its subject - the
 // guided-key offer only fires when hasConfiguredProvider() is also false (gated by real env
 // vars, cleared per-test in the describe block that exercises this).
@@ -105,6 +105,8 @@ const makeDefaultConfig = () => ({
     getConnectorToken: mockGetConnectorToken,
     setConnectorToken: mockSetConnectorToken,
     getConnectorFields: mockGetConnectorFields,
+    isConnected: (e: string, id: string) => Boolean(mockGetConnectorFields(e, id)?.['token']),
+    tokenStoreStatus: () => ({ store: 'file', label: 'the config file', reason: null, forced: true }),
     saveConnectorFields: mockSaveConnectorFields,
     forgetConnector: mockForgetConnector,
     // L4: the scope choice and the one-time team-scope disclosure. Nothing chosen and nothing told by default, like every other store field here.
@@ -1545,6 +1547,8 @@ describe('align setup', () => {
           getConnectorToken: mockGetConnectorToken,
           setConnectorToken: mockSetConnectorToken,
           getConnectorFields: mockGetConnectorFields,
+    isConnected: (e: string, id: string) => Boolean(mockGetConnectorFields(e, id)?.['token']),
+    tokenStoreStatus: () => ({ store: 'file', label: 'the config file', reason: null, forced: true }),
           saveConnectorFields: mockSaveConnectorFields,
           forgetConnector: mockForgetConnector,
           // L4: the scope choice and the one-time team-scope disclosure. Nothing chosen and nothing told by default, like every other store field here.
@@ -2141,6 +2145,8 @@ describe('align setup', () => {
       getConnectorToken: mockGetConnectorToken,
       setConnectorToken: mockSetConnectorToken,
       getConnectorFields: mockGetConnectorFields,
+    isConnected: (e: string, id: string) => Boolean(mockGetConnectorFields(e, id)?.['token']),
+    tokenStoreStatus: () => ({ store: 'file', label: 'the config file', reason: null, forced: true }),
       saveConnectorFields: mockSaveConnectorFields,
       forgetConnector: mockForgetConnector,
       // L4: the scope choice and the one-time team-scope disclosure. Nothing chosen and nothing told by default, like every other store field here.

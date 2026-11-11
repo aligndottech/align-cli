@@ -9,6 +9,9 @@ import { type ActiveScope, CONFLUENCE_PAGE_ID, type Narrowing, NOTION_ID, type S
 import { asDestinationName, type TeamDestinationName, validateDestinationName } from './destination-name.js';
 import { assertTransport } from './destination-trust.js';
 import { alignConfigDir, ensurePrivateDir, tightenFile } from './private-files.js';
+import { defaultTokenVault, type TokenVault } from './token-store.js';
+import { envCredentials } from './token-env.js';
+import { KNOWN_SOURCES } from './sync/source-ids.js';
 
 export type BuiltinEnv = 'local' | 'preview' | 'prod';
 /** A builtin, or the name of a team destination saved by `align join`. */
@@ -133,11 +136,20 @@ export interface LeadState { shownAt?: string; version?: string; outcome?: LeadP
 const scopeKey = (env: string, connectorKey: string, repo?: string | null): string =>
   repo ? `${env}:${connectorKey}:scope:repo:${repo}` : `${env}:${connectorKey}:scope`;
 
-export function createConfigStore() {
+export interface ConfigStoreDeps {
+  /** Where connector tokens live. Tests inject a fake; the default is the OS credential store with the config file as the stated fallback. */
+  vault?: TokenVault;
+}
+
+export function createConfigStore(deps: ConfigStoreDeps = {}) {
   const store = new Conf<{
     environments: Record<string, Partial<EnvironmentConfig>>;
     defaultEnv: EnvName;
     connectorTokens: Record<string, string>;
+    /** Accounts (`<env>:<source>`) whose token is in the OS credential store, each with the time it was written there (ms). Never a secret: it lets "forget everything" find them, and says which copy is newer. */
+    keychainTokens?: Record<string, number>;
+    /** When each plaintext copy in connectorTokens was written (ms). A copy with no entry came from an older version, which never wrote to the keychain, so it is the newer one. */
+    connectorTokenTimes?: Record<string, number>;
     installId?: string;
     telemetryConsent?: TelemetryConsent;
     telemetryNoticeShownAt?: string;
@@ -181,7 +193,7 @@ export function createConfigStore() {
     // makes this match env-paths('align-cli', { suffix: '' }) - the same call
     // local-mode.ts now makes directly, so there is one authority, not two guesses.
     projectSuffix: '',
-    defaults: { environments: {}, defaultEnv: 'prod', connectorTokens: {} },
+    defaults: { environments: {}, defaultEnv: 'prod', connectorTokens: {}, keychainTokens: {}, connectorTokenTimes: {} },
     // This file holds the read-only tokens local mode asks for, so it is a credential file
     // rather than ordinary config. 0600 is also what the setup copy promises the user.
     configFileMode: 0o600,
@@ -196,6 +208,82 @@ export function createConfigStore() {
 
   const getEnvs = () => store.get('environments') as Record<string, Partial<EnvironmentConfig>>;
   const getTokens = () => store.get('connectorTokens') as Record<string, string>;
+  // Connector tokens: the OS credential store first, the 0600 file only as the stated fallback (token-store.ts). The primary
+  // token of a connector is the two-part `<env>:<source>` entry; its extra fields, scopes, cloudId and siteBase have more parts
+  // and stay in the file, because none of them is a secret.
+  const vault = deps.vault ?? defaultTokenVault({ blobFile: path.join(alignConfigDir(), 'token-blobs.json') });
+  const account = (env: EnvName, connectorKey: string) => `${env}:${connectorKey}`;
+  const readIndex = (): Record<string, number> => {
+    const v = store.get('keychainTokens') as unknown;
+    // An array is the first shape this field had, before it carried times: those entries are older than any timestamp.
+    if (Array.isArray(v)) return Object.fromEntries((v as string[]).map((a) => [a, 0]));
+    return { ...((v as Record<string, number> | undefined) ?? {}) };
+  };
+  const writeIndex = (m: Record<string, number>) => { store.set('keychainTokens', m); };
+  const fileTimes = (): Record<string, number> => ({ ...(store.get('connectorTokenTimes') ?? {}) });
+  const writeFileTimes = (m: Record<string, number>) => { store.set('connectorTokenTimes', m); };
+  /** Accounts whose keychain read failed in this process. A failed read is "unknown", never "not connected". */
+  const readFailed = new Set<string>();
+  const dropFileCopy = (acct: string) => {
+    const { [acct]: _gone, ...rest } = getTokens();
+    store.set('connectorTokens', rest);
+    const { [acct]: _t, ...times } = fileTimes();
+    writeFileTimes(times);
+  };
+  /**
+   * The stored token for one account. Two copies can exist (a fallback write left a plaintext one, then the keychain came back); the
+   * NEWER write wins, by the timestamps, and a plaintext copy that is newer is moved into the keychain here. A copy with no timestamp
+   * is from an older version, which never wrote to the keychain, so it is the newer one. A copy is dropped only when the keychain
+   * verifiably holds the newer or same value: a failed or empty keychain never costs the file copy.
+   */
+  const storedToken = (acct: string): string | undefined => {
+    readFailed.delete(acct);
+    const index = readIndex();
+    const file = getTokens()[acct];
+    if (file !== undefined) {
+      const fileAt = fileTimes()[acct];
+      const keyAt = index[acct];
+      if (keyAt === undefined || fileAt === undefined || fileAt > keyAt) {
+        if (vault.migrate(acct, file)) {
+          dropFileCopy(acct);
+          writeIndex({ ...readIndex(), [acct]: Date.now() });
+        }
+        return file;
+      }
+      const kept = vault.read(acct, true);
+      if (kept.status === 'found') { dropFileCopy(acct); return kept.value; }
+      return file;
+    }
+    const r = vault.read(acct, acct in index);
+    if (r.status === 'found') return r.value;
+    if (r.status === 'failed') readFailed.add(acct);
+    return undefined;
+  };
+  /** Writes one token: to the keychain when it verifiably holds it (and the plaintext copy goes in the same operation), else to the file (the vault has said so). */
+  const putToken = (tokens: Record<string, string>, acct: string, token: string): Record<string, string> => {
+    const r = vault.write(acct, token);
+    readFailed.delete(acct);
+    if (r.store === 'keychain') {
+      writeIndex({ ...readIndex(), [acct]: Date.now() });
+      const { [acct]: _t, ...times } = fileTimes();
+      writeFileTimes(times);
+      const { [acct]: _gone, ...rest } = tokens;
+      return rest;
+    }
+    writeFileTimes({ ...fileTimes(), [acct]: Date.now() });
+    return { ...tokens, [acct]: token };
+  };
+  /** Removes an account from the keychain and its record. `failed` means it may still be there: the record is kept so a later forget can retry. */
+  const dropFromKeychain = (acct: string): boolean => {
+    const index = readIndex();
+    const r = vault.remove(acct);
+    const failed = r === 'failed' || (r === 'no-store' && acct in index);
+    if (!failed && acct in index) { const { [acct]: _gone, ...rest } = index; writeIndex(rest); }
+    const { [acct]: _t, ...times } = fileTimes();
+    writeFileTimes(times);
+    readFailed.delete(acct);
+    return failed;
+  };
   // A team destination is a saved entry of kind team under a VALID name. The name check is what keeps a hand-edited key
   // such as `a;b` from ever reaching a command line this CLI prints (envFlag) or a `--env` an agent config stores.
   const isTeam = (name: string): boolean => Object.hasOwn(getEnvs(), name) && getEnvs()[name]?.kind === 'team' && validateDestinationName(name) === null;
@@ -290,12 +378,10 @@ export function createConfigStore() {
     setDefaultEnv(env: EnvName) { store.set('defaultEnv', env); },
     getDefaultEnv(): EnvName { return store.get('defaultEnv') as EnvName; },
     getConnectorToken(env: EnvName, connectorKey: string): string | null {
-      const tokens = store.get('connectorTokens') as Record<string, string>;
-      return tokens[`${env}:${connectorKey}`] ?? null;
+      return storedToken(account(env, connectorKey)) ?? null;
     },
     setConnectorToken(env: EnvName, connectorKey: string, token: string) {
-      const tokens = store.get('connectorTokens') as Record<string, string>;
-      store.set('connectorTokens', { ...tokens, [`${env}:${connectorKey}`]: token });
+      store.set('connectorTokens', putToken(getTokens(), account(env, connectorKey), token));
     },
     /**
      * Everything local mode collected for one connector: the token plus whatever extra fields
@@ -304,16 +390,17 @@ export function createConfigStore() {
      * and reading it as the first is how it ended up re-asking on every run.
      */
     getConnectorFields(env: EnvName, connectorKey: string): Record<string, string> | null {
-      const tokens = getTokens();
-      const token = tokens[`${env}:${connectorKey}`];
+      // A person's environment (a password manager) outranks everything stored, and is only ever read: see saveConnectorFields.
+      const fromEnv = env === 'local' ? envCredentials(connectorKey) : null;
+      const token = fromEnv?.['token'] ?? storedToken(account(env, connectorKey));
       if (token === undefined) return null;
 
       const prefix = fieldPrefix(env, connectorKey);
       const fields: Record<string, string> = { token };
-      for (const [key, value] of Object.entries(tokens)) {
+      for (const [key, value] of Object.entries(getTokens())) {
         if (key.startsWith(prefix)) fields[key.slice(prefix.length)] = value;
       }
-      return fields;
+      return { ...fields, ...fromEnv };
     },
     saveConnectorFields(env: EnvName, connectorKey: string, fields: Record<string, string>) {
       const { token, ...extras } = fields;
@@ -323,13 +410,20 @@ export function createConfigStore() {
       // there is one writer, rather than teaching every reader to distrust the value.
       if (!token) throw new Error(`saveConnectorFields: ${connectorKey} needs a non-empty token`);
       const prefix = fieldPrefix(env, connectorKey);
-      const updated = { ...getTokens(), [`${env}:${connectorKey}`]: token };
-      for (const [name, value] of Object.entries(extras)) updated[`${prefix}${name}`] = value;
+      // What the environment supplied is read-through. Setup saves back whatever it read, so a value that equals the variable's is
+      // skipped here: a password-manager token must never reach the keychain or the disk.
+      const fromEnv = env === 'local' ? envCredentials(connectorKey) : null;
+      let updated = getTokens();
+      if (fromEnv?.['token'] !== token) updated = putToken(updated, account(env, connectorKey), token);
+      for (const [name, value] of Object.entries(extras)) {
+        if (fromEnv?.[name] !== value) updated = { ...updated, [`${prefix}${name}`]: value };
+      }
       store.set('connectorTokens', updated);
     },
     /** Drops every key this connector owns - token, extra fields, and any OAuth cloudId/siteBase. */
-    forgetConnector(env: EnvName, connectorKey: string) {
+    forgetConnector(env: EnvName, connectorKey: string): { keychainFailed: boolean } {
       const owned = `${env}:${connectorKey}`;
+      const keychainFailed = dropFromKeychain(owned);
       if (env === 'local') {
         const told = store.get('teamScopeDisclosedFor') ?? [];
         store.set('teamScopeDisclosedFor', told.filter((e) => !e.startsWith(`${connectorKey}|`)));
@@ -338,14 +432,41 @@ export function createConfigStore() {
         Object.entries(getTokens()).filter(([key]) => key !== owned && !key.startsWith(`${owned}:`)),
       );
       store.set('connectorTokens', kept);
+      return { keychainFailed };
     },
     /** Every connector in one environment. The other environments' credentials are untouched. */
-    forgetAllConnectors(env: EnvName) {
+    forgetAllConnectors(env: EnvName): { keychainFailed: boolean } {
       if (env === 'local') store.set('teamScopeDisclosedFor', []);
+      // The index says what was put in the keychain; the known sources cover a config file that lost it. Both, because a token
+      // left behind in the keychain after "remove every token" is the one outcome this command must not have.
+      const accounts = new Set([
+        ...Object.keys(readIndex()).filter((a) => a.startsWith(`${env}:`)),
+        ...(env === 'local' ? KNOWN_SOURCES.map((k) => account(env, k)) : []),
+      ]);
+      let keychainFailed = false;
+      for (const a of accounts) if (dropFromKeychain(a)) keychainFailed = true;
       const kept = Object.fromEntries(
         Object.entries(getTokens()).filter(([key]) => !key.startsWith(`${env}:`)),
       );
       store.set('connectorTokens', kept);
+      return { keychainFailed };
+    },
+    /** A token is saved for this source: in the file, or recorded as being in the keychain (even when it cannot be read just now). Not an environment variable. */
+    hasStoredToken(env: EnvName, connectorKey: string): boolean {
+      const acct = account(env, connectorKey);
+      return getTokens()[acct] !== undefined || acct in readIndex();
+    },
+    /** The keychain could not be read for this source in this process: connected, but unknown. Callers must not conclude "not connected". */
+    tokenReadFailed(env: EnvName, connectorKey: string): boolean {
+      return readFailed.has(account(env, connectorKey));
+    },
+    /** Connected, or unknown because the read failed. The question for anything that would otherwise shrink what is shown or synced. */
+    isConnected(env: EnvName, connectorKey: string): boolean {
+      return this.getConnectorFields(env, connectorKey) !== null || readFailed.has(account(env, connectorKey));
+    },
+    /** Which store holds connector tokens on this machine, for `align doctor`. */
+    tokenStoreStatus() {
+      return vault.describe();
     },
     getConnectorCloudId(env: EnvName, connectorKey: string): string | null {
       const tokens = store.get('connectorTokens') as Record<string, string>;

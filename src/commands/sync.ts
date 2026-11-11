@@ -306,7 +306,7 @@ export function registerSyncCommand(program: Command): void {
         graphPath: () => localGraphPath(config),
         env: (dbPath) => realSyncEnv(dbPath, config),
         statusDeps: (dbPath) => realStatusDeps(dbPath, config),
-        isConnected: (id) => Boolean(config.getConnectorFields('local', id)?.['token']),
+        isConnected: (id) => config.isConnected('local', id),
         isTty: () => Boolean(process.stdin.isTTY && process.stdout.isTTY),
         confirm: async (message) => {
           const p = await import('@clack/prompts');
@@ -314,7 +314,7 @@ export function registerSyncCommand(program: Command): void {
           return answer === true;
         },
         sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-        refresh: (dbPath) => { refreshSummary(dbPath, (id) => Boolean(config.getConnectorFields('local', id)?.['token'])); },
+        refresh: (dbPath) => { refreshSummary(dbPath, (id) => config.isConnected('local', id)); },
         estimate: estimateClassify,
         classify: classifyUnclassified,
         classifyLock: () => acquireLock('sync-classify'),
@@ -329,7 +329,7 @@ export function registerSyncCommand(program: Command): void {
         backgroundProblems: () => {
           const dir = alignStateDir();
           if (dir === null) return ['Align cannot use its state directory, so it does not refresh in the background'];
-          const lines = BACKFILL_SOURCES.filter((s) => config.getConnectorFields('local', s)?.['token']).map((s) => claimProblem(dir, s, Date.now(), SYNC_MIN_INTERVAL_MS));
+          const lines = BACKFILL_SOURCES.filter((s) => config.isConnected('local', s)).map((s) => claimProblem(dir, s, Date.now(), SYNC_MIN_INTERVAL_MS));
           return [...new Set(lines.filter((l): l is string => l !== undefined))];
         },
         shellGate: () => (process.env['ALIGN_NO_SYNC'] ? 'ALIGN_NO_SYNC is set' : inCi() ? 'this looks like CI' : undefined),

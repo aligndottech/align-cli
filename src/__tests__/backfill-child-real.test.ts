@@ -33,7 +33,7 @@ beforeAll(() => {
     PATH: process.env['PATH'], HOME: home, USERPROFILE: home, LOCALAPPDATA: home,
     XDG_CONFIG_HOME: path.join(home, 'config'), XDG_DATA_HOME: path.join(home, 'data'),
     XDG_STATE_HOME: path.join(home, 'state'), XDG_CACHE_HOME: path.join(home, 'cache'),
-    DO_NOT_TRACK: '1', CI: '1', NO_COLOR: '1',
+    DO_NOT_TRACK: '1', CI: '1', NO_COLOR: '1', ALIGN_TOKEN_STORE: 'file',
   };
 });
 afterAll(() => fs.rmSync(home, { recursive: true, force: true }));

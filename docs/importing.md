@@ -28,6 +28,72 @@ manual and CI alternative, and how you connect self-managed hosts.
 Every import previews what it will import and asks before sending anything. Use `--approve` to
 skip the prompt.
 
+## Local mode tokens: where they live, and how to supply them
+
+Local mode (`align --local`) has no OAuth callback, so each source uses a read-only token you create and paste. Zoom is not in this list: it has no personal token, so it is a cloud-only source.
+
+**Where a pasted token is stored.** In your operating system's credential store when there is one:
+
+| OS | Store | Tool Align runs |
+|---|---|---|
+| macOS | Keychain | `/usr/bin/security` |
+| Linux | Secret Service (GNOME Keyring, KWallet) | `secret-tool` (package `libsecret-tools`) |
+| Windows | DPAPI: encrypted for your Windows account, blob kept in `token-blobs.json` beside `config.json` | PowerShell |
+
+The token goes to the tool on stdin, never on its command line, so it does not show up in `ps`. Align reads each write back before it counts it.
+
+**The fallback.** With no credential store (a headless Linux box with no secret service, a missing tool, an error), Align saves the token in `config.json` (owner-only, `0600`) and says so once: which store it could not use and why. `align doctor` reports which store is in use. `ALIGN_TOKEN_STORE=file` chooses the file on purpose and prints nothing.
+
+**A store that is locked or slow.** The first time a read errors or times out (reads wait at most 3 seconds), Align stops using the store for the rest of that process and says so once. The sources whose tokens are there are skipped, not treated as disconnected, so the launch summary and background refresh keep their state until the store answers. If a removal fails, `align local forget` and `align local reset` say so and exit 1, and keep the record so running them again retries.
+
+**Windows blob file.** If `token-blobs.json` cannot be parsed, Align reports it once and leaves the file as it is. Restore it from a backup, or delete it and reconnect your sources.
+
+**Downgrading.** An older `align` does not know about the credential store. Tokens already moved there are not moved back, so the older version finds no token for those sources: reconnect them with it. To keep a downgrade possible, set `ALIGN_TOKEN_STORE=file` before you connect, so new tokens stay in the config file.
+
+**Who can read it.** The credential store protects the token from other users, from disk images and from backups that copy `config.json`. It does not protect it from another program running as you: on every platform a process of the same user can ask the store for the item. Treat the keychain as better than a plaintext file, not as a vault against malware on your own account.
+
+**Tokens saved by an older version** move into the credential store the next time Align reads them, and the plaintext copy is removed only after the store holds it. If the move fails, the token stays readable in the file. `align local forget <source>` removes the token from the credential store as well, and says so if it could not.
+
+**From your environment or a password manager.** Set `ALIGN_<SOURCE>_TOKEN`:
+
+| Source | Variable | Extra variables |
+|---|---|---|
+| GitHub | `ALIGN_GITHUB_TOKEN` | |
+| GitLab | `ALIGN_GITLAB_TOKEN` | `ALIGN_GITLAB_DOMAIN` (self-managed) |
+| Jira | `ALIGN_JIRA_TOKEN` | `ALIGN_JIRA_EMAIL`, `ALIGN_JIRA_DOMAIN` |
+| Confluence | `ALIGN_CONFLUENCE_TOKEN` | `ALIGN_CONFLUENCE_EMAIL`, `ALIGN_CONFLUENCE_DOMAIN` |
+| Slack | `ALIGN_SLACK_TOKEN` | |
+| Linear | `ALIGN_LINEAR_TOKEN` | |
+| Notion | `ALIGN_NOTION_TOKEN` | |
+| Teams | `ALIGN_TEAMS_TOKEN` | |
+
+Order is: the environment variable first. Then whichever of the credential store and the file copy was written more recently: a plaintext copy that is newer than the keychain's (for example saved while the keychain was unreachable) is moved into the keychain, and an older one is dropped once the keychain verifiably holds the newer token. A token from the environment is only read. It is never written to the credential store or to disk. An empty variable counts as unset.
+
+**Where environment tokens work.** In CLI commands you run, and in Align's own background sync, which is a detached process Align starts for you and which receives these variables. They do **not** work inside an MCP server that an agent spawns (`align mcp`): that server reads only the credential store or the file. The reason is that agents such as Cline and `cn` start MCP servers with the environment of the repo's `.env` file, so honouring these variables there would let a repo choose whose data you import. The server's config entry pins every `ALIGN_<SOURCE>_TOKEN`, `_EMAIL` and `_DOMAIN` to empty for the same reason. With 1Password, put `op://` references in an env file and run Align through `op run`:
+
+```bash
+# align.env
+ALIGN_GITHUB_TOKEN=op://Personal/Align GitHub/credential
+
+op run --env-file=align.env -- align connect github --env local
+```
+
+`align local forget github` cannot unset a variable: while it is set, the source stays connected.
+
+**Read-only scopes and expiry.** The token page Align opens is pre-filled only where the vendor documents a way to do that:
+
+| Source | What is pre-filled | Expiry | Vendor documentation |
+|---|---|---|---|
+| GitHub | fine-grained token with `contents`, `issues`, `pull_requests` set to `read`, a name and description | 90 days (`expires_in=90`; GitHub's default is 30 days) | [Managing your personal access tokens](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens) |
+| GitLab | name and the `read_api` scope, on gitlab.com or your own host | not available: GitLab documents only `name`, `description` and `scopes`. The form's own default applies | [Personal access tokens](https://docs.gitlab.com/user/profile/personal_access_tokens/) |
+| Slack | "create app from manifest" with four read-only user scopes (`channels:read`, `channels:history`, `groups:read`, `groups:history`) and no bot user | not available: Slack token rotation is a separate opt-in | [App manifests](https://docs.slack.dev/app-manifests/configuring-apps-with-app-manifests/) |
+| Jira, Confluence | nothing: the page opens bare | the page offers an expiry (1 to 365 days) but takes no URL parameter. Pick a short one | [Manage API tokens](https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/) |
+| Linear | nothing: the page opens bare | none documented | no URL parameters documented |
+| Notion | nothing: the page opens bare. Tick only "Read content" | none documented | no URL parameters documented |
+| Teams | nothing: Graph Explorer opens bare | about one hour | no URL parameters documented |
+
+**Honest limits.** Teams has no personal token: you copy a Graph access token that lasts about an hour, so Teams syncs only when you run it (`align sync teams`). Zoom reads only your own cloud recordings, and a whole-account read needs an admin token, which Align does not ask for. A token is as read-only as the scopes you give it: check what the provider shows before you click create.
+
 ## How far back
 
 Each connector reads the last **180 days** by default. `--since` changes that on `align connect <source>`

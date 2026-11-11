@@ -58,6 +58,8 @@ export interface SyncEnv {
   dbPath: string;
   now(): Date;
   tokens(source: string): Record<string, string> | null;
+  /** The saved token exists but the credential store could not be read just now. Unknown, so never "not connected". */
+  tokenReadFailed?(source: string): boolean;
   scopeOf(source: string, o: { trigger: 'cli' | 'background' }): Promise<SyncScope>;
   /** L4: print the one-time team-scope disclosure. Wired only for a foreground run; nobody is there to read it in the background. */
   announce?(source: string, line: string): void;
@@ -117,6 +119,8 @@ export async function syncSource(
   o: { trigger: 'cli' | 'background'; minIntervalMs?: number } = { trigger: 'cli' },
 ): Promise<SourceOutcome> {
   const tokens = env.tokens(source);
+  // A locked or slow keychain is not a disconnected source: 'skipped' writes no blocked marker and no timestamp, so the next run tries again.
+  if (tokens === null && env.tokenReadFailed?.(source) === true) return none(source, 'skipped', `${source}'s saved token could not be read from the credential store just now (locked or not responding), so it was skipped. Run: align doctor`);
   if (tokens === null || !tokens['token']) return none(source, 'not_connected', `${source} is not connected. Run: align connect ${source}`);
   // Decision 21: a Teams token lasts about an hour, so a background run would hold a dead one.
   if (source === 'teams' && o.trigger === 'background') return none(source, 'manual', 'Teams is refreshed by hand: align connect teams');

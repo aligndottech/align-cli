@@ -16,7 +16,7 @@ import type { EnvironmentConfig } from './config.js';
 export const MIN_NODE = '22.19.0';
 
 export type CheckStatus = 'pass' | 'fail' | 'skip';
-export type CheckId = 'node' | 'path' | 'gateway' | 'whoami' | 'embeddings' | 'ask';
+export type CheckId = 'node' | 'path' | 'gateway' | 'whoami' | 'embeddings' | 'tokens' | 'ask';
 
 export interface DoctorCheck {
   id: CheckId;
@@ -43,6 +43,11 @@ export interface DoctorDeps {
    * a cloud install, where nothing embeds on this machine.
    */
   ensureEmbeddings?(): Promise<{ detail: string }>;
+  /**
+   * Local mode: which store holds the read-only connector tokens. Absent when the install has none to store (cloud).
+   * Informational only: a file is a stated fallback, not a failure.
+   */
+  tokenStore?(): { store: 'keychain' | 'file'; label: string; reason: string | null; forced: boolean };
   /** One real `tools/call` of align_ask through `align mcp`. Resolves with the text content; throws on any error. */
   askViaMcp(alignBin: string): Promise<{ text: string }>;
 }
@@ -215,6 +220,19 @@ export async function runDoctor(d: DoctorDeps): Promise<DoctorCheck[]> {
         { id: 'embeddings', label: 'On-device embeddings' },
       ),
     );
+  }
+
+  // 5b. where connector tokens are kept (informational: never fails a run)
+  if (d.tokenStore) {
+    const t = d.tokenStore();
+    checks.push({
+      id: 'tokens',
+      label: 'Connector token store',
+      status: 'pass',
+      detail: t.store === 'keychain'
+        ? (t.reason === null ? t.label : `${t.label}, but it stopped responding this run (${t.reason}); saved tokens there are skipped until it answers`)
+        : `the config file, owner-only (mode 0600), ${t.forced ? `by choice (${t.reason ?? 'ALIGN_TOKEN_STORE=file'})` : `because the OS credential store is not usable: ${t.reason ?? 'unknown'}`}`,
+    });
   }
 
   // 6. the real tool call

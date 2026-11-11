@@ -2,6 +2,7 @@ import { existsSync as fileExists } from 'node:fs';
 import type { Command } from 'commander';
 import chalk from 'chalk';
 import { createConfigStore } from '../lib/config.js';
+import { tokenEnvName } from '../lib/token-env.js';
 import { createLocalDb } from '../lib/local-db.js';
 import { exportLedger, restoreLedger } from '../lib/share/ledger.js';
 import { sweepPending } from '../lib/share/pending.js';
@@ -12,6 +13,12 @@ import { isPurgeable, PURGEABLE_SOURCES, purgePreview } from '../lib/sync/purge.
 import { BACKFILL_SOURCES } from '../lib/mcp-backfill.js';
 import { refreshSummary } from '../lib/sync/summary.js';
 import { DEFAULT_RELINK_MAX_CALLS, type RelinkCommandOptions, runRelinkCommand } from './local-relink.js';
+
+/** The graph side already ran. A token still in the keychain is a credential the person believes is gone, so say so and fail. */
+function keychainFailure(config: { tokenStoreStatus(): { label: string } }, command: string): void {
+  console.error(`${command}: could not remove the token from ${config.tokenStoreStatus().label}. It may still be stored there: delete the "align-cli" entry with your OS credential manager, then run this again.`);
+  process.exitCode = 1;
+}
 
 export function registerLocalCommand(program: Command): void {
   const local = program
@@ -55,7 +62,7 @@ export function registerLocalCommand(program: Command): void {
       const db = createLocalDb(env.localDbPath ?? getLocalDbPath());
       // Same check as `align status` and `align local forget` - connected means
       // local mode holds a saved token for it.
-      const isConnected = (id: string) => config.getConnectorFields('local', id) !== null;
+      const isConnected = (id: string) => config.isConnected('local', id);
       const rollup = localValueRollup(db, isConnected);
       db.close();
       console.log(`\n${  renderValueReadout(rollup, { mode: 'local' })  }\n`);
@@ -75,9 +82,10 @@ export function registerLocalCommand(program: Command): void {
       const dbPath = env.mode === 'local-embedded' ? env.localDbPath : undefined;
       // The launch summary lists connected sources; forgetting one must not leave it there.
       const refresh = (): void => {
-        if (dbPath && fileExists(dbPath)) refreshSummary(dbPath, (id) => Boolean(config.getConnectorFields('local', id)?.['token']));
+        if (dbPath && fileExists(dbPath)) refreshSummary(dbPath, (id) => config.isConnected('local', id));
       };
       const refuse = (message: string): void => { console.error(message); process.exitCode = 2; };
+      const keychainWarning = (): void => keychainFailure(config, 'align local forget');
       if (opts.purge && (!connector || !isPurgeable(connector))) {
         // A purge across every source in one word, or of a name that is not a connector (cli, git, a typo),
         // is not a thing to do by accident. Nothing is deleted and no token is forgotten.
@@ -85,17 +93,22 @@ export function registerLocalCommand(program: Command): void {
         return;
       }
       if (!connector) {
-        config.forgetAllConnectors('local');
+        const all = config.forgetAllConnectors('local');
         for (const id of BACKFILL_SOURCES) forgetSourceData(dbPath, id, { purge: false });
         refresh();
+        if (all.keychainFailed) { keychainWarning(); return; }
         console.log('Removed every saved read-only token. Setup will ask again next time.');
         return;
       }
       // Distinguish "removed it" from "there was nothing there": silence on a no-op reads as
       // success, and leaves someone believing a credential is gone that was never stored.
-      const had = Boolean(config.getConnectorFields('local', connector));
+      // Saved means recorded in the file or the keychain, not "readable right now": a locked keychain returns no fields for a token
+      // that is still there, and an environment variable is not Align's to remove.
+      const had = config.hasStoredToken('local', connector);
       if (!had && !opts.purge) {
         console.log(`Nothing saved for ${connector}.`);
+        const variable = tokenEnvName(connector);
+        if (process.env[variable]) console.log(`${variable} is set in your environment, so ${connector} stays connected until you unset it.`);
         return;
       }
       if (opts.purge && dbPath && fileExists(dbPath)) {
@@ -122,11 +135,15 @@ export function registerLocalCommand(program: Command): void {
         process.exitCode = 1;
         return;
       }
-      if (had) config.forgetConnector('local', connector);
+      const forgotten = had ? config.forgetConnector('local', connector) : { keychainFailed: false };
       refresh();
+      if (forgotten.keychainFailed) { keychainWarning(); return; }
       console.log(had
         ? `Removed the saved token for ${connector}. Revoke it at the provider too if you are done with it.`
         : `Nothing saved for ${connector}.`);
+      // A variable outranks everything stored, so forgetting leaves the source connected for as long as it is set.
+      const envVar = tokenEnvName(connector);
+      if (process.env[envVar]) console.log(`${envVar} is still set in your environment, so ${connector} stays connected until you unset it.`);
       if (r.purged) {
         console.log(`Deleted ${r.purged.deleted} ${connector} items nobody had vouched for, and kept ${r.purged.kept} (ratified, confirmed, captured by hand, acted on or judged).`);
       } else if (r.staying > 0) {
@@ -206,7 +223,12 @@ export function registerLocalCommand(program: Command): void {
       config.clearLocalMode();
       // "Reset config" has to include the saved read-only tokens, or the promise is false in
       // exactly the way the setup copy used to be.
-      config.forgetAllConnectors('local');
+      const removed = config.forgetAllConnectors('local');
+      if (removed.keychainFailed) {
+        console.log('Local graph wiped.');
+        keychainFailure(config, 'align local reset');
+        return;
+      }
       console.log('Local graph wiped and saved tokens removed. Run `align local start` to reinitialize.');
     });
 }

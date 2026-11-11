@@ -1,5 +1,6 @@
 import { NAMED_PROVIDERS, PROVIDER_ENV_VARS } from '../llm-providers.js';
 import { absoluteXdg, XDG_VARS } from '../xdg.js';
+import { CREDENTIAL_ENV_NAMES } from '../token-env.js';
 
 /*
  * The `env` block of the align-local entry Align hands to an agent that loads a repo `.env`
@@ -20,7 +21,7 @@ const ALIGN_READS = [
   'ALIGN_AGENT_MODEL', 'ALIGN_DEBUG', 'ALIGN_DETECTOR', 'ALIGN_ENV', 'ALIGN_GATEWAY_URL', 'ALIGN_HEAD_SHA', 'ALIGN_INGEST_CONCURRENCY', 'ALIGN_INTERNAL',
   'ALIGN_LAUNCH_DRY_RUN', 'ALIGN_LAUNCH_TRACE', 'ALIGN_LLM_API_KEY', 'ALIGN_LLM_BASE_URL', 'ALIGN_LLM_PROVIDER',
   'ALIGN_LLM_TIMEOUT_MS', 'ALIGN_MODEL_CACHE', 'ALIGN_NO_LAUNCH', 'ALIGN_NO_LEAD_PROMPT', 'ALIGN_NO_SYNC', 'ALIGN_NO_TRUSTED_BIN', 'ALIGN_OLLAMA_MODEL', 'ALIGN_ORT_RUNTIME_URL', 'ALIGN_PLATFORM',
-  'ALIGN_SUBJECT_KEY', 'ALIGN_TELEMETRY', 'ALIGN_TENANT_ID', 'ALIGN_TOKEN', 'ALIGN_WRAPPED',
+  'ALIGN_SUBJECT_KEY', 'ALIGN_TELEMETRY', 'ALIGN_TENANT_ID', 'ALIGN_TOKEN', 'ALIGN_TOKEN_STORE', 'ALIGN_WRAPPED',
 ] as const;
 
 /**
@@ -41,13 +42,13 @@ const NODE_PLAIN = ['NODE_DEBUG', 'NODE_PRESERVE_SYMLINKS'] as const;
 /** Code loading or trust switches: always empty, whatever the user has. */
 const ALWAYS_EMPTY = [
   // ALIGN_RULES_ACK is a person's override of a ratified-rule deny: an agent's child must never carry it.
-  'NODE_OPTIONS', 'NODE_PATH', 'ALIGN_RULES_ACK', 'NODE_REPL_EXTERNAL_MODULE', 'NODE_TLS_REJECT_UNAUTHORIZED',
+  'NODE_OPTIONS', 'NODE_PATH', 'ALIGN_RULES_ACK', 'ALIGN_ALLOW_REAL_KEYCHAIN_IN_TESTS', 'NODE_REPL_EXTERNAL_MODULE', 'NODE_TLS_REJECT_UNAUTHORIZED',
   'LD_PRELOAD', 'LD_LIBRARY_PATH', 'DYLD_INSERT_LIBRARIES', 'DYLD_LIBRARY_PATH', 'DYLD_FRAMEWORK_PATH',
 ];
 
 /** Never written into an agent's config with a value: always empty in the block. */
 export const CHILD_ENV_SECRETS: readonly string[] = [
-  ...new Set([...NAMED_PROVIDERS.flatMap((p) => p.keyEnv), ...PROVIDER_ENV_VARS.filter((v) => /KEY|TOKEN|SECRET|PASSWORD/.test(v)), 'ALIGN_TOKEN', 'ALIGN_LLM_API_KEY']),
+  ...new Set([...NAMED_PROVIDERS.flatMap((p) => p.keyEnv), ...PROVIDER_ENV_VARS.filter((v) => /KEY|TOKEN|SECRET|PASSWORD/.test(v)), 'ALIGN_TOKEN', 'ALIGN_LLM_API_KEY', ...CREDENTIAL_ENV_NAMES]),
 ].sort();
 
 export const CHILD_ENV_KEYS: readonly string[] = [
@@ -64,6 +65,8 @@ export const CHILD_ENV_NOT_PINNED: Record<string, string> = {
   APPDATA: 'always set on Windows',
   LOCALAPPDATA: 'always set on Windows',
   ProgramData: 'always set on Windows; read by the launcher only',
+  VITEST: 'set by the test runner only; the token store refuses to start a tool under it',
+  SYSTEMROOT: 'always set on Windows; read to find PowerShell by absolute path for the token store',
   PATH: 'always set; dotenv never overrides it',
   Path: 'Windows spelling of PATH; always set',
   PATHEXT: 'always set on Windows',

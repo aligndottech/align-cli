@@ -48,7 +48,7 @@ async function smoke(bin: 'fake' | 'real', over: Record<string, string> = {}, en
   fs.mkdirSync(path.join(home, '.config'), { recursive: true });
   const env = {
     PATH: process.env['PATH'] ?? '', HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'), XDG_DATA_HOME: path.join(home, '.local', 'share'),
-    FAKE_MCP_LOG: fakeLog, ALIGN_GATEWAY_URL: `http://127.0.0.1:${gw.port}`, ALIGN_TENANT_ID: 't-1', ALIGN_NO_LAUNCH: '1', ALIGN_TELEMETRY: '0',
+    FAKE_MCP_LOG: fakeLog, ALIGN_GATEWAY_URL: `http://127.0.0.1:${gw.port}`, ALIGN_TENANT_ID: 't-1', ALIGN_NO_LAUNCH: '1', ALIGN_TELEMETRY: '0', ALIGN_TOKEN_STORE: 'file',
     ...over,
   };
   const args = [script, path.join(dir, bin, 'align'), ...(envArg ? [envArg] : [])];

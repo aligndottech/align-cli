@@ -39,7 +39,7 @@ afterEach(() => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 const config = (fields: Record<string, Record<string, string>>, env: Record<string, unknown> = { mode: 'local-embedded', localDbPath: '/x/graph.db' }): Config =>
-  ({ getConnectorFields: (_e: string, id: string) => fields[id] ?? null, getEnvironment: () => env }) as unknown as Config;
+  ({ getConnectorFields: (_e: string, id: string) => fields[id] ?? null, isConnected: (_e: string, id: string) => Boolean(fields[id]?.['token']), tokenReadFailed: () => false, getEnvironment: () => env }) as unknown as Config;
 
 describe('localGraphPath', () => {
   it('the local graph when local mode is on, undefined otherwise (never invents one)', () => {

@@ -62,6 +62,8 @@ beforeEach(async () => {
     NODE_OPTIONS: `--require ${guard.replaceAll(path.sep, "/")} --import ${tsx}`,
     ALIGN_GATEWAY_URL: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
     ALIGN_NO_LAUNCH: '1',
+    // A hand-built env does not inherit the test pin, and a real child would probe the machine's keychain (it blocked a macOS runner's hook).
+    ALIGN_TOKEN_STORE: 'file',
     PATH: process.env['PATH'] ?? '',
   };
   for (const d of [env['XDG_CONFIG_HOME']!, env['XDG_DATA_HOME']!, env['XDG_STATE_HOME']!, env['XDG_CACHE_HOME']!]) fs.mkdirSync(d, { recursive: true });

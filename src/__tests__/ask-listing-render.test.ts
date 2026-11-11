@@ -17,6 +17,7 @@ vi.mock('../lib/config.js', () => ({
   createConfigStore: vi.fn(() => ({
     getEnvironment: vi.fn(() => ({ mode: envMode.mode })),
     getConnectorFields: vi.fn(() => null),
+    isConnected: vi.fn(() => false),
     isAskKeyOfferDismissed: () => true,
   })),
 }));

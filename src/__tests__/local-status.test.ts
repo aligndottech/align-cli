@@ -15,6 +15,7 @@ vi.mock('../lib/config.js', () => ({
   createConfigStore: vi.fn().mockReturnValue({
     getEnvironment: vi.fn().mockReturnValue({ mode: 'local-embedded', localDbPath: '/tmp/test.db' }),
     getConnectorFields: mockGetConnectorFields,
+    isConnected: (e: string, id: string) => mockGetConnectorFields(e, id) !== null,
   }),
 }));
 

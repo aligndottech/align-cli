@@ -196,6 +196,8 @@ align search "auth" --env local   # one-off override on any command
 | Variable | Description |
 |----------|-------------|
 | `ALIGN_TOKEN` | API token (alternative to `align login`) |
+| `ALIGN_<SOURCE>_TOKEN` | Local mode: a read-only token for one source (`ALIGN_GITHUB_TOKEN`, `ALIGN_JIRA_TOKEN`...), for a password manager to fill. Never written to disk. [Importing](importing.md#local-mode-tokens-where-they-live-and-how-to-supply-them) |
+| `ALIGN_TOKEN_STORE` | `file` keeps local connector tokens in `config.json` instead of the OS credential store, without the fallback notice |
 | `ALIGN_ENV` | Default environment (`prod`, `preview`, `local`) |
 | `ALIGN_GATEWAY_URL` | Override gateway URL (self-hosted) |
 | `ALIGN_TENANT_ID` | Override tenant ID (self-hosted / CI). Against `preview` or `prod` it needs `ALIGN_TOKEN` set too: a tenant on its own authenticates nothing, and the CLI refuses rather than sending it |
