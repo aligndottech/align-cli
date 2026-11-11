@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.74.0](https://github.com/aligndottech/align-cli/compare/cli-v0.73.0...cli-v0.74.0) (2026-11-11)
+
+
+### Features
+
+* **local:** store connector tokens in the OS credential store, read them from the environment ([#556](https://github.com/aligndottech/align-cli/issues/556)) ([7d2a7f7](https://github.com/aligndottech/align-cli/commit/7d2a7f7982dc2bbcff5b45229f5e02400b04f16e))
+
 ## [0.73.0](https://github.com/aligndottech/align-cli/compare/cli-v0.72.3...cli-v0.73.0) (2026-11-11)
 
 
