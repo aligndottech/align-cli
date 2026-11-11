@@ -33,6 +33,7 @@ import { registerAiCommand } from './ai.js';
 import { registerSyncCommand } from './sync.js';
 import { registerMarkCommand } from './mark.js';
 import { registerRuleCommand } from './rule.js';
+import { registerDemoCommand } from './demo.js';
 
 /**
  * The one list of top-level commands. `align --help` shows the `visible` ones and
@@ -62,6 +63,7 @@ export interface CommandEntry {
 export const COMMAND_REGISTRY: readonly CommandEntry[] = [
   // Environment targeting
   { names: ['env'], visible: false, summary: 'Set or show the default environment', register: registerEnvCommand },
+  { names: ['demo'], visible: false, summary: 'Watch the edit hook catch a decision in a throwaway repo', register: registerDemoCommand },
   { names: ['telemetry'], visible: false, summary: 'Usage telemetry on, off, status', register: registerTelemetryCommand },
 
   // Auth + onboarding

@@ -34,7 +34,7 @@ export const TELEMETRY_TIMEOUT_MS = 2_000;
  */
 
 /** Commands that never send telemetry and never show the notice or consume the install beacon. */
-const TELEMETRY_FREE_COMMANDS: ReadonlySet<string> = new Set(['doctor']);
+const TELEMETRY_FREE_COMMANDS: ReadonlySet<string> = new Set(['doctor', 'demo']);
 
 function telemetryOptedOut(): boolean {
   return telemetryDisabledByEnv() !== undefined || inCi() || process.env[DOCTOR_ENV] === '1';

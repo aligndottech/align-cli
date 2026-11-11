@@ -101,7 +101,10 @@ export function buildProgram(options: BuildProgramOptions = {}): Command {
   // C4: every file align writes into another product's config is remembered, so
   // `align use --undo` can restore it. Installed here, never in the writer, so a test that
   // calls the writer does not touch the real config store. Non-fatal for the same reason.
-  program.hook('preAction', () => {
+  program.hook('preAction', (_thisCommand, actionCommand) => {
+    // `align demo` promises to write nothing under the caller's ~/.align, and opening the
+    // config store creates it. Its children run in a temp HOME and do all of this there.
+    if (actionCommand.name() === 'demo') return;
     try {
       const config = createConfigStore();
       setWriteRecorder((file, entry) => config.recordWrittenConfig(file, entry), (file) => config.getWrittenConfigs()[file]);
@@ -116,6 +119,8 @@ export function buildProgram(options: BuildProgramOptions = {}): Command {
   // DO_NOT_TRACK=1 and in CI, in either mode. Runs after the command's own work,
   // so a slow or blackholed gateway cannot delay the output the user came for.
   program.hook('postAction', async (_thisCommand, actionCommand) => {
+    // No ping for `align demo` itself: reading the consent state opens ~/.align (see preAction).
+    if (actionCommand.name() === 'demo') return;
     const { envFlagOf, invocationCommandPath, recordInvocationUsage } = await import('./lib/usage-telemetry.js');
     // Full path ("local ask"), not the leaf name ("ask"), so recordCommandUsage can exclude the
     // offline `local` group - a cloud-logged-in user running it still has a token in hand. The
