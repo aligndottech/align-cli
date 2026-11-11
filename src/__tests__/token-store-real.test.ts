@@ -12,6 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { realRun, type Run, selectBackend, type Selection, type TokenBackend } from '../lib/token-store.js';
+import { REAL_HOME_ENV } from './helpers/isolated-home.js';
 import { rmDir } from './helpers/rm-dir.js';
 
 const enabled = process.env['ALIGN_ALLOW_REAL_KEYCHAIN_IN_TESTS'] === '1';
@@ -26,7 +27,12 @@ describe.skipIf(!enabled)('the real credential store', () => {
   let selection: Selection;
   let backend: TokenBackend;
 
+  const realHome = process.env[REAL_HOME_ENV];
+  const savedHome = { HOME: process.env['HOME'], USERPROFILE: process.env['USERPROFILE'] };
   beforeAll(() => {
+    // The suite points HOME at a temp folder (isolated-home.setup.ts). The OS tools find the user's keychain through the real one: under the
+    // fake home `security` has no keychain settings and waits for a prompt nobody can answer (found on a macOS runner: every call timed out).
+    if (realHome) { process.env['HOME'] = realHome; process.env['USERPROFILE'] = realHome; }
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'align-real-store-'));
     selection = selectBackend({ platform: process.platform, run, blobFile: path.join(dir, 'token-blobs.json') });
     if (selection.backend === null) throw new Error(`no usable credential store on ${process.platform}: ${String(selection.reason)}`);
@@ -35,6 +41,7 @@ describe.skipIf(!enabled)('the real credential store', () => {
   afterAll(() => {
     for (const a of [a1, a2]) { try { backend?.remove(a); } catch { /* best effort */ } }
     if (dir) rmDir(dir);
+    for (const [k, v] of Object.entries(savedHome)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
   });
 
   it('describes the store this platform should use', () => {
