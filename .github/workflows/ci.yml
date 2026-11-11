@@ -232,6 +232,16 @@ jobs:
 
       # Pinned to 24.04 for THIS job (`ubuntu-latest` is 26.04 now). Both images pointed apt at an Azure mirror that did not answer
       # `apt-get update`, so the mirror is switched below.
+      - name: Diagnose package access
+        continue-on-error: true
+        run: |
+          command -v secret-tool gnome-keyring-daemon dbus-run-session || true
+          for u in http://archive.ubuntu.com/ubuntu http://us.archive.ubuntu.com/ubuntu http://azure.archive.ubuntu.com/ubuntu https://mirrors.edge.kernel.org/ubuntu https://mirror.us.leaseweb.net/ubuntu http://security.ubuntu.com/ubuntu; do
+            echo "$u -> $(curl -s -o /dev/null -m 10 -w '%{http_code} %{time_total}' $u/dists/noble/InRelease)"
+          done
+          ls /var/lib/apt/lists | head -5
+          apt-cache policy gnome-keyring libsecret-tools | head -8
+
       - name: Install the Secret Service
         env:
           DEBIAN_FRONTEND: noninteractive
