@@ -23,7 +23,7 @@ const claudeJson = (projects: Record<string, unknown>, dir = home): void => {
 };
 const yes = { hasTrustDialogAccepted: true };
 const alignDir = (): string => join(home, '.align');
-const verdict = (cwd: string, env: Record<string, string | undefined> = {}) => folderTrust(cwd, { home, env, platform: 'linux', alignDir: alignDir() });
+const verdict = (cwd: string, env: Record<string, string | undefined> = {}) => folderTrust(cwd, { home, env, platform: process.platform, alignDir: alignDir() });
 const trustedDir = (cwd: string, _home: string, env: Record<string, string | undefined>): string | undefined => verdict(cwd, env)?.dir;
 const isTrusted = (cwd: string, env: Record<string, string | undefined> = {}): boolean => trustedDir(cwd, home, env) !== undefined;
 const write = (file: string, text: string): void => { mkdirSync(join(file, '..'), { recursive: true }); writeFileSync(file, text); };
@@ -125,14 +125,14 @@ describe('folderTrust across agents', () => {
     expect(verdict(repo)).toEqual({ dir: repo, by: 'Claude Code' });
   });
   it('trusts a folder Codex marked trusted, and not one it marked untrusted', () => {
-    write(join(home, '.codex', 'config.toml'), `[projects."${repo}"]\ntrust_level = "trusted"\n`);
+    write(join(home, '.codex', 'config.toml'), `[projects.${JSON.stringify(repo)}]\ntrust_level = "trusted"\n`);
     expect(verdict(join(repo, 'packages', 'api'))).toEqual({ dir: repo, by: 'Codex' });
-    write(join(home, '.codex', 'config.toml'), `[projects."${repo}"]\ntrust_level = "untrusted"\n`);
+    write(join(home, '.codex', 'config.toml'), `[projects.${JSON.stringify(repo)}]\ntrust_level = "untrusted"\n`);
     expect(verdict(repo)).toBeUndefined();
   });
   it('reads $CODEX_HOME/config.toml when it is set', () => {
     const codexHome = join(root, 'codex-home');
-    write(join(codexHome, 'config.toml'), `[projects."${repo}"]\ntrust_level = "trusted"\n`);
+    write(join(codexHome, 'config.toml'), `[projects.${JSON.stringify(repo)}]\ntrust_level = "trusted"\n`);
     expect(verdict(repo)).toBeUndefined();
     expect(verdict(repo, { CODEX_HOME: codexHome })?.by).toBe('Codex');
   });
@@ -141,9 +141,9 @@ describe('folderTrust across agents', () => {
     expect(verdict(repo)).toBeUndefined();
   });
   it('trusts a folder listed in Copilot CLI trusted_folders, comments allowed', () => {
-    write(join(home, '.copilot', 'config.json'), `// managed\n{ "trusted_folders": ["${repo}"] }\n`);
+    write(join(home, '.copilot', 'config.json'), `// managed\n{ "trusted_folders": [${JSON.stringify(repo)}] }\n`);
     expect(verdict(repo)).toEqual({ dir: repo, by: 'Copilot CLI' });
-    write(join(home, '.copilot', 'config.json'), `{ "trusted_folders": "${repo}" }`);
+    write(join(home, '.copilot', 'config.json'), `{ "trusted_folders": ${JSON.stringify(repo)} }`);
     expect(verdict(repo)).toBeUndefined();
   });
   it('trusts a folder a Gemini CLI rule covers, including from a parent rule', () => {
@@ -168,7 +168,8 @@ describe('folderTrust across agents', () => {
     expect(verdict(repo)).toEqual({ dir: repo, by: 'Align' });
     const file = join(alignDir(), 'trusted-folders.json');
     expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ folders: [repo] });
-    expect(statSync(file).mode & 0o077).toBe(0);
+    // Windows has no POSIX mode bits: Node reports 0o666 whatever chmod asked for.
+    if (process.platform !== 'win32') expect(statSync(file).mode & 0o077).toBe(0);
   });
   it('keeps folders already recorded by Align when adding one', () => {
     const other = join(root, 'work', 'other');
@@ -186,7 +187,7 @@ describe('folderTrust across agents', () => {
   });
   it('no agent record trusts the home directory, whoever wrote it', () => {
     mkdirSync(join(home, '.git'), { recursive: true });
-    write(join(home, '.codex', 'config.toml'), `[projects."${home}"]\ntrust_level = "trusted"\n`);
+    write(join(home, '.codex', 'config.toml'), `[projects.${JSON.stringify(home)}]\ntrust_level = "trusted"\n`);
     rememberAlignTrust(home, alignDir());
     expect(verdict(home)).toBeUndefined();
   });
