@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Command } from 'commander';
 
-const { mockForgetConnector, mockForgetAllConnectors, mockGetConnectorFields } = vi.hoisted(() => ({
+const { mockForgetConnector, mockForgetAllConnectors, mockGetConnectorFields, mockHasStoredToken } = vi.hoisted(() => ({
+  mockHasStoredToken: vi.fn().mockReturnValue(false),
   mockForgetConnector: vi.fn(),
   mockForgetAllConnectors: vi.fn(),
   mockGetConnectorFields: vi.fn().mockReturnValue(null),
@@ -12,6 +13,8 @@ vi.mock('../lib/config.js', () => ({
     forgetConnector: mockForgetConnector,
     forgetAllConnectors: mockForgetAllConnectors,
     getConnectorFields: mockGetConnectorFields,
+    hasStoredToken: mockHasStoredToken,
+    isConnected: vi.fn().mockReturnValue(false),
     tokenStoreStatus: vi.fn().mockReturnValue({ store: 'keychain', label: 'macOS Keychain', reason: null, forced: false }),
     getEnvironment: vi.fn().mockReturnValue({ mode: 'local-embedded', localDbPath: '/tmp/test.db' }),
     setLocalMode: vi.fn(),
@@ -41,6 +44,8 @@ describe('align local forget', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetConnectorFields.mockReturnValue(null);
+    // A saved token is recorded whenever the test says the connector has fields, unless a test says otherwise.
+    mockHasStoredToken.mockImplementation((_e: string, c: string) => Boolean(mockGetConnectorFields('local', c)));
     mockForgetConnector.mockReturnValue({ keychainFailed: false });
     mockForgetAllConnectors.mockReturnValue({ keychainFailed: false });
     vi.stubEnv('ALIGN_GITHUB_TOKEN', undefined);
@@ -48,6 +53,25 @@ describe('align local forget', () => {
   });
 
   describe('the OS keychain and the environment', () => {
+    it('forgets a token only the keychain holds, even when it cannot be read right now', async () => {
+      mockGetConnectorFields.mockReturnValue(null);
+      mockHasStoredToken.mockReturnValue(true);
+      await run(['local', 'forget', 'github']);
+      expect(mockForgetConnector).toHaveBeenCalledWith('local', 'github');
+    });
+
+    it('with only an environment variable and nothing saved, says there was nothing saved and that the variable keeps it connected', async () => {
+      vi.stubEnv('ALIGN_GITHUB_TOKEN', 'from-the-environment');
+      mockGetConnectorFields.mockReturnValue({ token: 'from-the-environment' });
+      mockHasStoredToken.mockReturnValue(false);
+      const c = capture();
+      await run(['local', 'forget', 'github']);
+      c.restore();
+      expect(mockForgetConnector).not.toHaveBeenCalled();
+      expect(c.out.join('\n')).toMatch(/Nothing saved for github/);
+      expect(c.out.join('\n')).toContain('ALIGN_GITHUB_TOKEN');
+    });
+
     const capture = () => {
       const out: string[] = [];
       const log = vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => { out.push(a.join(' ')); });

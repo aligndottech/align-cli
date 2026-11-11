@@ -27,6 +27,7 @@ export function realSyncEnv(dbPath: string, config = createConfigStore()): SyncE
     dbPath,
     now: () => new Date(),
     tokens: (source) => config.getConnectorFields('local', source),
+    tokenReadFailed: (source) => config.tokenReadFailed('local', source),
     scopeOf: (source, o) => scopeOf(source, o, realScopeDeps(dbPath, { config })),
     markDisclosed: (source, scopeKey) => markTold(configScopeStore(config), source, scopeKey),
     fetch: fetchSource,
@@ -40,7 +41,7 @@ export function realSyncEnv(dbPath: string, config = createConfigStore()): SyncE
 export function realStatusDeps(dbPath: string, config = createConfigStore()): StatusDeps {
   return {
     dbPath, ...scopeStatusHooks(config),
-    isConnected: (id) => Boolean(config.getConnectorFields('local', id)?.['token']),
+    isConnected: (id) => config.isConnected('local', id),
     syncRunning: (id) => lockHolder(`sync-${id}`) !== undefined,
     backfill: (id) => {
       const dir = backfillDir();

@@ -230,7 +230,7 @@ export async function runDoctor(d: DoctorDeps): Promise<DoctorCheck[]> {
       label: 'Connector token store',
       status: 'pass',
       detail: t.store === 'keychain'
-        ? `${t.label}`
+        ? (t.reason === null ? t.label : `${t.label}, but it stopped responding this run (${t.reason}); saved tokens there are skipped until it answers`)
         : `the config file, owner-only (mode 0600), ${t.forced ? `by choice (${t.reason ?? 'ALIGN_TOKEN_STORE=file'})` : `because the OS credential store is not usable: ${t.reason ?? 'unknown'}`}`,
     });
   }

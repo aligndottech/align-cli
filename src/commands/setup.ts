@@ -7,6 +7,7 @@ import { tryOpenUrl } from '../lib/open-url.js';
 import { execa } from 'execa';
 import { clearScreenForPicker, CLI_TOKEN_SOURCES, cliTokenDecision, detectVerifiedCliToken, pickerMaxItems } from '../lib/setup-ux.js';
 import { createConfigStore, type EnvName } from '../lib/config.js';
+import { dropRejectedToken } from '../lib/rejected-token.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { type PersonalImportItem, runPersonalImport, runWithConcurrency } from '../lib/personal-import.js';
 import { detectEditors, type EditorTarget } from '../lib/mcp-setup.js';
@@ -1091,8 +1092,7 @@ export async function connectLocalSources(o: ConnectLocalSourcesOptions): Promis
         // One source's failure never stops the others, as in the foreground loop below.
         const msg = (e as Error).message;
         if (r.reused && isAuthExpiry(e)) {
-          config.forgetConnector('local', r.source.id);
-          p.log.info(`Skipped ${r.source.label} - its saved token was rejected (${msg}). Token forgotten; run setup again to paste a fresh one.`);
+          p.log.info(`Skipped ${r.source.label} - its saved token was rejected (${msg}). ${dropRejectedToken(config, r.source.id)}`);
         } else {
           p.log.info(`Skipped ${r.source.label} - ${msg}`);
         }
@@ -1111,7 +1111,7 @@ export async function connectLocalSources(o: ConnectLocalSourcesOptions): Promis
       }
       decided.set(r.source.id, decision);
       decision.commit();
-      afterSourceConnected(localEnv.localDbPath, r.source.id, (id) => Boolean(config.getConnectorFields('local', id)?.['token']));
+      afterSourceConnected(localEnv.localDbPath, r.source.id, (id) => config.isConnected('local', id));
       saved.push(r);
     }
     const startChild = o.startSync ?? ((ids: readonly string[], opts: { delaySeconds: number; caller: 'launcher' }) => {
@@ -1153,7 +1153,7 @@ export async function connectLocalSources(o: ConnectLocalSourcesOptions): Promis
       // into a silent empty import. Re-saving an already-saved token is a harmless no-op, so
       // there is one rule here rather than a branch that has to stay in step with the reuse.
       config.saveConnectorFields('local', source.id, tokens);
-      afterSourceConnected(localEnv.localDbPath, source.id, (id) => Boolean(config.getConnectorFields('local', id)?.['token']));
+      afterSourceConnected(localEnv.localDbPath, source.id, (id) => config.isConnected('local', id));
       spinner.stop(`Found ${items.length} items`);
       sayIfCapped({ source: source.id, read: items.length, ...(fetched.report.complete !== undefined ? { complete: fetched.report.complete } : {}) });
       let imported = 0;
@@ -1180,8 +1180,7 @@ export async function connectLocalSources(o: ConnectLocalSourcesOptions): Promis
         // "connected" on every later run and hide the gap line the graph would otherwise
         // print. A network error says nothing about the token and leaves it alone; a failed
         // PASTE never reaches here with reused set, and was never saved in the first place.
-        config.forgetConnector('local', source.id);
-        spinner.stop(`Skipped ${source.label} - its saved token was rejected (${msg}). Token forgotten; run setup again to paste a fresh one.`);
+        spinner.stop(`Skipped ${source.label} - its saved token was rejected (${msg}). ${dropRejectedToken(config, source.id)}`);
       } else {
         spinner.stop(`Skipped ${source.label} - ${msg}`);
       }
@@ -1243,7 +1242,7 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<strin
   // source. Read directly off decision_refs (the same query status.ts/local.ts use),
   // never gate-y: at most one line, and only when there is a real gap to name.
   const refsDb = createLocalDb(dbPath);
-  const isConnected = (id: string) => config.getConnectorFields('local', id) !== null;
+  const isConnected = (id: string) => config.isConnected('local', id);
   const gaps = unresolvedGaps(refsDb.getAllRefs(), isConnected);
   refsDb.close();
   const gapLine = setupSummaryLine(gaps);

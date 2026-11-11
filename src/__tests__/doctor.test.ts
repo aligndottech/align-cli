@@ -252,6 +252,13 @@ describe('where connector tokens are stored', () => {
     expect(c.detail).toContain('macOS Keychain');
   });
 
+  it('says when the keychain is the store but stopped answering this run', async () => {
+    const c = byId(await runDoctor(deps({ tokenStore: () => ({ store: 'keychain', label: 'Secret Service (libsecret, via secret-tool)', reason: 'secret-tool: timed out', forced: false }) })), 'tokens');
+    expect(c.status).toBe('pass');
+    expect(c.detail).toContain('timed out');
+    expect(c.detail).toMatch(/stopped responding/);
+  });
+
   it('names the file and why, and never reads as a failure', async () => {
     const c = byId(await runDoctor(deps({ tokenStore: () => ({ store: 'file', label: 'the config file', reason: 'no secret service', forced: false }) })), 'tokens');
     expect(c.status).toBe('pass');

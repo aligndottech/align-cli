@@ -5,7 +5,7 @@
  */
 import type { Run, RunResult } from '../../lib/token-store.js';
 
-export interface Call { cmd: string; args: string[]; input: string | undefined }
+export interface Call { cmd: string; args: string[]; input: string | undefined; timeoutMs: number | undefined }
 export interface FakeTool {
   run: Run;
   calls: Call[];
@@ -13,6 +13,10 @@ export interface FakeTool {
   store: Map<string, string>;
   /** Make every call fail like a tool that is missing or has no service behind it. */
   breakIt(stderr?: string): void;
+  /** Undo breakIt: the tool works again (a new vault is needed to see it: a vault stops asking after its first failure). */
+  fix(): void;
+  /** Writes fail the way `security -i` does on a parse error: the command line, secret included, comes back on stderr. */
+  echoWrites(): void;
   /** Accept writes (exit 0) but store nothing, like `security -i` reporting success on a failed command. */
   swallowWrites(): void;
 }
@@ -25,9 +29,11 @@ export function fakeTool(kind: 'security' | 'secret-tool' | 'powershell'): FakeT
   const store = new Map<string, string>();
   let broken: string | null = null;
   let swallow = false;
+  let echo = false;
   const run: Run = (cmd, args, opts) => {
-    calls.push({ cmd, args, input: opts?.input });
+    calls.push({ cmd, args, input: opts?.input, timeoutMs: opts?.timeoutMs });
     if (broken !== null) return fail(127, broken);
+    if (echo && opts?.input !== undefined) return fail(1, `parse error near: ${opts.input}`);
     if (kind === 'security') return security(args, opts?.input ?? '');
     if (kind === 'secret-tool') return secretTool(args, opts?.input ?? '');
     return powershell(args, opts?.input ?? '');
@@ -62,5 +68,5 @@ export function fakeTool(kind: 'security' | 'secret-tool' | 'powershell'): FakeT
     }
     return ok(); // the availability probe
   };
-  return { run, calls, store, breakIt: (s = 'tool missing') => { broken = s; }, swallowWrites: () => { swallow = true; } };
+  return { run, calls, store, breakIt: (s = 'tool missing') => { broken = s; }, fix: () => { broken = null; }, echoWrites: () => { echo = true; }, swallowWrites: () => { swallow = true; } };
 }

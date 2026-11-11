@@ -148,7 +148,7 @@ export function registerAskCommand(program: Command): void {
       // Same "does local mode hold a saved token" check status.ts and local.ts
       // use. Only ever consulted when a result carries external_references, which today
       // means local mode - a cloud result has none.
-      const isConnected = (id: string) => config.getConnectorFields(envName, id) !== null;
+      const isConnected = (id: string) => config.isConnected(envName, id);
 
       // Local identity for the invite nudge - two cheap `git config` reads,
       // computed once regardless of which nudge path fires below. Outside a git repo (or

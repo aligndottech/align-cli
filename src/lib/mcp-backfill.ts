@@ -109,7 +109,7 @@ export function defaultBackfillDeps(env: EnvironmentConfig): BackfillDeps {
   };
   return {
     now: () => new Date(),
-    isConnected: (source) => Boolean(config.getConnectorFields('local', source)?.['token']),
+    isConnected: (source) => config.isConnected('local', source),
     needsReauth: (source) => readSyncStatus(need(), source).needsReauth,
     isSkipped: (source) => configScopeStore(config).getScope(source)?.kind === 'skip',
     syncRunning: (source) => lockHolder(`sync-${source}`) !== undefined,

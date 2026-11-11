@@ -1,3 +1,5 @@
+import { KNOWN_SOURCES } from './sync/source-ids.js';
+
 /**
  * Credentials a person supplies through the environment, for a password manager to fill:
  *
@@ -23,6 +25,16 @@ export const ENV_FIELDS: Readonly<Record<string, readonly string[]>> = {
 
 export const tokenEnvName = (source: string): string => `ALIGN_${source.toUpperCase()}_TOKEN`;
 export const fieldEnvName = (source: string, field: string): string => `ALIGN_${source.toUpperCase()}_${field.toUpperCase()}`;
+
+/**
+ * Every variable name above, as one list: the token of each sync source plus each extra field. The one writer of that list: the MCP
+ * child's block pins all of them empty (a repo's .env must not choose whose data an agent's server imports), and Align's own background
+ * sync child forwards all of them (it is Align's detached process, started by the person, so an environment token keeps syncing).
+ */
+export const CREDENTIAL_ENV_NAMES: readonly string[] = [
+  ...KNOWN_SOURCES.map(tokenEnvName),
+  ...Object.entries(ENV_FIELDS).flatMap(([source, fields]) => fields.map((f) => fieldEnvName(source, f))),
+];
 
 const present = (v: string | undefined): v is string => v !== undefined && v !== '';
 

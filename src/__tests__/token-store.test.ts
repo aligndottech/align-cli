@@ -109,7 +109,7 @@ describe('the vault', () => {
   it('writes to the keychain and reads it back, with no notice', () => {
     const { vault, notes } = working();
     expect(vault.write(ACCOUNT, SECRET).store).toBe('keychain');
-    expect(vault.read(ACCOUNT)).toBe(SECRET);
+    expect(vault.read(ACCOUNT)).toEqual({ status: 'found', value: SECRET });
     expect(notes).toEqual([]);
   });
 
@@ -154,20 +154,19 @@ describe('the vault', () => {
     expect(vault.migrate(ACCOUNT, SECRET)).toBe(true);
     tool.breakIt();
     expect(vault.migrate('local:slack', 'x')).toBe(false);
-    expect(vault.read('local:slack')).toBeNull();
   });
 
   it('read is null, not a throw, when the keychain has failed', () => {
     const { vault, tool } = working();
     tool.store.set(ACCOUNT, SECRET);
     tool.breakIt();
-    expect(vault.read(ACCOUNT)).toBeNull();
+    expect(vault.read(ACCOUNT).status).toBe('failed');
   });
 
   it('remove deletes from the keychain', () => {
     const { vault, tool } = working();
     vault.write(ACCOUNT, SECRET);
-    vault.remove(ACCOUNT);
+    expect(vault.remove(ACCOUNT)).toBe('removed');
     expect(tool.store.size).toBe(0);
   });
 
@@ -177,12 +176,174 @@ describe('the vault', () => {
     expect(vault.describe().label).toContain('libsecret');
   });
 
-  it('probes the platform tool once, not on every call', () => {
-    const { vault, tool } = working();
-    vault.read(ACCOUNT); vault.read(ACCOUNT); vault.read(ACCOUNT);
-    const probes = tool.calls.filter((c) => c.args[0] === 'lookup' && c.args.includes('__align_probe__'));
-    expect(probes.length).toBeLessThanOrEqual(1);
+  it('probes the platform tool exactly once across many calls', () => {
+    const tool = fakeTool('secret-tool');
+    const vault = createTokenVault({ selection: () => selectBackend({ platform: 'linux', run: tool.run }) });
+    vault.read(ACCOUNT); vault.read(ACCOUNT); vault.read('local:slack'); vault.write('local:jira', 'x'); vault.describe();
+    const probes = tool.calls.filter((c) => c.args.includes('__align_probe__'));
+    // Positive control: the lazy selection DID run, so zero cannot pass.
+    expect(probes).toHaveLength(1);
   });
 });
 
-void vi;
+
+
+describe('a read that fails is not a read that finds nothing', () => {
+  const vaultOn = (tool: ReturnType<typeof fakeTool>, notify: (m: string) => void = () => undefined) =>
+    createTokenVault({ selection: selectBackend({ platform: 'linux', run: tool.run }), notify });
+
+  it('absent for an account that is not there, failed for a store that errors', () => {
+    const tool = fakeTool('secret-tool');
+    const vault = vaultOn(tool);
+    expect(vault.read('local:slack')).toEqual({ status: 'absent' });
+    tool.store.set(ACCOUNT, SECRET);
+    tool.breakIt('locked');
+    const r = vault.read(ACCOUNT);
+    expect(r.status).toBe('failed');
+    expect(r.status === 'failed' && r.reason).toContain('locked');
+  });
+
+  it('asks the tool nothing more after its first failure, for reads, writes and removes', () => {
+    const tool = fakeTool('secret-tool');
+    const vault = vaultOn(tool);
+    tool.breakIt('timed out');
+    vault.read(ACCOUNT);
+    const after = tool.calls.length;
+    vault.read(ACCOUNT); vault.read('local:slack'); vault.write('local:jira', 'x'); vault.remove(ACCOUNT); vault.migrate('local:a', 'b');
+    expect(tool.calls.length).toBe(after);
+    expect(vault.remove(ACCOUNT)).toBe('failed');
+  });
+
+  it('reads with a short timeout', () => {
+    const tool = fakeTool('secret-tool');
+    const vault = vaultOn(tool);
+    tool.store.set(ACCOUNT, SECRET);
+    vault.read(ACCOUNT);
+    const lookups = tool.calls.filter((c) => c.args[0] === 'lookup');
+    expect(lookups.length).toBeGreaterThan(0);
+    for (const c of lookups) expect(c.timeoutMs).toBeLessThanOrEqual(3_000);
+  });
+
+  it('says so once when a read fails, naming the store and why', () => {
+    const tool = fakeTool('secret-tool');
+    const notes: string[] = [];
+    const vault = vaultOn(tool, (m) => notes.push(m));
+    tool.breakIt('locked');
+    vault.read(ACCOUNT); vault.read('local:slack');
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toContain('locked');
+    expect(notes[0]).toMatch(/Secret Service|secret-tool/);
+  });
+
+  it('an account the config says is stored, with no usable store, is a failed read and not an absent one', () => {
+    const tool = fakeTool('secret-tool');
+    tool.breakIt('no secret service');
+    const vault = vaultOn(tool);
+    expect(vault.read(ACCOUNT, true).status).toBe('failed');
+    expect(vault.read(ACCOUNT, false).status).toBe('absent');
+  });
+
+  it('migrates an account at most once per process', () => {
+    const tool = fakeTool('secret-tool');
+    tool.swallowWrites();
+    const vault = vaultOn(tool);
+    expect(vault.migrate(ACCOUNT, SECRET)).toBe(false);
+    const after = tool.calls.length;
+    expect(vault.migrate(ACCOUNT, SECRET)).toBe(false);
+    expect(vault.migrate(ACCOUNT, SECRET)).toBe(false);
+    expect(tool.calls.length).toBe(after);
+  });
+
+  it('remove reports no-store when there is none to ask', () => {
+    const vault = createTokenVault({ selection: selectBackend({ platform: 'freebsd', run: fakeTool('security').run }), notify: () => undefined });
+    expect(vault.remove(ACCOUNT)).toBe('no-store');
+  });
+});
+
+describe('the Windows backend', () => {
+  const blob = () => path.join(dir, 'blobs.json');
+  const select = (env?: Record<string, string>) => {
+    const tool = fakeTool('powershell');
+    const sel = selectBackend({ platform: 'win32', run: tool.run, blobFile: blob(), ...(env ? { env } : {}) });
+    return { tool, sel };
+  };
+
+  it('runs PowerShell by absolute path under SystemRoot, never by bare name', () => {
+    const { tool, sel } = select({ SystemRoot: 'D:\\Win' });
+    sel.backend!.set(ACCOUNT, SECRET);
+    expect(tool.calls.length).toBeGreaterThan(0);
+    for (const c of tool.calls) expect(c.cmd).toBe('D:\\Win\\System32\\WindowsPowerShell\\v1.0\\powershell.exe');
+  });
+
+  it('falls back to C:\\Windows when SystemRoot is not set', () => {
+    const { tool, sel } = select({});
+    sel.backend!.get(ACCOUNT);
+    sel.backend!.set(ACCOUNT, SECRET);
+    for (const c of tool.calls) expect(c.cmd).toBe('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe');
+  });
+
+  it('two sequential sets both persist', () => {
+    const { sel } = select({});
+    sel.backend!.set('local:github', 'one');
+    sel.backend!.set('local:slack', 'two');
+    expect(sel.backend!.get('local:github')).toBe('one');
+    expect(sel.backend!.get('local:slack')).toBe('two');
+  });
+
+  it('writes the blob file by temp file and rename in the same folder', () => {
+    const { sel } = select({});
+    const rename = vi.spyOn(fs, 'renameSync');
+    try {
+      sel.backend!.set(ACCOUNT, SECRET);
+      expect(rename).toHaveBeenCalledTimes(1);
+      const [from, to] = rename.mock.calls[0] as [string, string];
+      expect(to).toBe(blob());
+      expect(path.dirname(from)).toBe(path.dirname(blob()));
+      expect(from).not.toBe(to);
+    } finally { rename.mockRestore(); }
+    expect(fs.readdirSync(dir)).toEqual(['blobs.json']);
+  });
+
+  it('a truncated blob file is a loud failed read, with one notice, and the file is left as it was', () => {
+    const tool = fakeTool('powershell');
+    fs.writeFileSync(blob(), '{"local:github":"DPAPI-aa","local:sl');
+    const before = fs.readFileSync(blob(), 'utf8');
+    const notes: string[] = [];
+    const vault = createTokenVault({ selection: selectBackend({ platform: 'win32', run: tool.run, blobFile: blob(), env: {} }), notify: (m) => notes.push(m) });
+    expect(vault.read('local:github', true).status).toBe('failed');
+    expect(vault.read('local:slack', true).status).toBe('failed');
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toContain('blobs.json');
+    expect(fs.readFileSync(blob(), 'utf8')).toBe(before);
+  });
+
+  it('a write against a corrupt blob file falls back and never overwrites it', () => {
+    const tool = fakeTool('powershell');
+    fs.writeFileSync(blob(), '{not json');
+    const vault = createTokenVault({ selection: selectBackend({ platform: 'win32', run: tool.run, blobFile: blob(), env: {} }), notify: () => undefined });
+    expect(vault.write(ACCOUNT, SECRET).store).toBe('file');
+    expect(fs.readFileSync(blob(), 'utf8')).toBe('{not json');
+  });
+});
+
+describe('a secret never reaches a message', () => {
+  const HEX = Buffer.from(SECRET).toString('hex');
+  it.each([
+    ['darwin', 'security'],
+    ['linux', 'secret-tool'],
+  ] as const)('%s: a tool that echoes the command line on stderr cannot leak the secret into the error or the notice', (platform, kind) => {
+    const tool = fakeTool(kind);
+    const notes: string[] = [];
+    const sel = selectBackend({ platform, run: tool.run });
+    tool.echoWrites();
+    let thrown = '';
+    try { sel.backend!.set(ACCOUNT, SECRET); } catch (e) { thrown = (e as Error).message; }
+    expect(thrown).not.toBe('');
+    const vault = createTokenVault({ selection: sel, notify: (m) => notes.push(m) });
+    expect(vault.write(ACCOUNT, SECRET).store).toBe('file');
+    const surfaced = [thrown, ...notes, JSON.stringify(vault.describe())].join('\n');
+    expect(surfaced).not.toContain(SECRET);
+    expect(surfaced).not.toContain(HEX);
+    expect(notes).toHaveLength(1);
+  });
+});

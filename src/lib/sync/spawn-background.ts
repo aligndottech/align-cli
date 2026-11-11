@@ -12,6 +12,7 @@
  */
 import os from 'node:os';
 import { backfillChildCommand, type ChildCaller, startBackfillChild } from '../backfill-state.js';
+import { CREDENTIAL_ENV_NAMES } from '../token-env.js';
 import { CHILD_ENV_KEYS, CHILD_ENV_SECRETS, childEnvValue } from '../launch/mcp-child-env.js';
 import { PROVIDER_ENV_VARS } from '../llm-providers.js';
 import { currentRepoIdentitySync, SYNC_REPO_ENV } from '../repo-identity.js';
@@ -27,14 +28,18 @@ const PLAIN_NAMES = [
   'PATH', 'Path', 'PATHEXT', 'HOME', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'APPDATA', 'LOCALAPPDATA', 'ProgramData',
   'SystemRoot', 'SYSTEMROOT', 'SystemDrive', 'windir', 'COMSPEC', 'TMPDIR', 'TMP', 'TEMP', 'LANG', 'LANGUAGE', 'TZ',
   'USER', 'USERNAME', 'LOGNAME', 'NO_COLOR',
+  // The Linux Secret Service is reached over the session bus: without these `secret-tool` cannot find it, every read fails, and the
+  // child would conclude no source is connected.
+  'DBUS_SESSION_BUS_ADDRESS', 'XDG_RUNTIME_DIR', 'DISPLAY', 'WAYLAND_DISPLAY',
   // A person's own opt-out must reach the child: it sends telemetry (L7) under the same consent as the launcher.
   'DO_NOT_TRACK',
 ];
 /**
  * The ALIGN_* names a sync child reads, and nothing else (checked against src/ by a parity test).
- * No ALIGN_LLM_*, ALIGN_TOKEN or provider setting: a sync makes no LLM call and takes connector tokens from the config file.
+ * No ALIGN_LLM_*, ALIGN_TOKEN or provider setting: a sync makes no LLM call. Connector tokens come from the credential store, the config
+ * file, or the per-source variables forwarded below (CREDENTIAL_ENV_NAMES).
  */
-export const SYNC_CHILD_ALIGN_NAMES = ['ALIGN_ENV', 'ALIGN_GATEWAY_URL', 'ALIGN_MODEL_CACHE', 'ALIGN_ORT_RUNTIME_URL', 'ALIGN_TELEMETRY', 'ALIGN_INGEST_CONCURRENCY', 'ALIGN_DEBUG'] as const;
+export const SYNC_CHILD_ALIGN_NAMES = ['ALIGN_ENV', 'ALIGN_GATEWAY_URL', 'ALIGN_MODEL_CACHE', 'ALIGN_ORT_RUNTIME_URL', 'ALIGN_TELEMETRY', 'ALIGN_INGEST_CONCURRENCY', 'ALIGN_DEBUG', 'ALIGN_TOKEN_STORE'] as const;
 
 /** Names whose VALUE rule lives in mcp-child-env.ts (XDG dirs absolute only; proxies and certs kept unless credentialed or relative; NODE_OPTIONS always blank; CI as is). */
 const RULED_NAMES = CHILD_ENV_KEYS.filter((k) => !k.startsWith('ALIGN_') && !CHILD_ENV_SECRETS.includes(k) && !PROVIDER_ENV_VARS.includes(k));
@@ -52,6 +57,9 @@ export function syncChildEnv(env: Record<string, string | undefined>): Record<st
     const v = childEnvValue(k, env);
     if (v !== '') out[k] = v;
   }
+  // This child is Align's own detached process, started by the person: the ALIGN_<SOURCE>_TOKEN family reaches it so an environment
+  // token keeps syncing. An agent's MCP server never gets them (mcp-child-env.ts pins the same names empty).
+  for (const k of CREDENTIAL_ENV_NAMES) { const v = env[k]; if (v !== undefined && v !== '') out[k] = v; }
   // The reduced env drops the CI provider's own variables (JENKINS_URL, BUILD_NUMBER...), which is how CI was recognised. Say it outright.
   if (inCi(env)) out['CI'] = 'true';
   return out;

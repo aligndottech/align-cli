@@ -44,6 +44,14 @@ The token goes to the tool on stdin, never on its command line, so it does not s
 
 **The fallback.** With no credential store (a headless Linux box with no secret service, a missing tool, an error), Align saves the token in `config.json` (owner-only, `0600`) and says so once: which store it could not use and why. `align doctor` reports which store is in use. `ALIGN_TOKEN_STORE=file` chooses the file on purpose and prints nothing.
 
+**A store that is locked or slow.** The first time a read errors or times out (reads wait at most 3 seconds), Align stops using the store for the rest of that process and says so once. The sources whose tokens are there are skipped, not treated as disconnected, so the launch summary and background refresh keep their state until the store answers. If a removal fails, `align local forget` and `align local reset` say so and exit 1, and keep the record so running them again retries.
+
+**Windows blob file.** If `token-blobs.json` cannot be parsed, Align reports it once and leaves the file as it is. Restore it from a backup, or delete it and reconnect your sources.
+
+**Downgrading.** An older `align` does not know about the credential store. Tokens already moved there are not moved back, so the older version finds no token for those sources: reconnect them with it. To keep a downgrade possible, set `ALIGN_TOKEN_STORE=file` before you connect, so new tokens stay in the config file.
+
+**Who can read it.** The credential store protects the token from other users, from disk images and from backups that copy `config.json`. It does not protect it from another program running as you: on every platform a process of the same user can ask the store for the item. Treat the keychain as better than a plaintext file, not as a vault against malware on your own account.
+
 **Tokens saved by an older version** move into the credential store the next time Align reads them, and the plaintext copy is removed only after the store holds it. If the move fails, the token stays readable in the file. `align local forget <source>` removes the token from the credential store as well, and says so if it could not.
 
 **From your environment or a password manager.** Set `ALIGN_<SOURCE>_TOKEN`:
@@ -59,7 +67,9 @@ The token goes to the tool on stdin, never on its command line, so it does not s
 | Notion | `ALIGN_NOTION_TOKEN` | |
 | Teams | `ALIGN_TEAMS_TOKEN` | |
 
-Order is: environment variable, then credential store, then file. A token from the environment is only read. It is never written to the credential store or to disk. An empty variable counts as unset. With 1Password, put `op://` references in an env file and run Align through `op run`:
+Order is: the environment variable first. Then whichever of the credential store and the file copy was written more recently: a plaintext copy that is newer than the keychain's (for example saved while the keychain was unreachable) is moved into the keychain, and an older one is dropped once the keychain verifiably holds the newer token. A token from the environment is only read. It is never written to the credential store or to disk. An empty variable counts as unset.
+
+**Where environment tokens work.** In CLI commands you run, and in Align's own background sync, which is a detached process Align starts for you and which receives these variables. They do **not** work inside an MCP server that an agent spawns (`align mcp`): that server reads only the credential store or the file. The reason is that agents such as Cline and `cn` start MCP servers with the environment of the repo's `.env` file, so honouring these variables there would let a repo choose whose data you import. The server's config entry pins every `ALIGN_<SOURCE>_TOKEN`, `_EMAIL` and `_DOMAIN` to empty for the same reason. With 1Password, put `op://` references in an env file and run Align through `op run`:
 
 ```bash
 # align.env

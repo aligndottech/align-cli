@@ -26,7 +26,7 @@ export async function readValueRollup(
     try {
       // A connector counts as connected once local mode holds a saved token for
       // it - the same check `align local forget` uses to tell "removed" from "nothing saved".
-      const isConnected = (id: string) => config.getConnectorFields(envName, id) !== null;
+      const isConnected = (id: string) => config.isConnected(envName, id);
       return { mode: 'local', rollup: localValueRollup(db, isConnected) };
     } finally {
       db.close();

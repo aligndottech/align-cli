@@ -1,5 +1,6 @@
 import { NAMED_PROVIDERS, PROVIDER_ENV_VARS } from '../llm-providers.js';
 import { absoluteXdg, XDG_VARS } from '../xdg.js';
+import { CREDENTIAL_ENV_NAMES } from '../token-env.js';
 
 /*
  * The `env` block of the align-local entry Align hands to an agent that loads a repo `.env`
@@ -47,7 +48,7 @@ const ALWAYS_EMPTY = [
 
 /** Never written into an agent's config with a value: always empty in the block. */
 export const CHILD_ENV_SECRETS: readonly string[] = [
-  ...new Set([...NAMED_PROVIDERS.flatMap((p) => p.keyEnv), ...PROVIDER_ENV_VARS.filter((v) => /KEY|TOKEN|SECRET|PASSWORD/.test(v)), 'ALIGN_TOKEN', 'ALIGN_LLM_API_KEY']),
+  ...new Set([...NAMED_PROVIDERS.flatMap((p) => p.keyEnv), ...PROVIDER_ENV_VARS.filter((v) => /KEY|TOKEN|SECRET|PASSWORD/.test(v)), 'ALIGN_TOKEN', 'ALIGN_LLM_API_KEY', ...CREDENTIAL_ENV_NAMES]),
 ].sort();
 
 export const CHILD_ENV_KEYS: readonly string[] = [
@@ -64,6 +65,7 @@ export const CHILD_ENV_NOT_PINNED: Record<string, string> = {
   APPDATA: 'always set on Windows',
   LOCALAPPDATA: 'always set on Windows',
   ProgramData: 'always set on Windows; read by the launcher only',
+  SYSTEMROOT: 'always set on Windows; read to find PowerShell by absolute path for the token store',
   PATH: 'always set; dotenv never overrides it',
   Path: 'Windows spelling of PATH; always set',
   PATHEXT: 'always set on Windows',
