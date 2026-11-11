@@ -42,7 +42,7 @@ const NODE_PLAIN = ['NODE_DEBUG', 'NODE_PRESERVE_SYMLINKS'] as const;
 /** Code loading or trust switches: always empty, whatever the user has. */
 const ALWAYS_EMPTY = [
   // ALIGN_RULES_ACK is a person's override of a ratified-rule deny: an agent's child must never carry it.
-  'NODE_OPTIONS', 'NODE_PATH', 'ALIGN_RULES_ACK', 'NODE_REPL_EXTERNAL_MODULE', 'NODE_TLS_REJECT_UNAUTHORIZED',
+  'NODE_OPTIONS', 'NODE_PATH', 'ALIGN_RULES_ACK', 'ALIGN_ALLOW_REAL_KEYCHAIN_IN_TESTS', 'NODE_REPL_EXTERNAL_MODULE', 'NODE_TLS_REJECT_UNAUTHORIZED',
   'LD_PRELOAD', 'LD_LIBRARY_PATH', 'DYLD_INSERT_LIBRARIES', 'DYLD_LIBRARY_PATH', 'DYLD_FRAMEWORK_PATH',
 ];
 
@@ -65,6 +65,7 @@ export const CHILD_ENV_NOT_PINNED: Record<string, string> = {
   APPDATA: 'always set on Windows',
   LOCALAPPDATA: 'always set on Windows',
   ProgramData: 'always set on Windows; read by the launcher only',
+  VITEST: 'set by the test runner only; the token store refuses to start a tool under it',
   SYSTEMROOT: 'always set on Windows; read to find PowerShell by absolute path for the token store',
   PATH: 'always set; dotenv never overrides it',
   Path: 'Windows spelling of PATH; always set',
