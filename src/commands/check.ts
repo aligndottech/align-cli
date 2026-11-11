@@ -782,6 +782,34 @@ async function runDeferredAdjudication(payloadFile: string, env: EnvName): Promi
 }
 
 
+// What each listed decision says, so a heading-only title ("Architecture") is not all the agent
+// gets. Per decision, and in total across the block: hooks have small context budgets.
+export const EXCERPT_BUDGET_CHARS = 200;
+export const EXCERPT_TOTAL_BUDGET_CHARS = 800;
+// Below this a cut excerpt is a fragment, so the decision keeps its title alone.
+const MIN_EXCERPT_CHARS = 40;
+
+function excerptOf(text: string | undefined, room: number): string {
+  const flat = (text ?? '').replace(/\s+/g, ' ').trim();
+  const limit = Math.min(EXCERPT_BUDGET_CHARS, room);
+  if (flat.length <= limit) return flat.length >= 1 && limit >= MIN_EXCERPT_CHARS ? flat : '';
+  if (limit < MIN_EXCERPT_CHARS) return '';
+  const cut = flat.slice(0, limit - 3);
+  // Cut on a word boundary: drop the partial word unless the cut already fell on a space.
+  const atBoundary = flat.charAt(limit - 3) === ' ';
+  const body = atBoundary ? cut : cut.replace(/\s+\S*$/, '');
+  return `${body.trimEnd()}...`;
+}
+
+// One writer of the bullet format. `budget.left` is shared by every list in one output.
+function decisionBullets(decisions: RelatedDecision[], budget: { left: number }): string[] {
+  return decisions.flatMap((d) => {
+    const excerpt = excerptOf(d.summary, budget.left);
+    budget.left -= excerpt.length;
+    return excerpt ? [`- ${d.title}`, `  ${excerpt}`] : [`- ${d.title}`];
+  });
+}
+
 // Retrieval finds decisions on the same SUBJECT. It does not encode opposition - a measurement
 // put the agreeing pair at cosine 0.38 against the contradicting pair at 0.31 - so this
 // wording must never assert a conflict. Saying "related" is the honest claim and the useful one.
@@ -792,12 +820,12 @@ export function buildRelatedOutput(
   retrievalFailed = false,
   verdict: VerdictOutcome = { kind: 'not_requested' },
 ): unknown | null {
-  const lines = decisions.map((d) => `- ${d.title}`);
+  const budget = { left: EXCERPT_TOTAL_BUDGET_CHARS };
   // `git blame` names these deterministically: they are not a guess about the subject, they put these exact lines here.
   const writerBlock = wrote.length
     ? [
         `Align decision graph: the lines this edit changes were written by ${wrote.length > 1 ? `${wrote.length} prior decisions` : 'a prior decision'} (found with git blame, not content search):`,
-        ...wrote.map((d) => `- ${d.title}`),
+        ...decisionBullets(wrote, budget),
         'Check that this change still honours what they decided before continuing.',
       ]
     : [];
@@ -816,7 +844,7 @@ export function buildRelatedOutput(
     : decisions.length
     ? [
         `${wrote.length ? 'Also, ' : 'Align decision graph: '}${decisions.length} prior decision${decisions.length > 1 ? 's relate' : ' relates'} to this change:`,
-        ...lines,
+        ...decisionBullets(decisions, budget),
         'These are related by content search and have NOT been adjudicated. Check whether any of them opposes this change before continuing.',
       ]
     : [];

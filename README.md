@@ -129,6 +129,7 @@ Hook limits worth knowing:
   repo's MCP servers until you trust the project, and Align's entry counts as one, so accept pi's
   trust prompt or Align's tools won't load. `pi -p` skips the prompt and runs without them.
 - Claude Code asks you to approve a committed hook the first time. Accept, or it won't run.
+- In a headless run (`claude -p`) Claude Code can't ask you to approve tools, so it denies Align's MCP tools unless you allow them, for example `"permissions": {"allow": ["mcp__align"]}` in `.claude/settings.json`. `align setup` deliberately doesn't add that for you. The edit hook needs no permission and runs either way.
 
 [Per-host details](docs/agent-hooks.md).
 
