@@ -171,8 +171,15 @@ describe('which command was invoked', () => {
 describe('startup leaves the caller\'s ~/.align alone for `demo`', () => {
   function seededHome(): string {
     const home = scratch('align-demo-legacy-');
-    // The two places an older install left a config. Both resolve under this HOME.
-    for (const dir of [join(home, '.config', 'align-cli'), join(home, '.config', 'align-cli-nodejs')]) {
+    // Where env-paths put an older install's config, per platform, with and without the -nodejs suffix.
+    // Linux reads XDG_CONFIG_HOME, macOS reads HOME, Windows reads APPDATA; all point under this HOME.
+    const names = ['align-cli', 'align-cli-nodejs'];
+    const dirs = names.flatMap((n) => [
+      join(home, '.config', n),
+      join(home, 'Library', 'Preferences', n),
+      join(home, 'AppData', 'Roaming', n, 'Config'),
+    ]);
+    for (const dir of dirs) {
       mkdirSync(dir, { recursive: true });
       writeFileSync(join(dir, 'config.json'), JSON.stringify({ environments: {}, defaultEnv: 'prod' }), 'utf8');
     }
