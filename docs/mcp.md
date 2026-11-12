@@ -37,6 +37,7 @@ and there is a section for them below.
 | `align_stale_code` | Code in the current repo still built on a decision a later one replaced, with line ranges per file. Confirmed links only, unless `include_ai` is set. Run it inside the repo; needs full git history |
 | `align_share` | Local only. Asks to share one ratified decision with your team. It returns an approval link for you to open; the agent cannot approve it |
 | `align_share_status` | Local only. Finishes a share once you have approved it |
+| `align_backlog` | Turns a decision into issues in your own Linear, GitHub Issues or Jira, in two steps. The first call returns a plan (tracker, destination, task titles) and a token and creates nothing; the agent shows you the plan. After you say yes, the second call passes only that token and creates exactly those tasks, once. It asks the agent to ask you when the destination is unclear, remembers the destination per repo, and takes no token or key: it uses the connection you made with `align connect`. Details in [commands.md](commands.md#turn-a-decision-into-issues-align-backlog) |
 
 New to Align? [Your first session](first-session.md) has three prompts that show what these tools do.
 

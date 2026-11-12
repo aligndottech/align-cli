@@ -52,7 +52,8 @@ describe('the local MCP tool list leads with the check', () => {
     // align_share_status was appended (once the user approves in a browser, it completes the share, so it is a write).
     expect(names).toContain('align_share_status');
     expect(names).toContain('align_stale_code');
-    expect(names).toHaveLength(18);
+    expect(names).toContain('align_backlog');
+    expect(names).toHaveLength(19);
   });
 });
 

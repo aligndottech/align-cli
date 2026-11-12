@@ -24,6 +24,7 @@ import { runShareTool, SHARE_STATUS_TOOL, SHARE_TOOL, SHARE_TOOL_SCHEMA, type Sh
 import { runStale } from '../lib/stale-run.js';
 import { runShareStatusTool, SHARE_STATUS_TOOL_SCHEMA } from '../lib/mcp/share-status-tool.js';
 import { MARK_TOOL, MARK_TOOL_SCHEMA, type MarkToolContext, runMarkTool } from '../lib/mcp/mark-tool.js';
+import { BACKLOG_TOOL, BACKLOG_TOOL_SCHEMA, type BacklogToolContext, runBacklogTool } from '../lib/mcp/backlog-tool.js';
 import { agentIdFrom } from '../lib/mcp/tool-rules.js';
 import { appendChatTrace } from '../lib/llm-trace.js';
 import { withDecisionRelationContract } from '../lib/decision-relations.js';
@@ -207,7 +208,7 @@ export async function dispatchTool(
   client: ReturnType<typeof createGatewayClient>,
   env: EnvironmentConfig,
   createdBefore?: string,
-  toolCtx?: MarkToolContext & Pick<ShareToolContext, 'share'>,
+  toolCtx?: MarkToolContext & Pick<ShareToolContext, 'share'> & BacklogToolContext,
 ): Promise<unknown> {
   // A required argument that never arrived used to reach the implementation and fail
   // from wherever the undefined landed: a missing `diff` surfaced as the tokenizer's
@@ -243,6 +244,11 @@ export async function dispatchTool(
         : `${name} imports into the graph, and this server is frozen as of ${createdBefore}, ` +
           `so it never backfills. Restart align mcp without --created-before to use ${name}.`,
     );
+  }
+
+  // A frozen run is an audit: it must not write to the person's tracker, and planning is the first half of that.
+  if (createdBefore && name === BACKLOG_TOOL) {
+    throw new Error(`${BACKLOG_TOOL} creates issues in the user's tracker, and this server is frozen as of ${createdBefore}, so it never does. Restart align mcp without --created-before to use it.`);
   }
 
   // L4: a scope change decides what the NEXT sync imports, so a frozen run refuses it (viewing stays available).
@@ -312,6 +318,9 @@ export async function dispatchTool(
     // L9: an agent can ASK for a share (a browser approval link, or an older one-time code); it never sends (share-tool.ts).
     case SHARE_TOOL:
       return runShareTool(args, env, toolCtx);
+    // The user's own tracker, two steps: a plan that creates nothing, then a confirm that needs the plan's token (backlog-tool.ts).
+    case BACKLOG_TOOL:
+      return runBacklogTool(args, client, env, toolCtx);
     // Completes a request the gateway says the PERSON approved, once; otherwise read-only (share-status-tool.ts).
     case SHARE_STATUS_TOOL:
       return runShareStatusTool(args, env, toolCtx);
@@ -674,6 +683,8 @@ export const TOOL_SCHEMAS = [
   SHARE_TOOL_SCHEMA,
   // Appended after align_share.
   SHARE_STATUS_TOOL_SCHEMA,
+  // Appended after align_share_status.
+  BACKLOG_TOOL_SCHEMA,
   // Appended last: the pre-flight check keeps the lead.
   {
     name: 'align_stale_code',

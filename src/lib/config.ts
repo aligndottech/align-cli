@@ -175,6 +175,8 @@ export function createConfigStore(deps: ConfigStoreDeps = {}) {
     backgroundSyncOff?: boolean;
     /** Type relationships with the person's own model after each background refresh. Unset: never asked, so off. */
     autoClassify?: boolean;
+    /** Print the one-line offer to turn a captured decision into tickets. Unset: on. */
+    backlogOffer?: boolean;
     backgroundSyncNoticeShownAt?: string;
     reauthLineShownAt?: string;
     refusedWrites?: string[];
@@ -659,6 +661,13 @@ export function createConfigStore(deps: ConfigStoreDeps = {}) {
     },
     setAutoClassify(on: boolean) {
       store.set('autoClassify', on);
+    },
+    // `align config backlog-offer on|off`: the one line `align capture` prints offering tickets. On unless a person said off.
+    getBacklogOffer(): boolean {
+      return store.get('backlogOffer') !== false;
+    },
+    setBacklogOffer(on: boolean) {
+      store.set('backlogOffer', on);
     },
     // L6: the one-time disclosure line before the first background refresh. Its presence is the "shown" flag.
     backgroundSyncNoticeShown(): boolean {

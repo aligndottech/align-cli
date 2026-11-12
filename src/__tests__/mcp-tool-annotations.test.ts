@@ -29,10 +29,11 @@ import type { EnvironmentConfig } from '../lib/config';
  * - toolSchemasFor's description rewriting preserves annotations in both modes
  */
 
+// align_backlog creates issues in the user's own tracker, but only on a confirm that carries a plan token from a call that created nothing; it deletes nothing.
 // L3 added align_backfill: it records a window and starts an import, so it is a write.
 // L5 added align_sync: its "run" action starts a background refresh, so it is a write too.
 // L4 added align_scope: its "set" action changes what the next sync reads. LM added align_mark: it records a judgement in the local graph. L9 added align_share: it writes and replaces a pending-share file (it never sends). align_share_status was added: once the user has approved in a browser it completes the share, which writes to the team graph (additively, so not destructive).
-const WRITE_TOOLS = ['align_backfill', 'align_capture', 'align_check_drift', 'align_mark', 'align_scope', 'align_share', 'align_share_status', 'align_sync'] as const;
+const WRITE_TOOLS = ['align_backfill', 'align_backlog', 'align_capture', 'align_check_drift', 'align_mark', 'align_scope', 'align_share', 'align_share_status', 'align_sync'] as const;
 
 const localEnv = { mode: 'local-embedded', gatewayUrl: '', localDbPath: '/tmp/x.db' } as unknown as EnvironmentConfig;
 const cloudEnv = { mode: 'auth', gatewayUrl: 'https://api.align.tech', authToken: 't' } as unknown as EnvironmentConfig;

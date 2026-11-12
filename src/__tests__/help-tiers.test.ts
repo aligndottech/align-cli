@@ -1,5 +1,5 @@
 /**
- * `align --help` is five entries in at most 14 lines. Every other command still
+ * `align --help` is a short list of everyday commands in at most 14 lines. Every other command still
  * parses and runs, hidden, and is documented in docs/commands.md, the full reference this
  * suite pins (rather than an `align --help --all`, which does not exist).
  *
@@ -58,9 +58,9 @@ describe('`align --help`', () => {
     expect(lines.length, help).toBeLessThanOrEqual(14);
   });
 
-  it('lists exactly align, ask, connect, check, share, mcp, agents - in that order', async () => {
+  it('lists exactly align, ask, connect, check, backlog, share, mcp, agents - in that order', async () => {
     const help = await helpOutput(['--help']);
-    expect(listedEntries(help)).toEqual(['align', 'ask', 'connect', 'check', 'share', 'mcp', 'agents']);
+    expect(listedEntries(help)).toEqual(['align', 'ask', 'connect', 'check', 'backlog', 'share', 'mcp', 'agents']);
   });
 
   it('hides import from --help, and the doc (the pinned full reference) still carries it', async () => {
@@ -81,7 +81,7 @@ describe('every registered command still parses and runs, hidden or not', () => 
 
   it('the registry is the real command set (positive control for the per-command cases)', () => {
     expect(names.length).toBeGreaterThanOrEqual(24);
-    expect(visibleEntries().map((e) => e.names).flat()).toEqual(['ask', 'connect', 'check', 'share', 'mcp', 'agents']);
+    expect(visibleEntries().map((e) => e.names).flat()).toEqual(['ask', 'connect', 'check', 'backlog', 'share', 'mcp', 'agents']);
   });
 
   it.each(names)('`align %s --help` parses and prints that command\'s own usage', async (name) => {
