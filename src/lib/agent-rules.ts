@@ -159,9 +159,11 @@ function managedNudgeBlock(opts: { claudeHooks: boolean }): string {
     'across Slack, Jira, GitHub, Linear and more (via the `align` MCP server).',
     '',
     '- BEFORE writing or changing non-trivial code, check it against prior decisions',
-    '  (`align_check_alignment`, or run `align check`). A conflict means a past decision opposes',
-    '  the change - reconcile it or confirm with the user before proceeding.',
-    '- When unsure why something is the way it is, ask the graph first (`align_ask`).',
+    '  (`align_check_alignment`, or `mcp__align__align_check_alignment` where the host prefixes',
+    '  tool names with the server, or run `align check`). A conflict means a past decision',
+    '  opposes the change - reconcile it or confirm with the user before proceeding.',
+    '- When unsure why something is the way it is, ask the graph first (`align_ask`, or',
+    '  `mcp__align__align_ask` the same way).',
     ...(opts.claudeHooks
       ? [
           '- Claude Code hooks also surface related decisions automatically: before an edit is',
@@ -237,7 +239,7 @@ export function writeCursorRule(cwd: string): boolean {
 // .mcp.json - the tool-agnostic, project-local MCP config. pi reads it (via
 // pi-mcp-adapter), so does Claude Code, and it is committed, so one write covers the
 // whole team rather than each person's per-host config. Deliberately host-NEUTRAL: pi's
-// `directTools` goes in the Pi-owned override that mcp-setup.ts writes, never here.
+// `exposure` goes in the Pi-owned override that mcp-setup.ts writes, never here.
 export function writeProjectMcpConfig(cwd: string, env?: string, onForeign?: OnForeign): boolean {
   const status = safeWriteJson(path.join(cwd, '.mcp.json'), (config) => {
     const servers = (config['mcpServers'] ?? {}) as Record<string, unknown>;

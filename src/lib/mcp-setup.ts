@@ -12,7 +12,7 @@ import { removeUserHooks, type UserHookTarget, writeUserHooks } from './user-hoo
 //  - 'vscode' JSON       {"servers":{"align":{"type":"stdio","command","args"}}}   VS Code (Copilot)
 //  - 'zed' JSON          {"context_servers":{"align":{"source":"custom","command","args"}}}  Zed
 //  - 'codex' TOML        [mcp_servers.align] table                          OpenAI Codex CLI
-//  - 'pi' JSON           {"mcpServers":{"align":{...,"directTools":true}}}   pi (pi.dev)
+//  - 'pi' JSON           {"mcpServers":{"align":{...,"exposure":"direct"}}}  pi (pi.dev)
 //  - 'copilot' JSON      {"mcpServers":{"align":{"type":"local","command","args","tools":["*"]}}}  GitHub Copilot CLI
 //  - 'opencode' JSON     {"mcp":{"align":{"type":"local","command":[...]}}}  OpenCode (command is ONE array)
 export type McpFormat = 'mcpServers' | 'vscode' | 'zed' | 'codex' | 'pi' | 'copilot' | 'opencode';
@@ -81,11 +81,11 @@ export function alignServerEntry(
     case 'zed':
       return { source: 'custom', command, args };
     case 'pi':
-      // pi's MCP adapter is lazy by default: every server hides behind one proxy tool
-      // the agent has to search before it can call anything. That directly undercuts
-      // ALIGN_MCP_INSTRUCTIONS' "call align_check_alignment BEFORE writing code", so
-      // ask for the tools to be registered directly.
-      return { command, args, directTools: true };
+      // pi defaults every server to `codemode` exposure: the tools are callable only from a
+      // codemode script, never declared to the model. That undercuts
+      // ALIGN_MCP_INSTRUCTIONS' "call align_check_alignment BEFORE writing code", so ask for
+      // the declared exposure. `directTools` was the old guess and pi never read it.
+      return { command, args, exposure: 'direct' };
     case 'copilot':
       // Copilot CLI requires `type` and a `tools` allowlist; without `tools` the server is
       // configured and none of its tools are callable (GitHub's MCP configuration docs).
@@ -196,7 +196,7 @@ export function detectEditors(): EditorTarget[] {
 
   // pi (pi.dev) - MCP comes from the `pi-mcp-adapter` package, which reads the Pi agent
   // dir (~/.pi/agent by default, relocatable via $PI_CODING_AGENT_DIR). Write the Pi-owned
-  // override rather than a shared file: it is where adapter-only settings like directTools
+  // override rather than a shared file: it is where pi-only settings like exposure
   // belong, and it never rewrites another host's config.
   const piAgentDir = process.env['PI_CODING_AGENT_DIR'];
   const piRoot = piAgentDir ?? path.join(home, '.pi');

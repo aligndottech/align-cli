@@ -82,7 +82,7 @@ describe('alignServerEntry on Windows', () => {
 
   it('keeps the per-format extras that are not about the command', () => {
     expect(alignServerEntry('zed')).toEqual({ source: 'custom', command: 'cmd', args: ['/c', 'align', 'mcp'] });
-    expect(alignServerEntry('pi')).toEqual({ command: 'cmd', args: ['/c', 'align', 'mcp'], directTools: true });
+    expect(alignServerEntry('pi')).toEqual({ command: 'cmd', args: ['/c', 'align', 'mcp'], exposure: 'direct' });
     expect(alignServerEntry('copilot')).toEqual({
       type: 'local',
       command: 'cmd',

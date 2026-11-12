@@ -1,0 +1,35 @@
+{
+  "_capture": {
+    "host": "pi",
+    "event": "tool_result",
+    "piVersion": "1.5.2",
+    "alignVersion": "0.75.1",
+    "capturedAt": "2026-11-12",
+    "baseCommit": "97c9c9bf69902a76041cf7e696564ec803100d23",
+    "note": "The same call's result event. The shim does not pipe this one to align; it replays the finding the pre-edit check stored. Kept so the post half's real shape is on record. toolCallId redacted."
+  },
+  "type": "tool_result",
+  "toolName": "edit",
+  "toolCallId": "tool:1758000000000:example01",
+  "input": {
+    "path": "retry.ts",
+    "edits": [
+      {
+        "oldText": "export const RETRY_LIMIT = 3;",
+        "newText": "export const RETRY_LIMIT = 1;"
+      }
+    ]
+  },
+  "content": [
+    {
+      "type": "text",
+      "text": "Successfully replaced 1 block(s) in retry.ts."
+    }
+  ],
+  "details": {
+    "diff": "- 1 export const RETRY_LIMIT = 3;\n+ 1 export const RETRY_LIMIT = 1;\n  2 \n  3 export async function withRetry(fn: () => Promise<void>): Promise<void> {",
+    "patch": "--- retry.ts\n+++ retry.ts\n@@ -1,5 +1,5 @@\n-export const RETRY_LIMIT = 3;\n+export const RETRY_LIMIT = 1;\n \n export async function withRetry(fn: () => Promise<void>): Promise<void> {",
+    "firstChangedLine": 1
+  },
+  "isError": false
+}

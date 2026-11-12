@@ -165,24 +165,35 @@ describe('detectEditors - pi', () => {
 describe('writeMcpConfig - pi format', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  // directTools is what keeps align's tools in the model's context. Without it the
-  // adapter hides every server behind one proxy tool the agent must search first,
-  // which defeats "call align_check_alignment BEFORE writing code".
-  it('writes under "mcpServers" with directTools so the tools stay directly callable', () => {
+  // `exposure: direct` is what keeps align's tools in the model's context. pi's default is
+  // `codemode`, which reaches the tools only from a script, never declares them, and so
+  // defeats "call align_check_alignment BEFORE writing code". Verified against pi 1.5.2:
+  // with the old key `pi mcp list` reported (codemode, global), with this one (direct, global).
+  it('writes under "mcpServers" with direct exposure so the tools are declared to the model', () => {
     mockReadFileSync.mockReturnValue('{}');
     const target: EditorTarget = { name: 'pi', configPath: '/tmp/.pi/agent/mcp.json', format: 'pi' };
     writeMcpConfig(target);
     const written = JSON.parse(lastWritten()) as { mcpServers: Record<string, unknown> };
-    expect(written.mcpServers['align']).toEqual({ command: 'align', args: ['mcp'], directTools: true });
+    expect(written.mcpServers['align']).toEqual({ command: 'align', args: ['mcp'], exposure: 'direct' });
   });
 
-  it('keeps directTools when a non-prod env is encoded into the args', () => {
+  // `directTools` is the pre-1.0 guess at this; pi never read it, so writing it again would
+  // put the tools back behind codemode while looking like it did the job.
+  it('carries no key pi does not read', () => {
+    mockReadFileSync.mockReturnValue('{}');
+    const target: EditorTarget = { name: 'pi', configPath: '/tmp/.pi/agent/mcp.json', format: 'pi' };
+    writeMcpConfig(target);
+    const written = JSON.parse(lastWritten()) as { mcpServers: Record<string, unknown> };
+    expect(written.mcpServers['align']).not.toHaveProperty('directTools');
+  });
+
+  it('keeps direct exposure when a non-prod env is encoded into the args', () => {
     mockReadFileSync.mockReturnValue('{}');
     const target: EditorTarget = { name: 'pi', configPath: '/tmp/.pi/agent/mcp.json', format: 'pi' };
     writeMcpConfig(target, 'local');
-    const written = JSON.parse(lastWritten()) as { mcpServers: Record<string, { args: string[]; directTools: boolean }> };
+    const written = JSON.parse(lastWritten()) as { mcpServers: Record<string, { args: string[]; exposure: string }> };
     expect(written.mcpServers['align'].args).toEqual(['mcp', '--env', 'local']);
-    expect(written.mcpServers['align'].directTools).toBe(true);
+    expect(written.mcpServers['align'].exposure).toBe('direct');
   });
 
   it('preserves other servers already in the pi agent config', () => {
