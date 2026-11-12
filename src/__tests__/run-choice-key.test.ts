@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { runChoiceKey } from '../lib/run-choice-key.js';
+import { normalizeRepoPath, runChoiceKey } from '../lib/run-choice-key.js';
 
 // A REAL git repo and a REAL worktree: the key must not depend on a mock of the root.
 let base: string;
@@ -15,7 +15,9 @@ const git = (cwd: string, ...args: string[]) =>
   execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { cwd, stdio: 'pipe' });
 
 beforeAll(() => {
-  base = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'align-key-')));
+  // The expected keys are spelled through the same normaliser, never from a raw tmpdir string:
+  // on Windows tmpdir is an 8.3 short backslash path and git answers with a long forward-slash one.
+  base = realpathSync.native(mkdtempSync(path.join(os.tmpdir(), 'align-key-')));
   repo = path.join(base, 'repo');
   mkdirSync(repo);
   git(repo, 'init', '-q', '-b', 'main');
@@ -40,6 +42,25 @@ describe('runChoiceKey', () => {
     expect(await runChoiceKey(wt)).toBe(repo);
   });
   it('is the folder itself outside git', async () => {
-    expect(await runChoiceKey(plain)).toBe(plain);
+    expect(await runChoiceKey(plain)).toBe(normalizeRepoPath(plain));
+  });
+});
+
+describe('normalizeRepoPath: one key for one folder, whatever spelling arrives', () => {
+  it('maps forward-slash, trailing-separator and dot-dot spellings of an existing dir to one key', () => {
+    const key = normalizeRepoPath(repo);
+    expect(normalizeRepoPath(repo.split(path.sep).join('/'))).toBe(key);
+    expect(normalizeRepoPath(`${repo}${path.sep}`)).toBe(key);
+    expect(normalizeRepoPath(path.join(repo, 'a', '..'))).toBe(key);
+  });
+  it.skipIf(process.platform !== 'win32')('maps a backslash spelling, a short 8.3 spelling and a lower-case drive letter to one key (win32)', () => {
+    const key = normalizeRepoPath(repo);
+    expect(normalizeRepoPath(repo.split('/').join('\\'))).toBe(key);
+    expect(normalizeRepoPath(os.tmpdir() + repo.slice(realpathSync.native(os.tmpdir()).length))).toBe(key);
+    expect(normalizeRepoPath(repo[0]!.toLowerCase() + repo.slice(1))).toBe(key);
+  });
+  it('falls back to a plain resolve for a path that does not exist', () => {
+    const gone = path.join(base, 'nope', 'x');
+    expect(normalizeRepoPath(gone)).toBe(path.resolve(gone));
   });
 });
