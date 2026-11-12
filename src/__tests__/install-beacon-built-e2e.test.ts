@@ -100,6 +100,27 @@ describe('install beacon, built CLI, first run without a terminal', () => {
     expect(bodies).toEqual([]);
   });
 
+  // The opt-out cases above run a plain command first, which consumes the install, so `align mcp` there never reaches the
+  // beacon. These run `align mcp` ALONE as the first command, the way an agent starts it, under each opt-out.
+  it.each([
+    ['DO_NOT_TRACK=1', { DO_NOT_TRACK: '1' }],
+    ['ALIGN_TELEMETRY=0', { ALIGN_TELEMETRY: '0' }],
+    ['CI', { CI: 'true' }],
+    ['ALIGN_DOCTOR=1', { ALIGN_DOCTOR: '1' }],
+  ])('%s: a first `align mcp` on its own sends nothing', async (_name, env) => {
+    await align(['mcp'], env);
+    expect(bodies).toEqual([]);
+  });
+
+  // `align doctor` starts `align mcp` with ALIGN_DOCTOR=1. That run must send nothing AND must not use up the install:
+  // telemetry-env.ts promises a doctor-marked process consumes no install beacon, so the user's next real run counts it.
+  it('a doctor-started `align mcp` does not use up the install: the next real run still counts it once', async () => {
+    await align(['mcp'], { ALIGN_DOCTOR: '1' });
+    expect(bodies).toEqual([]);
+    await align(['search', 'after-doctor']);
+    expect(installs()).toHaveLength(1);
+  });
+
   it('a stored `align telemetry off` sends nothing afterwards', async () => {
     await align(['telemetry', 'off']);
     await align(['search', 'x']);

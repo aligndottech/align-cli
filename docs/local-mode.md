@@ -70,8 +70,10 @@ is listed on its own page, and a test keeps that page true.
   `ALIGN_TELEMETRY=0`, or run `align telemetry off`, to turn it off.
 - **Local-only mode sends anonymous usage counts, and tells you first.** The first time you
   run `align` in a terminal, it prints a short notice to stderr saying what is sent and how to
-  stop it. Nothing is sent before that notice, and a run with no terminal (piped, a hook, cron,
-  `docker build`, an agent's shell tool) shows none and sends nothing. After it: a random id generated once for this machine,
+  stop it. The one exception is the anonymous install count (the CLI version, your OS and the random
+  id), sent once on an install's first run even without a terminal, for example when an agent
+  starts `align mcp`; a run with no terminal (piped, a hook, cron, `docker build`, an agent's
+  shell tool) shows no notice and sends nothing else. After the notice: a random id generated once for this machine,
   the CLI version, your OS on the first run, the command name (never its arguments), and on a
   handful of milestone pings (setup finished, an import finishing, an agent wired up or
   opened, the first useful answer) which milestone it was, plus a count and the agent's name
@@ -80,8 +82,9 @@ is listed on its own page, and a test keeps that page true.
   what started it. Never code, decision text, or file, repo or org names.
 - **Nothing is sent from CI**, and the notice is not shown there. Nothing is ever sent by the
   commands align's hooks run (`align check --hook`, `align check --advisory`,
-  `align context inject`). `align mcp`, or a run inside an agent `align` opened, does not show the notice, so it
-  sends nothing until the notice has printed in your own terminal.
+  `align context inject`). `align mcp`, or a run inside an agent `align` opened, does not show the notice. Apart from
+  that one install count on an install's very first run, it sends nothing until the notice
+  has printed in your own terminal. `align doctor` and the `align mcp` it starts send nothing.
 - If an earlier version asked you at the end of setup and you said No, that stands as off:
   nothing is sent, in either mode, the two counts included, until you run
   `align telemetry on`.

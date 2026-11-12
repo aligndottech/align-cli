@@ -647,6 +647,9 @@ export async function recordInstallBeacon(commandPath: string): Promise<boolean>
     // a plain command run by an agent ARE installs: that is the only way many installs ever run.
     if (inCi() || inHookContext()) return false;
     if (process.env['ALIGN_WRAPPED']) return false;
+    // `align doctor` and the `align mcp` it starts are not the user's install: send nothing and consume nothing
+    // (telemetry-env.ts DOCTOR_ENV), so the user's next real run still counts the install once.
+    if (process.env[DOCTOR_ENV] === '1') return false;
     const { createConfigStore } = await import('./config.js');
     const { resolveEnv } = await import('./resolve-env.js');
     const config = createConfigStore();
