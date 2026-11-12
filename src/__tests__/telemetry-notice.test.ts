@@ -113,28 +113,31 @@ describe('the one-time telemetry notice', () => {
     ['stderr is not a terminal', true, false],
     ['stdin is not a terminal', false, true],
     ['neither is a terminal', false, false],
-  ])('%s: no notice, nothing marked, nothing sent', async (_label, stdin, stderr) => {
+  ])('%s: no notice and nothing marked; the install is counted, and no usage or stage is sent', async (_label, stdin, stderr) => {
     setTTY(stdin, stderr);
     await runCommand('ask');
+    const afterInstall = fetchSpy.mock.calls.length;
     await recordCommandUsage(localEnv, 'ask');
     await recordFunnelStage(localEnv, 'setup_completed', 'setup');
     expect(noticeWrites()).toHaveLength(0);
     expect(state.noticeShownAt).toBeUndefined();
-    expect(fetchSpy).not.toHaveBeenCalled();
+    // Only the install beacon, which needs no terminal; usage and stages still wait for the notice.
+    expect(afterInstall).toBe(1);
+    expect(JSON.parse(fetchSpy.mock.calls[0]![1].body)).toMatchObject({ stage: 'install' });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('stays unsent through non-terminal runs, then the first real terminal run shows it and sends', async () => {
+  it('counts the install on a non-terminal first run, once; the first terminal run then shows the notice and sends no second beacon', async () => {
     setTTY(false, false);
     await runCommand('ask');
     await runCommand('ask');
-    expect(fetchSpy).not.toHaveBeenCalled();
-    expect(state.stages).not.toContain('install');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(state.stages).toContain('install');
 
     setTTY(true, true);
     await runCommand('ask');
     expect(noticeWrites()).toHaveLength(1);
     expect(fetchSpy).toHaveBeenCalledTimes(1);
-    expect(state.stages).toContain('install');
   });
 
   // Every command an installed hook runs is hook context: check --hook (pre-commit), check
@@ -305,12 +308,13 @@ describe('the one-time telemetry notice', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it('`align mcp` as the first-ever command: no notice, no send, and the first run is not consumed', async () => {
+  it('`align mcp` as the first-ever command: no notice, but the install is counted (an agent may be the only way it ever runs)', async () => {
     await runCommand('mcp');
     expect(noticeWrites()).toHaveLength(0);
-    expect(fetchSpy).not.toHaveBeenCalled();
     expect(state.noticeShownAt).toBeUndefined();
-    expect(state.stages).not.toContain('install');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(fetchSpy.mock.calls[0]![1].body)).toMatchObject({ stage: 'install' });
+    expect(state.stages).toContain('install');
   });
 
   it('inside a launched agent (ALIGN_WRAPPED): no notice, no send, nothing marked', async () => {

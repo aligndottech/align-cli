@@ -18,10 +18,13 @@ The short version, for local-only mode:
   Turn it off: align telemetry off (or DO_NOT_TRACK=1). Details: align.tech/privacy#cli
   ```
 
-- **Nothing sends before that notice has printed in a real terminal.** A run with no terminal -
+- **Usage counts wait for that notice to print in a real terminal.** A run with no terminal -
   output piped or sent to `/dev/null`, a hook, cron, systemd, `docker build`, an agent's shell
-  tool - shows no notice and sends nothing, and it does not count as the first run: the notice
-  waits for your next run in a terminal.
+  tool - shows no notice and sends no usage count: the notice waits for your next run in a
+  terminal. The one exception is the install count below, which is sent on the first run even
+  when that run has no terminal (an agent starting `align mcp`, for example), because otherwise
+  an install that only ever runs through an agent would never be counted. It holds only the CLI
+  version, your OS and the random install id.
 - **`align telemetry off` or `DO_NOT_TRACK=1` stops all of it.** An environment opt-out
   (`DO_NOT_TRACK` or `ALIGN_TELEMETRY=0`) is also remembered: the first align run that sees it
   stores "off" on this machine (with the variable's name and the date), so processes that never
@@ -90,7 +93,7 @@ added server-side.
 
 ### `cli.funnel.install`
 
-Sent once per install, on the first run that shows the notice, before any prompt. Never again
+Sent once per install, on the first run, before any prompt, whether or not that run has a terminal (so before the notice, if the first run is an agent's). Never again
 for that install id once it has been sent. That first run waits for it, for at most 0.8
 seconds. If the connection fails outright, the next run tries again; if the gateway does not
 answer in time, it is not retried, so it is sent at most once. Other events do not hold up the

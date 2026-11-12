@@ -81,16 +81,24 @@ describe('recordInstallBeacon', () => {
 
   afterEach(() => vi.unstubAllEnvs());
 
-  it('C6: no notice and no stored decision: no beacon (the notice is the disclosure it waits on)', async () => {
+  it('no notice yet (no terminal) and no stored decision: the beacon still goes out once', async () => {
     noticeShownAt = undefined;
-    await expect(recordInstallBeacon('align')).resolves.toBe(false);
-    expect(mockFetch).not.toHaveBeenCalled();
+    await expect(recordInstallBeacon('align')).resolves.toBe(true);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
-  it('C6: the first run is not consumed while the notice has not printed (no terminal yet)', async () => {
+  it('no notice yet, `align mcp` as the first command: the beacon goes out', async () => {
     noticeShownAt = undefined;
-    await recordInstallBeacon('align');
-    expect(markFunnelStageRecorded).not.toHaveBeenCalled();
+    await expect(recordInstallBeacon('mcp')).resolves.toBe(true);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('no notice yet but DO_NOT_TRACK set: nothing is sent and the install is consumed (the opt-out still wins)', async () => {
+    noticeShownAt = undefined;
+    vi.stubEnv('DO_NOT_TRACK', '1');
+    await expect(recordInstallBeacon('mcp')).resolves.toBe(false);
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(markFunnelStageRecorded).toHaveBeenCalledWith('install');
   });
 
   it('C6: in CI the first run is not consumed - no beacon, and the install is NOT marked', async () => {

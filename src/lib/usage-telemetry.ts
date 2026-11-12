@@ -642,10 +642,10 @@ export async function recordDemoRun(run: { success: boolean; durationMs: number 
 export async function recordInstallBeacon(commandPath: string): Promise<boolean> {
   try {
     if (commandPath === 'telemetry' || commandPath.startsWith('telemetry ')) return false;
-    // C6: a CI job is not an install, so it must not consume the first run; nor do the runs
-    // nobody is reading (an agent's `mcp` server, a hook, a run inside a launched agent) - the
-    // notice is skipped there, so the beacon would have nothing to follow.
-    if (inCi() || inHookContext() || commandPath === 'mcp' || commandPath.startsWith('mcp ')) return false;
+    // A CI job is not an install, so it must not consume the first run; nor do a hook or a run inside
+    // a launched agent, which only exist after a setup run has already been counted. `align mcp` and
+    // a plain command run by an agent ARE installs: that is the only way many installs ever run.
+    if (inCi() || inHookContext()) return false;
     if (process.env['ALIGN_WRAPPED']) return false;
     const { createConfigStore } = await import('./config.js');
     const { resolveEnv } = await import('./resolve-env.js');
@@ -660,9 +660,10 @@ export async function recordInstallBeacon(commandPath: string): Promise<boolean>
       config.markFunnelStageRecorded('install');
       return false;
     }
-    // Not told yet (no notice: no terminal, or the notice failed): the first run is NOT consumed,
-    // so the beacon goes out after the first run that does show the notice.
-    if (!localTierAllows(consent, 'install', noticeShownOn(config))) return false;
+    // No wait for the notice: it needs a terminal, and an install first run by an agent (`align mcp`,
+    // a Bash tool) has none, so waiting meant such an install was never counted. The beacon is the
+    // funnel's denominator and carries only the version, the OS and the install id; every opt-out
+    // above has already returned. The notice still prints on the first terminal run.
     // Marked BEFORE the send, as a check-and-set on the store, so two first runs started together
     // mostly send one beacon. Not atomic across processes: the store is a JSON file with no lock,
     // so two processes that both read it before either writes can still both send. The cost is
