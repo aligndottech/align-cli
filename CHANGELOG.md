@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.75.1](https://github.com/aligndottech/align-cli/compare/cli-v0.75.0...cli-v0.75.1) (2026-11-12)
+
+
+### Bug Fixes
+
+* align demo's run count is sent in a real run ([#565](https://github.com/aligndottech/align-cli/issues/565)) ([d19cc96](https://github.com/aligndottech/align-cli/commit/d19cc967e75dd5b1e506ee130e7e9de753497425))
+
 ## [0.75.0](https://github.com/aligndottech/align-cli/compare/cli-v0.74.0...cli-v0.75.0) (2026-11-12)
 
 
