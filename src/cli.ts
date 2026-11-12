@@ -163,6 +163,7 @@ export function buildProgram(options: BuildProgramOptions = {}): Command {
   // would otherwise run the launcher and exit 0. Name the replacement and fail.
   // Which engine runs behind Align's own agent. Remembered once chosen.
   addSetupOptions(program)
+    .addOption(new Option('--switch', 'Choose again how Align is used in this repo: keep your own agent, or Align\'s own coding agent'))
     .addOption(new Option('--engine <engine>', 'What runs behind Align: align (your API key or Ollama) or claude (your own Claude Code)').choices(['align', 'claude']))
     .action((opts: Record<string, unknown>, cmd: Command) => {
     if (cmd.args.length > 0) {

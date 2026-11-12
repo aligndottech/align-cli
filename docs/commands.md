@@ -245,6 +245,14 @@ align local reset             Wipe local graph and reset config
 
 ## Notes
 
+The first bare `align` in a repo asks how you want to use Align: keep your own agent, or use
+Align's own coding agent. If Claude Code, Codex or Cursor is on your machine (checked in that
+order), "keep" is preselected and names it. "Keep" does what `align mcp --setup` does: it lists
+the files it will write, asks, then adds the MCP server, the pre-edit hook and the editor rules.
+It never pre-approves Align's tools in an agent's permissions. The answer is stored per repo
+(by git root) in `~/.align`, and later runs follow it without asking. `align --switch` asks
+again. With no terminal nothing is asked or written: Align takes the suggestion for that run.
+
 `ask`, `search` and `decisions list` take `--repo <name>` and `--all` in local mode - see
 [local-mode.md](local-mode.md#how-the-local-graph-behaves). Without either, they default to
 the repo you are standing in (plus anything not attributed to a repo), never to every repo

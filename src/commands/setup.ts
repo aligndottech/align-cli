@@ -443,7 +443,7 @@ export function importRetryHint(sourceId: string, envName: EnvName): string {
  * prints the list and writes nothing. False means the
  * person declined: the caller writes nothing.
  */
-async function confirmAgentWrites(o: { interactive: boolean; approve?: boolean }): Promise<{ confirmed: boolean; editors: EditorTarget[] }> {
+export async function confirmAgentWrites(o: { interactive: boolean; approve?: boolean }): Promise<{ confirmed: boolean; editors: EditorTarget[] }> {
   // Detected once: the same agents are listed here and written by connectDetectedAgents.
   const editors = detectEditors();
   const files = planSetupWrites({ cwd: process.cwd(), editors });
@@ -466,7 +466,7 @@ async function confirmAgentWrites(o: { interactive: boolean; approve?: boolean }
  * tell whether the project .mcp.json - the one that wires Claude Code - actually landed.
  * Naming an agent as connected off a write that threw would be false.
  */
-function writeAgentAlignment(envName: EnvName): string[] {
+export function writeAgentAlignment(envName: EnvName): string[] {
   try {
     const foreign: string[] = [];
     const written = setupAgentAlignment({ cwd: process.cwd(), env: envName, onForeign: (file) => foreign.push(file) });
@@ -1276,7 +1276,7 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<strin
   const tryLead = launchLabel
     ? `Opening ${launchLabel}. Try these in it:`
     : leadsIntoPrompts
-      ? 'Run align to open Align with your graph, then try:'
+      ? `Open ${chosenLabel} in this repo, or run align to use Align's own agent, then try:`
       : agents.length === 0 && agent === null
       ? 'Once one is installed, open it in this repo and try:'
       : agentTryLead({ agents, chosen: chosenLabel, inRepo: true, envName: 'local' });

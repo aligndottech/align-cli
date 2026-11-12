@@ -29,6 +29,12 @@ import { agentByName } from '../lib/launch/agents.js';
 /** The hidden setup flags on the bare command. Any one of them means the wizard, not the launcher. */
 const SETUP_FLAGS = ['env', 'approve', 'local', 'reset', 'verbose'] as const;
 
+/** What the first run in a repo ended on. 'own' opens Align's agent; anything else leaves the terminal to the user. */
+async function openOwnAgent(opts: Record<string, unknown>, notices?: string[]): Promise<never> {
+  const { runAgentSession } = await import('../lib/agent/run-agent-session.js');
+  return process.exit(await runAgentSession({ engine: opts['engine'] as 'align' | 'claude' | undefined, ...(notices ? { notices } : {}) })) as never;
+}
+
 export async function runDefaultAction(opts: Record<string, unknown> = {}): Promise<void> {
   if (SETUP_FLAGS.some((k) => opts[k] !== undefined)) {
     const { runSetup } = await import('./setup.js');
@@ -48,6 +54,22 @@ export async function runDefaultAction(opts: Record<string, unknown> = {}): Prom
   // What runs here is `runSetup`, which itself routes by login / ALIGN_ENV, so an
   // ALIGN_ENV=prod machine with no token lands in the team login, not the local wizard.
   const tty = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  // `--switch` changes a choice that exists only in a repo that is set up and where Align may
+  // launch. Where it cannot apply it says why, rather than being ignored.
+  if (opts['switch'] === true) {
+    const why = !hasLocal
+      ? 'align --switch needs a repo that is already set up. Run align first.'
+      : launchSuppressed()
+        ? 'align --switch does not apply inside an agent Align started (ALIGN_WRAPPED or ALIGN_NO_LAUNCH is set).'
+        : config.isLaunchOff()
+          ? 'align --switch does not apply because launching is off (align use --undo turned it off). Pick an agent with align use <agent> first.'
+          : undefined;
+    if (why) {
+      console.error(why);
+      process.exit(1);
+      return;
+    }
+  }
   if (!hasLocal && !hasCloud) {
     // Onboarding asks questions. Without a TTY - a pipe, a CI step, a Dockerfile - those
     // prompts cannot be answered, and starting anyway leaves a half-drawn cancelled prompt
@@ -69,7 +91,9 @@ export async function runDefaultAction(opts: Record<string, unknown> = {}): Prom
     // stacked two full banners on a fresh user's very first command (found live
     // 2026-09-02). The banner belongs to whichever flow owns the screen.
     const { runSetup } = await import('./setup.js');
-    const setup = await runSetup({ launchNext: true });
+    // launchNext is false: the wizard's outro must not say "Opening Align" before the question below,
+    // which is what decides whether anything opens.
+    const setup = await runSetup({ launchNext: false });
     // A declined write left no agent with align's config: opening one now would say "with your graph" falsely.
     if (setup?.writesDeclined) return;
 
@@ -83,8 +107,10 @@ export async function runDefaultAction(opts: Record<string, unknown> = {}): Prom
     // line and what happens next cannot disagree.
     const after = createConfigStore();
     if (launchesAfterWizard({ localGraph: after.getEnvironment('local').mode === 'local-embedded', agent: after.getAgent(), isTTY: tty })) {
-      const { runAgentSession } = await import('../lib/agent/run-agent-session.js');
-      process.exit(await runAgentSession({ engine: opts['engine'] as 'align' | 'claude' | undefined, notices: setup?.notices }));
+      // The wizard already wired the agents it found, so choosing "keep" does not write a second time.
+      const { runFirstRunChoice } = await import('./first-run-choice.js');
+      const choice = await runFirstRunChoice({ alreadyWired: true });
+      if (choice.action === 'own') await openOwnAgent(opts, setup?.notices);
     }
     return;
   }
@@ -101,9 +127,18 @@ export async function runDefaultAction(opts: Record<string, unknown> = {}): Prom
     if (process.argv.slice(2).includes('--')) {
       const launch = await launchIfChosen();
       if (launch.handled) process.exit(launch.code);
-    } else if (tty && !launchSuppressed() && !config.isLaunchOff()) {
-      const { runAgentSession } = await import('../lib/agent/run-agent-session.js');
-      process.exit(await runAgentSession({ engine: opts['engine'] as 'align' | 'claude' | undefined }));
+    } else if (!launchSuppressed() && !config.isLaunchOff()) {
+      // The first bare `align` in a repo asks how to use Align; later runs follow the answer
+      // stored for that repo. `align --switch` asks again. With no terminal nothing is asked.
+      if (opts['switch'] === true && !tty) {
+        console.error('align --switch asks a question, so it needs a terminal.');
+        process.exit(1);
+        return;
+      }
+      const { runFirstRunChoice } = await import('./first-run-choice.js');
+      const choice = await runFirstRunChoice({ switching: opts['switch'] === true });
+      if (choice.action === 'cancelled') return;
+      if (choice.action === 'own' && tty) await openOwnAgent(opts);
     }
   }
 

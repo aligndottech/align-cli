@@ -1864,8 +1864,8 @@ describe('align setup', () => {
           mockLocalDb.getStats = () => ({ decisions: 1 });
           await makeProgram().parseAsync(['node', 'align']);
           const text = await outroText();
-          expect(text).toMatch(/Run align to open Align with your graph, then try:\n\s+1\. /);
-          expect(text.match(/open Align/gi)).toHaveLength(1);
+          expect(text).toMatch(/Open Claude Code in this repo, or run align to use Align's own agent, then try:\n\s+1\. /);
+          expect(text).not.toContain('Run align to open Align with your graph, then try:');
         });
 
         it('when the agent opens right after (bare align), the run-align line is dropped', async () => {
@@ -2470,7 +2470,7 @@ describe('align setup', () => {
       await makeProgram().parseAsync(['node', 'align', '--local', '--approve']);
       const tail = await outroTail(4);
       expect(tail).toBe([
-        'Run align to open Align with your graph, then try:',
+        'Open Claude Code in this repo, or run align to use Align\'s own agent, then try:',
         '  1. why did we switch to postgres?',
         '  2. what was decided about src/db.ts?',
         '  3. Plan a change that reverses "switch to postgres". Check it with Align before writing anything.',
@@ -2512,7 +2512,7 @@ describe('align setup', () => {
       mockLocalDb.getStats = () => ({ decisions: 1 });
       await makeProgram().parseAsync(['node', 'align', '--local', '--approve']);
       const tail = await outroTail(4);
-      expect(tail.split('\n')[0]).toBe('Run align to open Align with your graph, then try:');
+      expect(tail.split('\n')[0]).toBe('Open Claude Code in this repo, or run align to use Align\'s own agent, then try:');
       expect(tail).not.toMatch(/align mcp/);
     });
 
