@@ -37,10 +37,10 @@ function fixture(): Fx {
     if (url.includes('api.linear.app')) {
       if (body.includes('issueCreate')) {
         if (f.failNext.n > 0) { f.failNext.n--; return json({}, f.failNext.status); }
-        n++; return json({ data: { issueCreate: { success: true, issue: { identifier: `ALI-${n}`, url: `https://linear.app/t/issue/ALI-${n}` } } } });
+        n++; return json({ data: { issueCreate: { success: true, issue: { identifier: `ENG-${n}`, url: `https://linear.app/t/issue/ENG-${n}` } } } });
       }
-      if (body.includes('first: 100')) return json({ data: { teams: { nodes: [{ id: 'T1', key: 'ALI', name: 'Align' }, { id: 'T2', key: 'OPS', name: 'Ops' }], pageInfo: { hasNextPage: false } } } });
-      return json({ data: { teams: { nodes: [{ id: 'T1', key: 'ALI', name: 'Align' }] } } });
+      if (body.includes('first: 100')) return json({ data: { teams: { nodes: [{ id: 'T1', key: 'ENG', name: 'Align' }, { id: 'T2', key: 'OPS', name: 'Ops' }], pageInfo: { hasNextPage: false } } } });
+      return json({ data: { teams: { nodes: [{ id: 'T1', key: 'ENG', name: 'Align' }] } } });
     }
     if (url.includes('api.github.com')) { n++; return json({ number: n, html_url: `https://github.com/o/r/issues/${n}` }, 201); }
     if (url.includes('/rest/api/3/issue')) { n++; return json({ key: `PRJ-${n}` }, 201); }
@@ -58,7 +58,7 @@ function fixture(): Fx {
   };
   return Object.assign(f, { deps }) as unknown as Fx;
 }
-const run = (f: Fx, o: Partial<BacklogOptions> = {}) => runBacklog({ decision: '3f2a9c1e-0000-4000-8000-000000000001', tracker: 'linear', team: 'ALI', ...o }, f.deps);
+const run = (f: Fx, o: Partial<BacklogOptions> = {}) => runBacklog({ decision: '3f2a9c1e-0000-4000-8000-000000000001', tracker: 'linear', team: 'ENG', ...o }, f.deps);
 const text = (f: Fx) => [...f.out, ...f.err].join('\n');
 const creates = (f: Fx) => f.calls.filter((c) => c.body.includes('issueCreate') || c.url.includes('/issues') || c.url.includes('/rest/api/3/issue'));
 
@@ -68,7 +68,7 @@ describe('dry-run', () => {
     expect(await run(f, { dryRun: true })).toBe(0);
     expect(f.calls).toHaveLength(0);
     expect(fs.existsSync(f.deps.ledgerPath)).toBe(false);
-    expect(text(f)).toMatch(/Linear/); expect(text(f)).toContain('ALI'); expect(text(f)).toContain('2 issues');
+    expect(text(f)).toMatch(/Linear/); expect(text(f)).toContain('ENG'); expect(text(f)).toContain('2 issues');
     expect(text(f)).toContain('Add OIDC provider config');
   });
 });
@@ -84,7 +84,7 @@ describe('linear', () => {
     expect(first.variables.input.title).toBe('Add OIDC provider config');
     expect(first.variables.input.description).toContain('https://app.align.tech/decisions/3f2a9c1e-0000-4000-8000-000000000001');
     expect(first.variables.input.description).toContain('https://github.com/o/r/pull/9');
-    expect(text(f)).toContain('ALI-1'); expect(text(f)).toContain('ALI-2');
+    expect(text(f)).toContain('ENG-1'); expect(text(f)).toContain('ENG-2');
   });
 });
 
@@ -117,7 +117,7 @@ describe('idempotency and resume', () => {
     f.calls.length = 0; f.out.length = 0;
     expect(await run(f)).toBe(0);
     expect(creates(f)).toHaveLength(0); expect(f.shapeCalls.n).toBe(1);
-    expect(text(f)).toMatch(/already/i); expect(text(f)).toContain('ALI-1');
+    expect(text(f)).toMatch(/already/i); expect(text(f)).toContain('ENG-1');
     expect(await run(f, { force: true })).toBe(0);
     expect(creates(f)).toHaveLength(2); expect(f.shapeCalls.n).toBe(2);
   });
@@ -128,7 +128,7 @@ describe('idempotency and resume', () => {
     const real = f.deps.fetch; let seen = 0;
     f.deps.fetch = (async (u: string, i?: { body?: string }) => { if ((i?.body ?? '').includes('issueCreate') && ++seen === 2) return new Response('{}', { status: 500 }); return (real as unknown as (u: string, i?: unknown) => Promise<Response>)(u, i); }) as unknown as typeof fetch;
     expect(await run(f)).toBe(1);
-    expect(text(f)).toContain('ALI-1');
+    expect(text(f)).toContain('ENG-1');
     f.deps.fetch = real; f.calls.length = 0;
     expect(await run(f)).toBe(0);
     expect(creates(f)).toHaveLength(1);
@@ -198,9 +198,9 @@ describe('lost responses, keys and the ledger file', () => {
     expect(await run(f)).toBe(0);
     expect(text(f)).toMatch(/Check first/);
   });
-  it('team case does not split the ledger: ali after ALI creates nothing', async () => {
+  it('team case does not split the ledger: eng after ENG creates nothing', async () => {
     const f = fixture(); await run(f); f.calls.length = 0;
-    expect(await run(f, { team: 'ali' })).toBe(0);
+    expect(await run(f, { team: 'eng' })).toBe(0);
     expect(creates(f)).toHaveLength(0);
   });
   it('the same Jira project on another site is a different destination', async () => {
