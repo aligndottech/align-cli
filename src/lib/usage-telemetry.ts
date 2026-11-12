@@ -3,6 +3,9 @@ import { DOCTOR_ENV, telemetryDisabledByEnv } from './telemetry-env.js';
 import { inHookContext, markHookContext } from './hook-context.js';
 import { inCi } from './telemetry-ci.js';
 import { maybeShowTelemetryNotice, storeEnvOptOut } from './telemetry-consent.js';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { alignConfigDir } from './private-files.js';
 import pkg from '../../package.json' with { type: 'json' };
 
 /**
@@ -561,15 +564,32 @@ export const DEMO_RUN_STAGE = 'demo_run';
  * The body is `command` ('demo'), `cliVersion`, `stage`, `os`, `success` and `durationSeconds`
  * (whole seconds), and nothing else: no install id, no repo, path, hostname or decision text.
  *
- * It never opens the config store. The store lives in ~/.align, and `align demo` promises to
- * leave that folder alone, so this reads only the environment: DO_NOT_TRACK, ALIGN_TELEMETRY and
- * CI stop it, through the same helpers every other send uses. The cost is that a stored
- * `align telemetry off` cannot be read here, so it does not stop this one count (docs/telemetry.md
- * says so). Capped at TELEMETRY_TIMEOUT_MS, and never throws.
+ * It never opens the config store, which creates ~/.align and can migrate an older config, and
+ * `align demo` promises to leave that folder alone. DO_NOT_TRACK, ALIGN_TELEMETRY and CI stop it
+ * through the helpers every other send uses, and a stored `align telemetry off` (or a stored No)
+ * stops it too, read by readStoredConsentReadOnly. Capped at TELEMETRY_TIMEOUT_MS, never throws.
  */
+/**
+ * The stored telemetry answer, read without touching anything: no createConfigStore (it makes the
+ * directory and migrates), just the config file `align telemetry off` writes
+ * (`<alignConfigDir>/config.json`, key `telemetryConsent`). A missing or unreadable file, or a
+ * value that is not one of the three, is "no stored answer", so the env checks decide.
+ */
+function readStoredConsentReadOnly(): TelemetryConsent | undefined {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(join(alignConfigDir(), 'config.json'), 'utf8'));
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined;
+    const v = (parsed as Record<string, unknown>)['telemetryConsent'];
+    return v === 'granted' || v === 'declined' || v === 'off' ? v : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function recordDemoRun(run: { success: boolean; durationMs: number }, opts: { capMs?: number } = {}): Promise<void> {
   try {
     if (telemetryOptedOut()) return;
+    if (storedAnswerForbidsSending(readStoredConsentReadOnly())) return;
     await postAnonymous({
       command: 'demo',
       cliVersion: pkg.version,
