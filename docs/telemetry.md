@@ -37,6 +37,8 @@ The short version, for local-only mode:
   [`cli.funnel.demo_run`](#clifunneldemo_run) below. It stops for `align telemetry off`,
   `DO_NOT_TRACK=1`, `ALIGN_TELEMETRY=0` and CI. To honour a stored `off` it reads your
   `~/.align/config.json` and nothing else; it never creates, writes or migrates anything there.
+  If that file is missing (a fresh install) the count is sent. If it exists but cannot be read or
+  understood, nothing is sent, because we cannot tell whether you turned telemetry off.
 - **`align doctor` sends nothing of any kind**, in either mode, whatever you have chosen: no usage
   count, no install count, no notice, and the `align mcp` it starts for its one test question
   sends nothing either, and neither stores nor changes anything about your telemetry choice. It

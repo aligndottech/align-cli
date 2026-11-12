@@ -567,29 +567,41 @@ export const DEMO_RUN_STAGE = 'demo_run';
  * It never opens the config store, which creates ~/.align and can migrate an older config, and
  * `align demo` promises to leave that folder alone. DO_NOT_TRACK, ALIGN_TELEMETRY and CI stop it
  * through the helpers every other send uses, and a stored `align telemetry off` (or a stored No)
- * stops it too, read by readStoredConsentReadOnly. Capped at TELEMETRY_TIMEOUT_MS, never throws.
+ * stops it too, read by storedAnswerAllowsDemoCount. Capped at TELEMETRY_TIMEOUT_MS, never throws.
  */
 /**
- * The stored telemetry answer, read without touching anything: no createConfigStore (it makes the
- * directory and migrates), just the config file `align telemetry off` writes
- * (`<alignConfigDir>/config.json`, key `telemetryConsent`). A missing or unreadable file, or a
- * value that is not one of the three, is "no stored answer", so the env checks decide.
+ * Whether the stored telemetry answer lets the demo count be sent, read without touching anything:
+ * no createConfigStore (it makes the directory and migrates), just the config file `align
+ * telemetry off` writes (`<alignConfigDir>/config.json`, key `telemetryConsent`). Fails CLOSED:
+ * - no file (ENOENT): a fresh install, no answer given, so the env checks decide;
+ * - a file with no `telemetryConsent` key: no answer given, same;
+ * - `off` or `declined`: no;
+ * - a file that exists but cannot be read or parsed, is not an object, or holds a value that is not
+ *   one of the three: no, because the user's choice is unknowable and might be `off`.
  */
-function readStoredConsentReadOnly(): TelemetryConsent | undefined {
+function storedAnswerAllowsDemoCount(): boolean {
+  let text: string;
   try {
-    const parsed: unknown = JSON.parse(readFileSync(join(alignConfigDir(), 'config.json'), 'utf8'));
-    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined;
+    text = readFileSync(join(alignConfigDir(), 'config.json'), 'utf8');
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'ENOENT';
+  }
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
     const v = (parsed as Record<string, unknown>)['telemetryConsent'];
-    return v === 'granted' || v === 'declined' || v === 'off' ? v : undefined;
+    if (v === undefined) return true;
+    if (v === 'granted') return true;
+    return false; // 'off', 'declined', or a value we do not know
   } catch {
-    return undefined;
+    return false;
   }
 }
 
 export async function recordDemoRun(run: { success: boolean; durationMs: number }, opts: { capMs?: number } = {}): Promise<void> {
   try {
     if (telemetryOptedOut()) return;
-    if (storedAnswerForbidsSending(readStoredConsentReadOnly())) return;
+    if (!storedAnswerAllowsDemoCount()) return;
     await postAnonymous({
       command: 'demo',
       cliVersion: pkg.version,

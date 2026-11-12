@@ -55,20 +55,30 @@ describe('the demo run count and the stored telemetry answer', () => {
     expect(readdirSync(home)).toEqual([]);
   });
 
-  it.each([['not json', '{{{ nope'], ['a non-object', '[1,2]'], ['an unknown value', '{"telemetryConsent":"banana"}']])(
-    'an unreadable config (%s) falls through to the env checks and the demo count is sent',
-    async (_l, content) => {
-      mkdirSync(join(home, '.align'));
-      writeFileSync(join(home, '.align', 'config.json'), content);
-      await recordDemoRun(run);
-      expect(mockFetch).toHaveBeenCalledTimes(1);
-    },
-  );
+  it('a config with no telemetryConsent key (an answer never given) is counted', async () => {
+    mkdirSync(join(home, '.align'));
+    writeFileSync(join(home, '.align', 'config.json'), '{"defaultEnv":"prod"}');
+    await recordDemoRun(run);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
 
-  it('a config path that is a directory does not throw and does not stop the count', async () => {
+  // Fail closed: a file that exists but cannot be understood might hold an `off`, so nobody is counted.
+  it.each([
+    ['not json', '{{{ nope'],
+    ['a non-object', '[1,2]'],
+    ['an unknown value', '{"telemetryConsent":"banana"}'],
+    ['an empty file', ''],
+  ])('an unreadable config (%s) sends nothing', async (_l, content) => {
+    mkdirSync(join(home, '.align'));
+    writeFileSync(join(home, '.align', 'config.json'), content);
+    await recordDemoRun(run);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('a config path that is a directory does not throw and sends nothing', async () => {
     mkdirSync(join(home, '.align', 'config.json'), { recursive: true });
     await expect(recordDemoRun(run)).resolves.toBeUndefined();
-    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 });
 
