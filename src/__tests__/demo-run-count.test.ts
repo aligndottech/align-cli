@@ -29,7 +29,7 @@ const runDemo = vi.hoisted(() => vi.fn());
 vi.mock('../lib/demo/run.js', () => ({ runDemo: (...a: unknown[]) => runDemo(...a) }));
 
 import pkg from '../../package.json' with { type: 'json' };
-import { recordDemoRun, TELEMETRY_TIMEOUT_MS } from '../lib/usage-telemetry.js';
+import { beginInvocationTelemetry, recordDemoRun, TELEMETRY_TIMEOUT_MS } from '../lib/usage-telemetry.js';
 import { registerDemoCommand } from '../commands/demo.js';
 
 const mockFetch = vi.fn();
@@ -102,6 +102,37 @@ describe('the demo run count: when it is not sent', () => {
     vi.stubEnv('GITHUB_ACTIONS', undefined);
     await recordDemoRun({ success: true, durationMs: 1000 });
     expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+// The real run goes through cli.ts's preAction first, which marks `demo` telemetry-free
+// (ALIGN_DOCTOR=1) so the install beacon, usage ping and funnel stages stay silent. Calling
+// recordDemoRun on its own skips that step, which is how 0.75.0 shipped a count that never sent.
+describe('the demo run count: after the real preAction', () => {
+  beforeEach(() => {
+    vi.stubEnv('ALIGN_DOCTOR', undefined);
+  });
+
+  it('still sends once, although the preAction marked the run telemetry-free', async () => {
+    await beginInvocationTelemetry('demo', { hook: false });
+    expect(process.env['ALIGN_DOCTOR']).toBe('1'); // the precondition: the marker is really set
+    await recordDemoRun({ success: true, durationMs: 2000 });
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(sentBody()['stage']).toBe('demo_run');
+  });
+
+  it('still respects DO_NOT_TRACK after the preAction', async () => {
+    vi.stubEnv('DO_NOT_TRACK', '1');
+    await beginInvocationTelemetry('demo', { hook: false });
+    await recordDemoRun({ success: true, durationMs: 2000 });
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('still respects CI after the preAction', async () => {
+    vi.stubEnv('CI', 'true');
+    await beginInvocationTelemetry('demo', { hook: false });
+    await recordDemoRun({ success: true, durationMs: 2000 });
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 });
 
