@@ -600,7 +600,9 @@ function storedAnswerAllowsDemoCount(): boolean {
 
 export async function recordDemoRun(run: { success: boolean; durationMs: number }, opts: { capMs?: number } = {}): Promise<void> {
   try {
-    if (telemetryOptedOut()) return;
+    // Not telemetryOptedOut(): the preAction marks `demo` telemetry-free (DOCTOR_ENV) to silence every
+    // OTHER send, so that marker would silence this one too. The user's own opt-outs still apply.
+    if (telemetryDisabledByEnv() !== undefined || inCi()) return;
     if (!storedAnswerAllowsDemoCount()) return;
     await postAnonymous({
       command: 'demo',
