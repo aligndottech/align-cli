@@ -56,9 +56,6 @@ align check                   Check current changes against the decision graph (
                               flags: --env --all --hook --advisory --format --block-on-critical --adjudicate-deferred --ci --json --title --base --depth --resolve
 align review                  same as align check
 
-align backlog <decision>      Turn a decision into one issue per task, created straight away in Linear, GitHub Issues or Jira
-                              flags: --tracker --team --repo --project --token --dry-run --force --max --env
-
 align share [ids]             Share ratified local decisions, and your judgements on them, with your team (previewed first; never without a yes)
                               flags: --env --to --all-ratified --since --yes --confirm --typed --retract --open --no-open --qr --no-qr --copy
 align push                    same as align share
@@ -231,6 +228,11 @@ align ratify <id>             Stand behind an agent-made decision as a human: ma
 align glossary                Your org alias glossary: product names, service names and codenames, confirmed by a person (cloud)
 align glossary review         List the proposed aliases waiting for a decision. Confirm or reject them in the web app (cloud)
                               flags: --env --bootstrap --list
+
+# Turn a decision into issues in Linear, GitHub or Jira
+
+align backlog <decision>      Turn a decision into one issue per task, created straight away in Linear, GitHub Issues or Jira
+                              flags: --tracker --team --repo --project --token --dry-run --force --max --env
 
 # The local graph: start, status, reset, forget
 

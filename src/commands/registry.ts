@@ -130,7 +130,7 @@ export const COMMAND_REGISTRY: readonly CommandEntry[] = [
   { names: ['ratify'], visible: false, summary: 'Stand behind an agent-made decision', register: registerRatifyCommand },
   // The human-confirmed alias glossary. Hidden like ratify: an occasional review, not an everyday verb.
   { names: ['glossary'], visible: false, summary: 'Review your org alias glossary (cloud)', register: registerGlossaryCommand },
-  { names: ['backlog'], visible: true, summary: 'Turn a decision into issues in Linear, GitHub or Jira', register: registerBacklogCommand },
+  { names: ['backlog'], visible: false, summary: 'Turn a decision into issues in Linear, GitHub or Jira', register: registerBacklogCommand },
   { names: ['share'], visible: true, summary: 'Bring your local decisions to your team graph (alias: push)', register: registerShareCommand },
 
   // Customer: MCP server
