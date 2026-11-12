@@ -153,6 +153,10 @@ export function createConfigStore(deps: ConfigStoreDeps = {}) {
     installId?: string;
     telemetryConsent?: TelemetryConsent;
     telemetryNoticeShownAt?: string;
+    // when the notice that also discloses agent use (hook and MCP counts) printed. An install that
+    // only saw the older wording has telemetryNoticeShownAt and not this, so it is shown the new one
+    // once and sends no agent_use until then.
+    agentUseNoticeShownAt?: string;
     leadPromptShownAt?: string;
     leadPromptVersion?: string;
     leadPromptOutcome?: LeadPromptOutcome;
@@ -179,6 +183,7 @@ export function createConfigStore(deps: ConfigStoreDeps = {}) {
     writtenConfigs?: Record<string, WrittenConfig>;
     funnelStagesRecorded?: string[];
     agentActiveDay?: string;
+    agentUseSentAt?: Record<string, number>;
     providerKeys?: Partial<Record<GuidedProviderKey, string>>;
     llm?: LlmPreference;
     askKeyOfferDismissed?: boolean;
@@ -742,7 +747,12 @@ export function createConfigStore(deps: ConfigStoreDeps = {}) {
       return store.get('telemetryNoticeShownAt');
     },
     markTelemetryNoticeShown(): void {
-      if (!store.get('telemetryNoticeShownAt')) store.set('telemetryNoticeShownAt', new Date().toISOString());
+      const now = new Date().toISOString();
+      if (!store.get('telemetryNoticeShownAt')) store.set('telemetryNoticeShownAt', now);
+      if (!store.get('agentUseNoticeShownAt')) store.set('agentUseNoticeShownAt', now);
+    },
+    getAgentUseNoticeShownAt(): string | undefined {
+      return store.get('agentUseNoticeShownAt');
     },
     // The optional work-email prompt at the share moment (lib/lead-prompt.ts). NOT telemetry, so its
     // state is its own keys. Only timestamps and an outcome word live here, never the address.
@@ -837,6 +847,14 @@ export function createConfigStore(deps: ConfigStoreDeps = {}) {
     },
     setAgentActiveDay(day: string): void {
       store.set('agentActiveDay', day);
+    },
+    // epoch ms each `agent_use` key (via:tool) last went out. The once-per-window guard in
+    // agent-use-telemetry.ts reads it, so a hook that runs on every edit sends a few events an hour.
+    getAgentUseSentAt(key: string): number | undefined {
+      return (store.get('agentUseSentAt') ?? {})[key];
+    },
+    setAgentUseSentAt(key: string, at: number): void {
+      store.set('agentUseSentAt', { ...(store.get('agentUseSentAt') ?? {}), [key]: at });
     },
     markFunnelStageRecorded(stage: string): void {
       const existing = store.get('funnelStagesRecorded') ?? [];

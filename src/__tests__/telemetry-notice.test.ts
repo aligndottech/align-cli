@@ -10,12 +10,19 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clearTelemetryEnv } from './helpers/telemetry-env.js';
+import { DOCTOR_ENV } from '../lib/telemetry-env.js';
+import { alignConfigDir } from '../lib/private-files.js';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { EnvironmentConfig, TelemetryConsent } from '../lib/config.js';
 
 const HOSTED_URL = vi.hoisted(() => 'https://api.align.tech');
 const state = vi.hoisted(() => ({
   consent: undefined as TelemetryConsent | undefined,
   noticeShownAt: undefined as string | undefined,
+  // set by the current wording; undefined with noticeShownAt set = an install that saw the older notice
+  agentUseNoticeAt: undefined as string | undefined,
+  oldNoticeOnly: false,
   stages: [] as string[],
   env: { gatewayUrl: 'https://api.align.tech', authToken: null, tenantId: null, mode: 'auth' } as EnvironmentConfig,
 }));
@@ -25,7 +32,8 @@ vi.mock('../lib/config.js', () => ({
     getTelemetryConsent: () => state.consent,
     setTelemetryConsent: (v: TelemetryConsent) => { state.consent = v; },
     getTelemetryNoticeShownAt: () => state.noticeShownAt,
-    markTelemetryNoticeShown: () => { state.noticeShownAt = '2026-10-10T00:00:00.000Z'; },
+    getAgentUseNoticeShownAt: () => state.agentUseNoticeAt ?? (state.oldNoticeOnly ? undefined : state.noticeShownAt),
+    markTelemetryNoticeShown: () => { state.noticeShownAt ??= '2026-10-10T00:00:00.000Z'; state.agentUseNoticeAt = '2026-11-12T00:00:00.000Z'; state.oldNoticeOnly = false; },
     getInstallId: () => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
     wasFunnelStageRecorded: (s: string) => state.stages.includes(s),
     markFunnelStageRecorded: (s: string) => { if (!state.stages.includes(s)) state.stages.push(s); },
@@ -89,6 +97,8 @@ describe('the one-time telemetry notice', () => {
     clearTelemetryEnv();
     state.consent = undefined;
     state.noticeShownAt = undefined;
+    state.agentUseNoticeAt = undefined;
+    state.oldNoticeOnly = false;
     state.stages = [];
     state.env = { gatewayUrl: 'https://api.align.tech', authToken: null, tenantId: null, mode: 'auth' };
     fetchSpy.mockReset();
@@ -165,13 +175,73 @@ describe('the one-time telemetry notice', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it('the copy is the founder-approved wording, word for word', () => {
+  it('the copy is the founder-approved wording, word for word (agent use added 12 Nov 2026)', () => {
     expect(TELEMETRY_NOTICE).toBe(
       'Align sends anonymous usage counts: which commands and coding agent you use,\n' +
-        'which tools you connect and how many items, the CLI version, and your OS.\n' +
+        'which tools you connect and how many items, whether your agent\'s edit checks and\n' +
+        'Align tools ran and what kind of result they gave, the CLI version, and your OS.\n' +
         'Never code, decision text, or file, repo or org names.\n' +
         'Turn it off: align telemetry off (or DO_NOT_TRACK=1). Details: align.tech/privacy#cli',
     );
+  });
+
+  // Tom, 12 Nov 2026: agent use only counts after the notice, so the notice has to reach people who
+  // start with `demo` or `setup`, not only with a command that also sends a usage count.
+  it('an install that saw only the OLDER notice is shown the new wording once, and not again', async () => {
+    state.noticeShownAt = '2026-10-10T00:00:00.000Z';
+    state.oldNoticeOnly = true;
+    await runCommand('ask');
+    expect(noticeWrites()).toHaveLength(1);
+    expect(state.agentUseNoticeAt).toBeDefined();
+    await runCommand('ask');
+    expect(noticeWrites()).toHaveLength(1);
+  });
+
+  it('an older-notice install with a stored off or declined is not shown it', async () => {
+    state.noticeShownAt = '2026-10-10T00:00:00.000Z';
+    state.oldNoticeOnly = true;
+    state.consent = 'off';
+    await runCommand('ask');
+    expect(noticeWrites()).toHaveLength(0);
+  });
+
+  describe('first terminal run of demo and setup', () => {
+    // beginInvocationTelemetry marks a demo run telemetry-free for the whole process; do not leak it into the next case.
+    afterEach(() => { delete process.env[DOCTOR_ENV]; });
+    // `demo` only shows the notice where ~/.align/config.json already exists (it must never create it; see demo-notice-store.test.ts).
+    beforeEach(() => {
+      mkdirSync(alignConfigDir(), { recursive: true });
+      writeFileSync(join(alignConfigDir(), 'config.json'), '{}');
+    });
+
+    it.each([['demo'], ['setup']])('`align %s` shows the notice once and marks it', async (command) => {
+      await runCommand(command);
+      expect(noticeWrites()).toHaveLength(1);
+      expect(state.noticeShownAt).toBeDefined();
+      await runCommand(command);
+      expect(noticeWrites()).toHaveLength(1);
+    });
+
+    it('`align demo` shows the notice but still sends nothing of its own: no install beacon, no stage, no usage', async () => {
+      await runCommand('demo');
+      expect(noticeWrites()).toHaveLength(1);
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(state.stages).not.toContain('install');
+    });
+
+    it.each([
+      ['no terminal', () => setTTY(false, false)],
+      ['DO_NOT_TRACK', () => vi.stubEnv('DO_NOT_TRACK', '1')],
+      ['ALIGN_TELEMETRY=0', () => vi.stubEnv('ALIGN_TELEMETRY', '0')],
+      ['a stored off', () => { state.consent = 'off'; }],
+      ['a stored decline', () => { state.consent = 'declined'; }],
+      ['CI', () => vi.stubEnv('CI', 'true')],
+    ])('`align demo` shows nothing and marks nothing under %s', async (_label, arrange) => {
+      arrange();
+      await runCommand('demo');
+      expect(noticeWrites()).toHaveLength(0);
+      expect(state.noticeShownAt).toBeUndefined();
+    });
   });
 
   it('shows the notice before the first send, then sends the install beacon', async () => {

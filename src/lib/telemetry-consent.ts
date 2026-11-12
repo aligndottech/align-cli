@@ -9,6 +9,8 @@ import type { TelemetryConsent } from './config.js';
 export interface TelemetryNoticeStore {
   getTelemetryConsent(): TelemetryConsent | undefined;
   getTelemetryNoticeShownAt(): string | undefined;
+  /** When the wording that discloses agent use printed. Optional so a store without it keeps the older rule. */
+  getAgentUseNoticeShownAt?(): string | undefined;
   markTelemetryNoticeShown(): void;
 }
 
@@ -17,10 +19,12 @@ export interface TelemetryNoticeStore {
  * prints once, to stderr, before anything is sent, and nothing that depends on it sends until
  * it has printed (usage-telemetry.ts's localTierAllows). The founder-approved wording - change
  * it only with the privacy page (align.tech/privacy#cli) and docs/telemetry.md in the same PR.
+ * Changed 12 Nov 2026 (Tom): adds the edit-check hook and MCP tool use, counted after this notice.
  */
 export const TELEMETRY_NOTICE =
   'Align sends anonymous usage counts: which commands and coding agent you use,\n' +
-  'which tools you connect and how many items, the CLI version, and your OS.\n' +
+  "which tools you connect and how many items, whether your agent's edit checks and\n" +
+  'Align tools ran and what kind of result they gave, the CLI version, and your OS.\n' +
   'Never code, decision text, or file, repo or org names.\n' +
   'Turn it off: align telemetry off (or DO_NOT_TRACK=1). Details: align.tech/privacy#cli';
 
@@ -60,7 +64,11 @@ export function maybeShowTelemetryNotice(
     if (isSet(process.env['ALIGN_WRAPPED'])) return false;
     if (telemetryDisabledByEnv() !== undefined || inCi()) return false;
     if (config.getTelemetryConsent() !== undefined) return false;
-    if (config.getTelemetryNoticeShownAt() !== undefined) return false;
+    // Shown means the CURRENT wording: an install that only saw the older notice (no agent use in it)
+    // is shown this one once, because agent_use sends wait on it.
+    const shown = config.getTelemetryNoticeShownAt() !== undefined;
+    const sawAgentUseWording = config.getAgentUseNoticeShownAt ? config.getAgentUseNoticeShownAt() !== undefined : true;
+    if (shown && sawAgentUseWording) return false;
     // The real control (review of e794c6e, P0): the notice is the disclosure every local send
     // waits on, so it counts only when a person can read it. A person at a terminal has both
     // stdin and stderr on it. Anything else - stderr to /dev/null, a pipe, a hook runner, cron,

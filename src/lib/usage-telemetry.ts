@@ -3,7 +3,7 @@ import { DOCTOR_ENV, telemetryDisabledByEnv } from './telemetry-env.js';
 import { inHookContext, markHookContext } from './hook-context.js';
 import { inCi } from './telemetry-ci.js';
 import { maybeShowTelemetryNotice, storeEnvOptOut } from './telemetry-consent.js';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { alignConfigDir } from './private-files.js';
 import pkg from '../../package.json' with { type: 'json' };
@@ -39,7 +39,7 @@ export const TELEMETRY_TIMEOUT_MS = 2_000;
 /** Commands that never send telemetry and never show the notice or consume the install beacon. */
 const TELEMETRY_FREE_COMMANDS: ReadonlySet<string> = new Set(['doctor', 'demo']);
 
-function telemetryOptedOut(): boolean {
+export function telemetryOptedOut(): boolean {
   return telemetryDisabledByEnv() !== undefined || inCi() || process.env[DOCTOR_ENV] === '1';
 }
 
@@ -529,7 +529,7 @@ export async function recordFunnelStage(
  *   Beacons and usage now share one rule; BEACON_STAGES remains the documented set.
  * Every caller has already returned under an env switch, in CI and (for usage) in a hook.
  */
-function localTierAllows(
+export function localTierAllows(
   consent: TelemetryConsent | undefined,
   stage: FunnelStage | 'install' | 'command',
   noticeShown: boolean,
@@ -546,7 +546,7 @@ function noticeShownOn(config: { getTelemetryNoticeShownAt(): string | undefined
  * The anonymous payload, the one place its shape is spelled. Targets ALIGN_HOSTED_GATEWAY_URL,
  * never a `gatewayUrl` off the env - see recordAnonymousCommandUsage for why.
  */
-async function postAnonymous(payload: Record<string, string | number | boolean>, capMs?: number): Promise<void> {
+export async function postAnonymous(payload: Record<string, string | number | boolean>, capMs?: number): Promise<void> {
   const target = process.env['ALIGN_GATEWAY_URL'] || ALIGN_HOSTED_GATEWAY_URL;
   await postWithTimeout(`${target}/telemetry/anonymous`, {
     method: 'POST',
@@ -810,9 +810,17 @@ export async function recordInvocationUsage(
 export async function beginInvocationTelemetry(commandPath: string, opts: { hook: boolean }): Promise<boolean> {
   // Before the notice (showing it marks it shown, which switches later sends on) and before the beacon (which consumes the first run).
   // The marker is what silences the rest of the run (the postAction usage ping, every funnel stage) and is inherited by children.
+  // `demo` still gets the NOTICE (12 Nov 2026): agent use only counts once an install has shown it, and a person who
+  // starts with `demo` may never run a command that prints it. It sends nothing of its own here, and the marker above
+  // is already set, so storeEnvOptOut and the install beacon stay out of it.
+  // The config store is opened for it only when the notice WILL print (a terminal, no env opt-out, not CI, no stored
+  // answer) AND ~/.align/config.json already exists. Demo skips startup migration, so creating that file here would make
+  // migrateConfigDirectory skip a legacy config on the next real command and orphan it. No file: show and mark nothing.
+  const isDemo = commandPath === 'demo';
   if (TELEMETRY_FREE_COMMANDS.has(commandPath)) {
     process.env[DOCTOR_ENV] = '1';
-    return false;
+    const mayShow = telemetryDisabledByEnv() === undefined && !inCi() && Boolean(process.stderr.isTTY) && Boolean(process.stdin.isTTY) && storedAnswerAllowsDemoCount() && existsSync(join(alignConfigDir(), 'config.json'));
+    if (!isDemo || !mayShow) return false;
   }
   if (opts.hook) markHookContext();
   try {
@@ -826,5 +834,6 @@ export async function beginInvocationTelemetry(commandPath: string, opts: { hook
   } catch {
     // Telemetry must never fail a command. No notice means nothing that waits on it sends.
   }
+  if (isDemo) return false;
   return recordInstallBeacon(commandPath);
 }
