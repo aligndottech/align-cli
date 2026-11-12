@@ -543,13 +543,44 @@ function noticeShownOn(config: { getTelemetryNoticeShownAt(): string | undefined
  * The anonymous payload, the one place its shape is spelled. Targets ALIGN_HOSTED_GATEWAY_URL,
  * never a `gatewayUrl` off the env - see recordAnonymousCommandUsage for why.
  */
-async function postAnonymous(payload: Record<string, string | number>, capMs?: number): Promise<void> {
+async function postAnonymous(payload: Record<string, string | number | boolean>, capMs?: number): Promise<void> {
   const target = process.env['ALIGN_GATEWAY_URL'] || ALIGN_HOSTED_GATEWAY_URL;
   await postWithTimeout(`${target}/telemetry/anonymous`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   }, capMs);
+}
+
+/** The gateway's stage for the `align demo` run count. Not in FUNNEL_STAGES: it has its own emitter,
+ *  because it is the one event with no install id (see recordDemoRun). */
+export const DEMO_RUN_STAGE = 'demo_run';
+
+/**
+ * One anonymous count per `align demo` run, sent by the parent process after the demo finishes.
+ * The body is `command` ('demo'), `cliVersion`, `stage`, `os`, `success` and `durationSeconds`
+ * (whole seconds), and nothing else: no install id, no repo, path, hostname or decision text.
+ *
+ * It never opens the config store. The store lives in ~/.align, and `align demo` promises to
+ * leave that folder alone, so this reads only the environment: DO_NOT_TRACK, ALIGN_TELEMETRY and
+ * CI stop it, through the same helpers every other send uses. The cost is that a stored
+ * `align telemetry off` cannot be read here, so it does not stop this one count (docs/telemetry.md
+ * says so). Capped at TELEMETRY_TIMEOUT_MS, and never throws.
+ */
+export async function recordDemoRun(run: { success: boolean; durationMs: number }, opts: { capMs?: number } = {}): Promise<void> {
+  try {
+    if (telemetryOptedOut()) return;
+    await postAnonymous({
+      command: 'demo',
+      cliVersion: pkg.version,
+      stage: DEMO_RUN_STAGE,
+      os: process.platform,
+      success: run.success,
+      durationSeconds: Math.round(run.durationMs / 1000),
+    }, opts.capMs);
+  } catch {
+    // Telemetry must never fail or delay the demo.
+  }
 }
 
 /**

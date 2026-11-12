@@ -32,6 +32,11 @@ The short version, for local-only mode:
   commands align's installed hooks run (`align check --hook`, `align check --advisory`,
   `align context inject`). `align mcp`, and a run inside an agent `align` launched, show no
   notice, so they send nothing until it has printed in a terminal.
+- **`align demo` sends one count, and only that.** One anonymous event per run, after the demo
+  finishes, with no install id and no notice: see
+  [`cli.funnel.demo_run`](#clifunneldemo_run) below. The demo promises to leave your `~/.align`
+  alone, so it cannot read a stored `align telemetry off` there. It stops for `DO_NOT_TRACK=1`,
+  `ALIGN_TELEMETRY=0` and CI, which it reads from the environment, and for nothing else.
 - **`align doctor` sends nothing of any kind**, in either mode, whatever you have chosen: no usage
   count, no install count, no notice, and the `align mcp` it starts for its one test question
   sends nothing either, and neither stores nor changes anything about your telemetry choice. It
@@ -62,7 +67,7 @@ decisions, so keep the file private and delete it when you are done.
 |---|---|---|
 | `DO_NOT_TRACK=1` | Everything, both tiers, both modes. Remembered once any align run has seen it (see above). Set before the first run and the install count is never sent, even if you unset it later. Any value except empty, `0`, `false`, `no` or `off` counts, so `DO_NOT_TRACK=0` does not turn it off. The [consoledonottrack.com](https://consoledonottrack.com) convention. | environment |
 | `ALIGN_TELEMETRY=0` | Same as above. Any value other than `1`, `true`, `yes` or `on` counts as off, case ignored. An empty value counts as unset. | environment |
-| `align telemetry off` | Everything, in both modes: local events and cloud-mode events. Stored on this machine. | command |
+| `align telemetry off` | Everything, in both modes: local events and cloud-mode events. Stored on this machine. The one exception is the `align demo` run count, which never reads the stored answer. | command |
 | Running in CI | Everything. Detected the way [ci-info](https://github.com/watson/ci-info) does (`CI`, `GITHUB_ACTIONS` and the other CI providers' variables). A CI run does not count as an install. | automatic |
 | `align telemetry on` | Turns usage on (and undoes `align telemetry off`). | command |
 
@@ -116,6 +121,29 @@ Sent when the setup wizard finishes, after its closing message.
 
 That is the whole beacon tier: `install` and `setup_completed`. They follow the same rule as
 everything below; they are listed apart because they are the funnel's denominator.
+
+## Sent by `align demo`
+
+`align demo` runs in a throwaway home folder and never creates or reads `~/.align`, so it has no
+install id and no stored telemetry answer. It sends one count per run instead, to the same
+`POST https://api.align.tech/telemetry/anonymous` (or your `ALIGN_GATEWAY_URL`), from the
+`align` process that ran the demo, after the demo has finished. It does not wait longer than 2
+seconds, never changes the demo's exit code, and ignores any error. No notice is shown for it.
+
+### `cli.funnel.demo_run`
+
+| Field | What it is |
+|---|---|
+| `command` | Always the literal `demo`. |
+| `cliVersion` | The CLI version. |
+| `stage` | Always `demo_run`. |
+| `os` | Node's `process.platform`: `darwin`, `linux`, `win32` and the other values in that closed set. |
+| `success` | `true` if the demo ran to the end, `false` if it did not. |
+| `durationSeconds` | How long the run took, rounded to whole seconds. |
+
+There is no install id, no repo, path or host name, and no decision text. The gateway refuses an
+install id on this event, writes no database row for it, and counts it in PostHog under one shared
+id with person profiles off, so runs cannot be tied to each other or to a machine.
 
 ## Sent after the notice, in local-only mode
 

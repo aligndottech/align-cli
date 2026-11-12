@@ -54,6 +54,7 @@ import {
   BEACON_STAGES,
   FUNNEL_STAGES,
   recordCommandUsage,
+  recordDemoRun,
   recordFunnelStage,
   recordInstallBeacon,
 } from '../lib/usage-telemetry.js';
@@ -114,6 +115,11 @@ describe('docs/telemetry.md matches what the CLI sends', () => {
   it('the install beacon', async () => {
     await recordInstallBeacon('align');
     expect(sentFields()).toEqual(documentedFields('`cli.funnel.install`'));
+  });
+
+  it('the align demo run count (no install id, so it has its own table)', async () => {
+    await recordDemoRun({ success: true, durationMs: 14_000 });
+    expect(sentFields()).toEqual(documentedFields('`cli.funnel.demo_run`'));
   });
 
   it('the setup_completed beacon (sent without consent)', async () => {

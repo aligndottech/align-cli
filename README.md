@@ -203,6 +203,8 @@ so the team can share them.
 Local-only mode sends anonymous usage counts. It tells you once before the first one and sends
 nothing from CI. Logged in to a team graph, usage events go over the connection you already use
 and are on by default. Either way, `align telemetry off` stops them.
+`align demo` sends one anonymous count per run (did it finish, how long, CLI version, OS). It
+never touches `~/.align`, so only `DO_NOT_TRACK=1` or `ALIGN_TELEMETRY=0` stops it.
 [What touches the network](docs/local-mode.md) and [every field we send](docs/telemetry.md).
 
 ## Teams

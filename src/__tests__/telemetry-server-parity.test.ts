@@ -19,7 +19,7 @@ import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildProgram } from '../cli.js';
-import { FUNNEL_STAGES, SUBCOMMAND_PARENTS, SYNC_OUTCOMES, SYNC_SCOPES, SYNC_SOURCES, SYNC_TRIGGERS } from '../lib/usage-telemetry.js';
+import { DEMO_RUN_STAGE, FUNNEL_STAGES, SUBCOMMAND_PARENTS, SYNC_OUTCOMES, SYNC_SCOPES, SYNC_SOURCES, SYNC_TRIGGERS } from '../lib/usage-telemetry.js';
 
 const THERE = 'services/gateway/src/routes/telemetryAnonymousRoutes.ts';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -29,7 +29,7 @@ const ref = process.env['ALIGN_TELEMETRY_PARITY_REF'] ?? 'origin/main';
 // Pinned from THERE at the merge of align-stack #3762 (adds `glossary`).
 const SERVER_COMMANDS = [
   // 'config' is pinned here after align-stack #3141 added it to the gateway list (the gateway lands first).
-  'adjudicate', 'agents', 'ai', 'align', 'ask', 'capture', 'check', 'config', 'connect', 'context', 'decisions', 'drift',
+  'adjudicate', 'agents', 'ai', 'align', 'ask', 'capture', 'check', 'config', 'connect', 'context', 'decisions', 'demo', 'drift',
   'env', 'export', 'glossary', 'import', 'invite', 'join', 'links', 'login', 'logout', 'mark', 'mcp', 'push',
   'ratify', 'rule', 'search', 'setup', 'share', 'spaces', 'stale', 'status', 'sync', 'telemetry', 'use', 'whoami',
 ];
@@ -38,15 +38,15 @@ const SERVER_STAGES = [
   'install', 'setup_started', 'setup_completed', 'import_completed', 'mcp_wired',
   'first_capture', 'first_useful_decision', 'teammate_requested', 'agent_launched',
   'sessions_scanned', 'candidates_found', 'candidates_confirmed', 'decisions_ratified',
-  'source_synced', 'agent_active',
+  'source_synced', 'agent_active', 'demo_run',
 ];
 const SERVER_SOURCES = ['git', 'docs', 'github', 'jira', 'confluence', 'slack', 'teams', 'zoom', 'gitlab', 'linear', 'notion'];
 const SERVER_OUTCOMES = ['ok', 'partial', 'needs_reauth', 'error'];
 const SERVER_SCOPES = ['yours', 'team'];
 const SERVER_TRIGGERS = ['connect', 'background', 'manual', 'mcp'];
 
-/** The commands the CLI registers that the gateway deliberately leaves out: `dev` and `connector` are internal (ALIGN_INTERNAL=1), `local` never pings, and `doctor` and `demo` send no telemetry of any kind (`demo` runs in a temp HOME and must leave the caller's ~/.align alone). */
-const NOT_SENT = new Set(['local', 'dev', 'connector', 'doctor', 'demo']);
+/** The commands the CLI registers that the gateway deliberately leaves out: `dev` and `connector` are internal (ALIGN_INTERNAL=1), `local` never pings, and `doctor` sends no telemetry of any kind. (`demo` is NOT here: it sends one anonymous run count, `demo_run`, which the gateway accepts under the command `demo`.) */
+const NOT_SENT = new Set(['local', 'dev', 'connector', 'doctor']);
 
 /**
  * There is deliberately NO allowlist of commands the gateway rejects. The old
@@ -62,7 +62,7 @@ const sorted = (xs: readonly string[]): string[] => [...xs].sort();
 
 describe('the CLI mirror of the gateway telemetry contract (pinned)', () => {
   it('every funnel stage the CLI can send, plus the install beacon, is exactly the gateway\'s list', () => {
-    expect(sorted([...FUNNEL_STAGES, 'install'])).toEqual(sorted(SERVER_STAGES));
+    expect(sorted([...FUNNEL_STAGES, 'install', DEMO_RUN_STAGE])).toEqual(sorted(SERVER_STAGES));
   });
   it('the sync enums: sources, outcomes and scopes equal the gateway\'s; triggers are a subset of its list', () => {
     expect(sorted(SYNC_SOURCES)).toEqual(sorted(SERVER_SOURCES));
@@ -124,7 +124,7 @@ describe.skipIf(!other.ok)(`the CLI mirror against ${THERE} on ${ref} (live)`, (
     expect(sorted(listOf(src, 'SUBCOMMAND_PARENTS'))).toEqual(sorted(SERVER_SUBCOMMAND_PARENTS));
   });
   it('every stage, enum value and registered command the CLI can send is accepted by the live file', () => {
-    expect(sorted(listOf(src, 'FUNNEL_STAGES'))).toEqual(sorted([...FUNNEL_STAGES, 'install']));
+    expect(sorted(listOf(src, 'FUNNEL_STAGES'))).toEqual(sorted([...FUNNEL_STAGES, 'install', DEMO_RUN_STAGE]));
     for (const t of SYNC_TRIGGERS) expect(listOf(src, 'SYNC_TRIGGER_VALUES')).toContain(t);
     const known = listOf(src, 'KNOWN_COMMANDS');
     expect(cliCommands().filter((n) => !NOT_SENT.has(n) && !known.includes(n))).toEqual([]);
