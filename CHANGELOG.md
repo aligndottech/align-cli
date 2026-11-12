@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.75.0](https://github.com/aligndottech/align-cli/compare/cli-v0.74.0...cli-v0.75.0) (2026-11-12)
+
+
+### Features
+
+* align demo sends one anonymous run count ([#563](https://github.com/aligndottech/align-cli/issues/563)) ([a8dd2bc](https://github.com/aligndottech/align-cli/commit/a8dd2bcb173052daa75352c53d9088bdcd5945b5))
+* align demo shows the edit hook catching a decision, no setup ([#561](https://github.com/aligndottech/align-cli/issues/561)) ([dadfcda](https://github.com/aligndottech/align-cli/commit/dadfcda0217a5d37a891a1906eaed128184a9883))
+* **slack:** options and docs for pinning a message with a reaction ([#559](https://github.com/aligndottech/align-cli/issues/559)) ([acf6d0e](https://github.com/aligndottech/align-cli/commit/acf6d0ed74f82cc2363c69f94617bbb5afee285d))
+
+
+### Bug Fixes
+
+* align demo's next step installs the CLI first ([#564](https://github.com/aligndottech/align-cli/issues/564)) ([ac28133](https://github.com/aligndottech/align-cli/commit/ac2813322a7d6c38c85c823a0f9625215460a255))
+* **check:** show what each surfaced decision says in the advisory hook ([#558](https://github.com/aligndottech/align-cli/issues/558)) ([96a6e81](https://github.com/aligndottech/align-cli/commit/96a6e81ef9afe8b445b109cfb1fd5543c5cedebe))
+
 ## [0.74.0](https://github.com/aligndottech/align-cli/compare/cli-v0.73.0...cli-v0.74.0) (2026-11-11)
 
 
