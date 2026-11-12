@@ -30,7 +30,7 @@ beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'align-backlog-')
 afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
 
 const fixture = (): Fx => makeFixture(dir);
-const run = (f: Fx, o: Partial<BacklogOptions> = {}) => runBacklog({ decision: '3f2a9c1e-0000-4000-8000-000000000001', tracker: 'linear', team: 'ALI', ...o }, f.deps);
+const run = (f: Fx, o: Partial<BacklogOptions> = {}) => runBacklog({ decision: '3f2a9c1e-0000-4000-8000-000000000001', tracker: 'linear', team: 'ENG', ...o }, f.deps);
 
 describe('dry-run', () => {
   it('prints tracker, target and count, creates nothing and writes no ledger', async () => {
@@ -39,7 +39,7 @@ describe('dry-run', () => {
     expect(creates(f)).toHaveLength(0); // reads (the workspace name) are allowed; writes are not
     expect(fs.existsSync(f.deps.ledgerPath)).toBe(false);
     expect(f.saved.writes).toHaveLength(0);
-    expect(text(f)).toMatch(/Linear/); expect(text(f)).toContain('ALI'); expect(text(f)).toContain('2 issues');
+    expect(text(f)).toMatch(/Linear/); expect(text(f)).toContain('ENG'); expect(text(f)).toContain('2 issues');
     expect(text(f)).toContain('Add OIDC provider config');
   });
 });
@@ -55,7 +55,7 @@ describe('linear', () => {
     expect(first.variables.input.title).toBe('Add OIDC provider config');
     expect(first.variables.input.description).toContain('https://app.align.tech/decisions/3f2a9c1e-0000-4000-8000-000000000001');
     expect(first.variables.input.description).toContain('https://github.com/o/r/pull/9');
-    expect(text(f)).toContain('ALI-1'); expect(text(f)).toContain('ALI-2');
+    expect(text(f)).toContain('ENG-1'); expect(text(f)).toContain('ENG-2');
   });
 });
 
@@ -88,7 +88,7 @@ describe('idempotency and resume', () => {
     f.calls.length = 0; f.out.length = 0;
     expect(await run(f)).toBe(0);
     expect(creates(f)).toHaveLength(0); expect(f.shapeCalls.n).toBe(1);
-    expect(text(f)).toMatch(/already/i); expect(text(f)).toContain('ALI-1');
+    expect(text(f)).toMatch(/already/i); expect(text(f)).toContain('ENG-1');
     expect(await run(f, { force: true })).toBe(0);
     expect(creates(f)).toHaveLength(2); expect(f.shapeCalls.n).toBe(2);
   });
@@ -99,7 +99,7 @@ describe('idempotency and resume', () => {
     const real = f.deps.fetch; let seen = 0;
     f.deps.fetch = (async (u: string, i?: { body?: string }) => { if ((i?.body ?? '').includes('issueCreate') && ++seen === 2) return new Response('{}', { status: 500 }); return (real as unknown as (u: string, i?: unknown) => Promise<Response>)(u, i); }) as unknown as typeof fetch;
     expect(await run(f)).toBe(1);
-    expect(text(f)).toContain('ALI-1');
+    expect(text(f)).toContain('ENG-1');
     f.deps.fetch = real; f.calls.length = 0;
     expect(await run(f)).toBe(0);
     expect(creates(f)).toHaveLength(1);
@@ -169,9 +169,9 @@ describe('lost responses, keys and the ledger file', () => {
     expect(await run(f)).toBe(0);
     expect(text(f)).toMatch(/Check first/);
   });
-  it('team case does not split the ledger: ali after ALI creates nothing', async () => {
+  it('team case does not split the ledger: eng after ENG creates nothing', async () => {
     const f = fixture(); await run(f); f.calls.length = 0;
-    expect(await run(f, { team: 'ali' })).toBe(0);
+    expect(await run(f, { team: 'eng' })).toBe(0);
     expect(creates(f)).toHaveLength(0);
   });
   it('the same Jira project on another site is a different destination', async () => {
@@ -216,8 +216,8 @@ describe('a saved target', () => {
   it('a successful run saves tracker and destination, and says how to change it', async () => {
     const f = fixture();
     expect(await run(f)).toBe(0);
-    expect(f.saved.writes).toEqual([{ tracker: 'linear', target: 'ALI' }]);
-    expect(text(f)).toMatch(/Saved Linear ALI as the default/); expect(text(f)).toMatch(/--team/);
+    expect(f.saved.writes).toEqual([{ tracker: 'linear', target: 'ENG' }]);
+    expect(text(f)).toMatch(/Saved Linear ENG as the default/); expect(text(f)).toMatch(/--team/);
   });
   it('a dry run and a failed run save nothing', async () => {
     const f = fixture();
@@ -228,31 +228,31 @@ describe('a saved target', () => {
   });
   it('the next run with no flags uses it without a question, even with two trackers connected, and says which', async () => {
     const f = fixture(); f.creds['github'] = { token: 'g' };
-    f.saved.current = { tracker: 'linear', target: 'ALI' }; f.deps.interactive = true;
+    f.saved.current = { tracker: 'linear', target: 'ENG' }; f.deps.interactive = true;
     expect(await run(f, { tracker: undefined, team: undefined })).toBe(0);
     expect(f.asks).toHaveLength(0);
     expect(creates(f)).toHaveLength(2);
-    expect(text(f)).toMatch(/Using your saved target: Linear ALI/);
+    expect(text(f)).toMatch(/Using your saved target: Linear ENG/);
   });
   it('and non-interactively too: no flag is needed once a target is saved', async () => {
-    const f = fixture(); f.creds['github'] = { token: 'g' }; f.saved.current = { tracker: 'linear', target: 'ALI' };
+    const f = fixture(); f.creds['github'] = { token: 'g' }; f.saved.current = { tracker: 'linear', target: 'ENG' };
     expect(await run(f, { tracker: undefined, team: undefined })).toBe(0);
     expect(creates(f)).toHaveLength(2);
   });
   it('a flag overrides it and becomes the new default', async () => {
-    const f = fixture(); f.saved.current = { tracker: 'linear', target: 'ALI' };
+    const f = fixture(); f.saved.current = { tracker: 'linear', target: 'ENG' };
     expect(await run(f, { team: 'OPS' })).toBe(0);
     expect(text(f)).toContain('(OPS)'); expect(text(f)).not.toMatch(/Using your saved target/);
     expect(f.saved.writes).toEqual([{ tracker: 'linear', target: 'OPS' }]);
   });
   it('a saved destination is never applied to a different tracker', async () => {
-    const f = fixture(); f.creds['github'] = { token: 'g' }; f.saved.current = { tracker: 'linear', target: 'ALI' };
+    const f = fixture(); f.creds['github'] = { token: 'g' }; f.saved.current = { tracker: 'linear', target: 'ENG' };
     expect(await run(f, { tracker: 'github', team: undefined })).toBe(2);
     expect(text(f)).toContain('--repo'); expect(f.calls).toHaveLength(0);
   });
   it('a saved tracker with no credential any more is ignored, not trusted', async () => {
     const f = fixture(); f.creds['linear'] = null; f.creds['github'] = { token: 'g' };
-    f.saved.current = { tracker: 'linear', target: 'ALI' };
+    f.saved.current = { tracker: 'linear', target: 'ENG' };
     expect(await run(f, { tracker: undefined, team: undefined, repo: 'o/r' })).toBe(0);
     expect(text(f)).toContain('GitHub Issues (o/r)'); expect(text(f)).not.toMatch(/Using your saved target/);
   });
@@ -304,7 +304,7 @@ describe('structured choices for a caller that cannot be asked (MCP)', () => {
   it('two teams: the team list, with keys and names', async () => {
     const f = fixture();
     const e = await ask(f).catch((x: unknown) => x);
-    expect((e as NeedsChoice).choice).toMatchObject({ field: 'team', options: [{ value: 'ALI', label: 'ALI  Align' }, { value: 'OPS', label: 'OPS  Ops' }] });
+    expect((e as NeedsChoice).choice).toMatchObject({ field: 'team', options: [{ value: 'ENG', label: 'ENG  Align' }, { value: 'OPS', label: 'OPS  Ops' }] });
   });
   it('github with no repo: a free-text question with no options', async () => {
     const f = fixture(); f.creds['github'] = { token: 'g' };
@@ -313,13 +313,38 @@ describe('structured choices for a caller that cannot be asked (MCP)', () => {
   });
   it('search words with several hits: the decisions to choose from; with one hit it is used', async () => {
     const f = fixture(); f.deps.search = async () => [DEC, { ...DEC, id: '3f2a9c1e-0000-4000-8000-000000000002', title: 'Other' }];
-    const e = await ask(f, { decision: 'oidc', team: 'ALI' }).catch((x: unknown) => x);
+    const e = await ask(f, { decision: 'oidc', team: 'ENG' }).catch((x: unknown) => x);
     expect((e as NeedsChoice).choice).toMatchObject({ field: 'decision', options: [{ value: DEC.id }, { value: '3f2a9c1e-0000-4000-8000-000000000002' }] });
     f.deps.search = async () => [DEC];
-    expect((await ask(f, { decision: 'oidc', team: 'ALI' })).dec.id).toBe(DEC.id);
+    expect((await ask(f, { decision: 'oidc', team: 'ENG' })).dec.id).toBe(DEC.id);
   });
   it('the CLI wording is unchanged: the same ambiguity still says which flag to pass', async () => {
     const f = fixture(); f.creds['github'] = { token: 'g' };
     expect(await run(f, { tracker: undefined })).toBe(2); expect(text(f)).toContain('--tracker');
+  });
+});
+
+describe('a ledger written before the workspace joined the key', () => {
+  it('is still found: the decision is not created a second time in Linear', async () => {
+    const f = fixture();
+    const legacy = `${DEC.id}|linear||eng`;
+    fs.writeFileSync(f.deps.ledgerPath, JSON.stringify({ [legacy]: { at: 'x', tasks: [{ title: 'Add OIDC provider config', body: 'b', key: 'ENG-7', url: 'https://linear.app/t/issue/ENG-7' }] } }));
+    expect(await run(f)).toBe(0);
+    expect(creates(f)).toHaveLength(0); expect(f.shapeCalls.n).toBe(0);
+    expect(text(f)).toContain('ENG-7');
+  });
+});
+
+describe('the lock cannot be taken twice over a dead holder', () => {
+  it('a lock stale by age is taken over, and one run releases only its own lock', async () => {
+    const f = fixture();
+    fs.writeFileSync(`${f.deps.ledgerPath}.lock`, JSON.stringify({ pid: process.pid, at: new Date(Date.now() - 60 * 60_000).toISOString() }));
+    expect(await run(f)).toBe(0); expect(creates(f)).toHaveLength(2);
+    // A lock that now belongs to someone else is left alone by a run that finishes late.
+    const g = fixture(); g.deps.ledgerPath = f.deps.ledgerPath;
+    const real = g.deps.shape;
+    g.deps.shape = async (d, m) => { fs.writeFileSync(`${f.deps.ledgerPath}.lock`, JSON.stringify({ pid: process.pid, at: new Date().toISOString(), nonce: 'someone-else' })); return real(d, m); };
+    await run(g, { force: true });
+    expect(JSON.parse(fs.readFileSync(`${f.deps.ledgerPath}.lock`, 'utf8')).nonce).toBe('someone-else');
   });
 });

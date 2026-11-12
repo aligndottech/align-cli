@@ -376,6 +376,8 @@ Cursor or any agent that has the Align tools. The agent calls `align_backlog`, w
    project, and the task titles. **Nothing is created yet.** The agent shows you the plan.
 2. You say yes. The agent calls the tool again with the plan's token, and exactly those tasks are created, once.
 
+The plan token is a speed bump, not a lock: it makes a tool-only agent show you the plan, but an agent that can also run shell commands could read it from the CLI state directory, and it could already use your tracker key from its environment. Confirm in the agent's own prompt if that matters to you.
+
 If the destination is not clear (two trackers connected, a Linear team you have not named), the tool hands the agent
 the options as a question, and the agent asks you. It never guesses a team, repo or project. After the first run that
 works, Align remembers where this repo's backlog goes, so the next one asks nothing.
@@ -385,7 +387,7 @@ model `align ask` already uses, then creates one issue per task straight away in
 decision id (`align decisions list`) or search words. It works with Linear, GitHub Issues and Jira.
 
 ```bash
-align backlog 3f2a9c1e --tracker linear --team ALI          # create now
+align backlog 3f2a9c1e --tracker linear --team ENG          # create now
 align backlog 3f2a9c1e                                      # later runs: uses the target saved for this repo
 align backlog "move auth to OIDC" --tracker github --repo acme/api --dry-run
 ```

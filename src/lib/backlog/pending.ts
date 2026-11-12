@@ -37,7 +37,10 @@ export function savePlan(dir: string, plan: Omit<StoredPlan, 'expiresAt'>, now =
   sweep(dir, now);
   const token = randomBytes(12).toString('hex');
   const expiresAt = new Date(now + PLAN_TTL_MS).toISOString();
-  fs.writeFileSync(fileFor(dir, token), JSON.stringify({ ...plan, expiresAt }), { mode: 0o600 });
+  // Written whole, then renamed into place: a sweep by another run never sees half a plan and deletes it.
+  const tmp = path.join(dir, `.${token}.tmp`);
+  fs.writeFileSync(tmp, JSON.stringify({ ...plan, expiresAt }), { mode: 0o600 });
+  fs.renameSync(tmp, fileFor(dir, token));
   return { token, expiresAt };
 }
 
@@ -51,6 +54,15 @@ export function takePlan(dir: string, token: string, now = Date.now()): StoredPl
   try { fs.unlinkSync(file); } catch { return null; }
   try {
     const plan = JSON.parse(raw) as StoredPlan;
+    return Date.parse(plan.expiresAt) >= now ? plan : null;
+  } catch { return null; }
+}
+
+/** Read a plan without spending it, so a confirm can check what it needs (the credential) before the token is used up. */
+export function peekPlan(dir: string, token: string, now = Date.now()): StoredPlan | null {
+  if (!isPlanToken(token)) return null;
+  try {
+    const plan = JSON.parse(fs.readFileSync(fileFor(dir, token), 'utf8')) as StoredPlan;
     return Date.parse(plan.expiresAt) >= now ? plan : null;
   } catch { return null; }
 }

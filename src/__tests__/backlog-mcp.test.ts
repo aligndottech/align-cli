@@ -26,17 +26,18 @@ afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
 const fx = (): Fx => makeFixture(dir);
 const ctx = (f: Fx): BacklogToolContext => ({ backlog: { makeDeps: (io) => ({ ...f.deps, out: io.out, err: io.err }), planDir } });
 const rb = (args: Record<string, unknown>, f: Fx) => runBacklogTool(args, {} as never, {} as never, ctx(f));
-const call = (f: Fx, args: Record<string, unknown>) => rb({ decision: DEC.id, tracker: 'linear', team: 'ALI', ...args }, f);
+const call = (f: Fx, args: Record<string, unknown>) => rb({ decision: DEC.id, tracker: 'linear', team: 'ENG', ...args }, f);
 type R = Record<string, unknown> & { text: string };
 const plan = async (f: Fx, args: Record<string, unknown> = {}): Promise<R> => (await call(f, args)) as R;
-const confirm = (f: Fx, token: unknown) => rb({ confirm_token: token }, f);
+const confirm = (f: Fx, token: unknown) => rb({ plan_id: token }, f);
 
 describe('the plan call creates nothing', () => {
   it('returns tracker, destination, the titles and a token, and sends no write and writes no ledger', async () => {
     const f = fx();
     const r = await plan(f);
-    expect(r).toMatchObject({ status: 'plan', tracker: 'linear', destination: 'ALI', count: 2, used_saved_target: false });
-    expect(r['tasks']).toEqual([{ title: 'Add OIDC provider config' }, { title: 'Migrate login route' }]);
+    expect(r).toMatchObject({ status: 'plan', tracker: 'linear', destination: 'ENG', count: 2, used_saved_target: false });
+    expect(r['tasks']).toEqual([{ title: 'Add OIDC provider config', body: 'Wire the provider.' }, { title: 'Migrate login route', body: 'Switch the route.' }]);
+    expect(r.text).toContain('Wire the provider.'); // the body goes to the tracker, so the person sees it too
     expect(r['plan_id']).toMatch(/^[0-9a-f]{24}$/);
     expect(r.text).toMatch(/nothing has been created/i); expect(r.text).toContain('Migrate login route');
     expect(creates(f)).toHaveLength(0);
@@ -86,7 +87,7 @@ describe('a token names a plan file and nothing else', () => {
     // Positive control: the planted file IS a valid, unexpired plan, so a null answer can only come from the shape check.
     fs.mkdirSync(planDir, { recursive: true });
     const planted = path.join(dir, 'evil.json');
-    fs.writeFileSync(planted, JSON.stringify({ decision: DEC, tracker: 'linear', target: 'ALI', key: 'k', tasks: [], expiresAt: new Date(Date.now() + 60_000).toISOString() }));
+    fs.writeFileSync(planted, JSON.stringify({ decision: DEC, tracker: 'linear', target: 'ENG', key: 'k', tasks: [], expiresAt: new Date(Date.now() + 60_000).toISOString() }));
     expect(takePlan(planDir, '../evil')).toBeNull();
     expect(fs.existsSync(planted)).toBe(true);
   });
@@ -103,8 +104,8 @@ describe('a confirm with the token creates exactly the plan', () => {
     const titles = creates(f).map((c) => (JSON.parse(c.body) as { variables: { input: { title: string } } }).variables.input.title);
     expect(titles).toEqual(['Add OIDC provider config', 'Migrate login route']);
     expect(r['created']).toEqual([
-      { key: 'ALI-1', url: 'https://linear.app/t/issue/ALI-1', title: 'Add OIDC provider config' },
-      { key: 'ALI-2', url: 'https://linear.app/t/issue/ALI-2', title: 'Migrate login route' },
+      { key: 'ENG-1', url: 'https://linear.app/t/issue/ENG-1', title: 'Add OIDC provider config' },
+      { key: 'ENG-2', url: 'https://linear.app/t/issue/ENG-2', title: 'Migrate login route' },
     ]);
     f.calls.length = 0;
     await expect(confirm(f, p['plan_id'])).rejects.toThrow(/no pending plan/i);
@@ -113,12 +114,12 @@ describe('a confirm with the token creates exactly the plan', () => {
   it('saves the destination for this repo when it worked', async () => {
     const f = fx(); const p = await plan(f);
     await confirm(f, p['plan_id']);
-    expect(f.saved.writes).toEqual([{ tracker: 'linear', target: 'ALI' }]);
+    expect(f.saved.writes).toEqual([{ tracker: 'linear', target: 'ENG' }]);
   });
   it('a confirm after another run already created them creates nothing', async () => {
     const f = fx(); const p = await plan(f);
     const { runBacklog } = await import('../lib/backlog/run.js');
-    await runBacklog({ decision: DEC.id, tracker: 'linear', team: 'ALI' }, f.deps);
+    await runBacklog({ decision: DEC.id, tracker: 'linear', team: 'ENG' }, f.deps);
     f.calls.length = 0;
     const r = await confirm(f, p['plan_id']) as R;
     expect(creates(f)).toHaveLength(0);
@@ -129,6 +130,35 @@ describe('a confirm with the token creates exactly the plan', () => {
     const again = await plan(f);
     expect(again['status']).toBe('already_created'); expect(again['plan_id']).toBeUndefined();
     expect(again['issues']).toHaveLength(2);
+  });
+});
+
+describe('a confirm that cannot go ahead says why and does not burn the plan', () => {
+  it('a missing credential keeps the token usable', async () => {
+    const f = fx(); const p = await plan(f);
+    f.creds['linear'] = null;
+    await expect(confirm(f, p['plan_id'])).rejects.toThrow(/credential/i);
+    f.creds['linear'] = { token: 'lin_api_x' };
+    expect((await confirm(f, p['plan_id']) as R)['status']).toBe('created');
+  });
+  it('a busy ledger keeps the token usable', async () => {
+    const f = fx(); const p = await plan(f);
+    fs.writeFileSync(`${f.deps.ledgerPath}.lock`, JSON.stringify({ pid: process.pid, at: new Date().toISOString(), nonce: 'other' }));
+    await expect(confirm(f, p['plan_id'])).rejects.toThrow(/already running/i);
+    fs.rmSync(`${f.deps.ledgerPath}.lock`);
+    expect((await confirm(f, p['plan_id']) as R)['status']).toBe('created');
+  });
+  it('a task list that changed since the plan is not created', async () => {
+    const f = fx(); const p = await plan(f);
+    fs.writeFileSync(f.deps.ledgerPath, JSON.stringify({ [`${DEC.id}|linear|acme|eng`]: { at: 'x', tasks: [{ title: 'A different task', body: 'b' }] } }));
+    const r = await confirm(f, p['plan_id']) as R;
+    expect(r['status']).toBe('plan_changed'); expect(creates(f)).toHaveLength(0);
+  });
+  it('an issue an earlier run may already have made is not created again on a blind confirm', async () => {
+    const f = fx(); const p = await plan(f);
+    fs.writeFileSync(f.deps.ledgerPath, JSON.stringify({ [`${DEC.id}|linear|acme|eng`]: { at: 'x', tasks: [{ title: 'Add OIDC provider config', body: 'Wire the provider.', uncertain: true }, { title: 'Migrate login route', body: 'Switch the route.' }] } }));
+    const r = await confirm(f, p['plan_id']) as R;
+    expect(r['status']).toBe('needs_check'); expect(creates(f)).toHaveLength(0);
   });
 });
 
@@ -145,7 +175,7 @@ describe('an ambiguity is a question, not a failure', () => {
     const f = fx();
     const r = await plan(f, { team: undefined });
     expect(r).toMatchObject({ status: 'needs_choice', field: 'team' });
-    expect(r['options']).toEqual([{ value: 'ALI', label: 'ALI  Align' }, { value: 'OPS', label: 'OPS  Ops' }]);
+    expect(r['options']).toEqual([{ value: 'ENG', label: 'ENG  Align' }, { value: 'OPS', label: 'OPS  Ops' }]);
   });
   it('answering it (the flag the question named) gets the plan', async () => {
     const f = fx();
@@ -155,13 +185,13 @@ describe('an ambiguity is a question, not a failure', () => {
 
 describe('a saved target', () => {
   it('is used with no question, and the plan says so', async () => {
-    const f = fx(); f.creds['github'] = { token: 'g' }; f.saved.current = { tracker: 'linear', target: 'ALI' };
+    const f = fx(); f.creds['github'] = { token: 'g' }; f.saved.current = { tracker: 'linear', target: 'ENG' };
     const r = await plan(f, { tracker: undefined, team: undefined });
-    expect(r).toMatchObject({ status: 'plan', tracker: 'linear', destination: 'ALI', used_saved_target: true });
+    expect(r).toMatchObject({ status: 'plan', tracker: 'linear', destination: 'ENG', used_saved_target: true });
     expect(r.text).toMatch(/saved target/i);
   });
   it('is overridden by a flag', async () => {
-    const f = fx(); f.saved.current = { tracker: 'linear', target: 'ALI' };
+    const f = fx(); f.saved.current = { tracker: 'linear', target: 'ENG' };
     expect(await plan(f, { team: 'OPS' })).toMatchObject({ destination: 'OPS', used_saved_target: false });
   });
 });
@@ -181,7 +211,7 @@ describe('the tool as an agent sees it', () => {
   it('has a closed schema with no place for a token or key', () => {
     const s = BACKLOG_TOOL_SCHEMA.inputSchema as { properties: Record<string, unknown>; additionalProperties: boolean };
     expect(s.additionalProperties).toBe(false);
-    expect(Object.keys(s.properties).sort()).toEqual(['confirm_token', 'decision', 'project', 'repo', 'team', 'tracker']);
+    expect(Object.keys(s.properties).sort()).toEqual(['decision', 'plan_id', 'project', 'repo', 'team', 'tracker']);
   });
   it('refuses an unknown property by name without echoing its value', async () => {
     const f = fx();
@@ -191,12 +221,12 @@ describe('the tool as an agent sees it', () => {
   it('wants a decision to plan, or a token to confirm, and not both', async () => {
     const f = fx();
     await expect(rb({}, f)).rejects.toThrow(/decision/);
-    await expect(rb({ decision: DEC.id, confirm_token: 'a'.repeat(24) }, f)).rejects.toThrow(/not both|only/i);
+    await expect(rb({ decision: DEC.id, plan_id: 'a'.repeat(24) }, f)).rejects.toThrow(/not both|only/i);
   });
   it('is routed by dispatchTool, and a server frozen with --created-before refuses it', async () => {
     const f = fx();
     const env = { mode: 'auth', gatewayUrl: 'https://api.align.tech', authToken: 't' } as never;
-    const r = await dispatchTool(BACKLOG_TOOL, { decision: DEC.id, tracker: 'linear', team: 'ALI' }, {} as never, env, undefined, ctx(f) as never) as R;
+    const r = await dispatchTool(BACKLOG_TOOL, { decision: DEC.id, tracker: 'linear', team: 'ENG' }, {} as never, env, undefined, ctx(f) as never) as R;
     expect(r['status']).toBe('plan');
     await expect(dispatchTool(BACKLOG_TOOL, { decision: DEC.id }, {} as never, env, '2026-01-01T00:00:00.000Z', ctx(f) as never)).rejects.toThrow(/frozen/);
   });

@@ -22,10 +22,10 @@ export function fixture(dir: string): Fx {
       if (body.includes('organization')) return json({ data: { organization: { urlKey: f.workspace.current } } });
       if (body.includes('issueCreate')) {
         if (f.failNext.n > 0) { f.failNext.n--; return json({}, f.failNext.status); }
-        n++; return json({ data: { issueCreate: { success: true, issue: { identifier: `ALI-${n}`, url: `https://linear.app/t/issue/ALI-${n}` } } } });
+        n++; return json({ data: { issueCreate: { success: true, issue: { identifier: `ENG-${n}`, url: `https://linear.app/t/issue/ENG-${n}` } } } });
       }
-      if (body.includes('first: 100')) return json({ data: { teams: { nodes: [{ id: 'T1', key: 'ALI', name: 'Align' }, { id: 'T2', key: 'OPS', name: 'Ops' }], pageInfo: { hasNextPage: false } } } });
-      return json({ data: { teams: { nodes: [{ id: 'T1', key: 'ALI', name: 'Align' }] } } });
+      if (body.includes('first: 100')) return json({ data: { teams: { nodes: [{ id: 'T1', key: 'ENG', name: 'Align' }, { id: 'T2', key: 'OPS', name: 'Ops' }], pageInfo: { hasNextPage: false } } } });
+      return json({ data: { teams: { nodes: [{ id: 'T1', key: 'ENG', name: 'Align' }] } } });
     }
     if (url.includes('api.github.com')) { n++; return json({ number: n, html_url: `https://github.com/o/r/issues/${n}` }, 201); }
     if (url.includes('/rest/api/3/issue')) { n++; return json({ key: `PRJ-${n}` }, 201); }

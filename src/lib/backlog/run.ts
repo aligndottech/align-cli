@@ -1,5 +1,5 @@
 import { listJiraProjects, listLinearTeams, ScopeLookupError } from '../scope-choices.js';
-import { getEntry, ledgerKey, LockedError, type PlannedTask, putEntry, withLock } from './ledger.js';
+import { getEntry, type LedgerEntry, ledgerKey, LockedError, type PlannedTask, putEntry, withLock } from './ledger.js';
 import type { SavedTarget } from './targets.js';
 import { parseTasks, type ShapeResult } from './shape.js';
 import {
@@ -202,11 +202,19 @@ export async function resolveBacklog(o: BacklogOptions, d: BacklogDeps): Promise
 
 export interface Loaded { tasks: PlannedTask[]; /** Some of these were already created by an earlier run. */ resumed: boolean; /** All of them were. */ done: boolean }
 
+/**
+ * The ledger entry for this decision and destination. A Linear entry written before the workspace joined the key sits under
+ * the old key; it is still this destination's work, so it is found there rather than created again.
+ */
+export function priorEntry(d: BacklogDeps, r: Resolved): LedgerEntry | undefined {
+  return getEntry(d.ledgerPath, r.key) ?? (r.tracker === 'linear' ? getEntry(d.ledgerPath, ledgerKey(r.dec.id, r.tracker, r.target, '')) : undefined);
+}
+
 /** The tasks for this decision and destination: the ledger's, so a rerun resumes the SAME plan, else the model's. */
 export async function loadTasks(o: BacklogOptions, d: BacklogDeps, r: Resolved): Promise<Loaded> {
   const max = o.max ?? DEFAULT_MAX_TASKS;
   if (!Number.isInteger(max) || max < 1 || max > 25) throw new Stop(2, '--max must be a whole number from 1 to 25.');
-  const prior = o.force ? undefined : getEntry(d.ledgerPath, r.key);
+  const prior = o.force ? undefined : priorEntry(d, r);
   if (prior) return { tasks: prior.tasks, resumed: true, done: prior.tasks.every((t) => t.key) };
   const shaped = await d.shape(r.dec, max);
   if (!shaped.ok) throw new Stop(1, shaped.message);

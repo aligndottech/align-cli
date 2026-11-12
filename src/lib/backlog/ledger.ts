@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -10,7 +11,7 @@ export interface PlannedTask { title: string; body: string; key?: string; url?: 
 export interface LedgerEntry { tasks: PlannedTask[]; at: string }
 type LedgerFile = Record<string, LedgerEntry>;
 
-/** `where` is the workspace when the tracker has one in hand (the Jira site). Case is folded: ALI and ali are one team. */
+/** `where` is the workspace when the tracker has one in hand (the Jira site). Case is folded: ENG and ali are one team. */
 export const ledgerKey = (decisionId: string, tracker: string, target: string, where = ''): string => `${decisionId}|${tracker}|${where.toLowerCase()}|${target.toLowerCase()}`;
 
 function read(file: string): LedgerFile {
@@ -58,21 +59,27 @@ function holderGone(lock: string): boolean {
 
 /**
  * Run `fn` holding `<ledger>.lock`, created exclusively so two runs cannot both pass the "already created?" check and
- * both create. A second run does not wait: it throws LockedError. The lock is released whatever `fn` does.
+ * both create. A second run does not wait: it throws LockedError. A dead holder's lock is taken over by RENAMING it away,
+ * which only one of several racing runs can do, and a run releases the lock only while it still carries its own nonce, so
+ * a slow run can never delete the lock of the run that replaced it.
  */
 export async function withLock<T>(ledgerFile: string, fn: () => Promise<T>): Promise<T> {
   const lock = `${ledgerFile}.lock`;
   fs.mkdirSync(path.dirname(lock), { recursive: true });
+  const nonce = randomBytes(8).toString('hex');
   const take = (): boolean => {
-    try { fs.writeFileSync(lock, JSON.stringify({ pid: process.pid, at: new Date().toISOString() }), { flag: 'wx', mode: 0o600 }); return true; } catch (e) {
+    try { fs.writeFileSync(lock, JSON.stringify({ pid: process.pid, at: new Date().toISOString(), nonce }), { flag: 'wx', mode: 0o600 }); return true; } catch (e) {
       if ((e as { code?: string }).code === 'EEXIST') return false;
       throw e;
     }
   };
   if (!take()) {
     if (!holderGone(lock)) throw new LockedError();
-    fs.rmSync(lock, { force: true });
+    const away = `${lock}.stale.${process.pid}.${nonce}`;
+    try { fs.renameSync(lock, away); fs.rmSync(away, { force: true }); } catch { throw new LockedError(); }
     if (!take()) throw new LockedError();
   }
-  try { return await fn(); } finally { fs.rmSync(lock, { force: true }); }
+  try { return await fn(); } finally {
+    try { if ((JSON.parse(fs.readFileSync(lock, 'utf8')) as { nonce?: string }).nonce === nonce) fs.rmSync(lock, { force: true }); } catch { /* already gone */ }
+  }
 }

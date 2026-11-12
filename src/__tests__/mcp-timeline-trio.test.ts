@@ -165,13 +165,14 @@ describe('the timeline trio is dispatched', () => {
 });
 
 describe('the published surface', () => {
-  it('registers 18 tools: the 8 that existed, the trio, align_backfill (L3), align_sync (L5), align_scope (L4), align_mark (LM), align_share (L9) and align_share_status and align_stale_code', () => {
+  it('registers 19 tools: the 8 that existed, the trio, align_backfill (L3), align_sync (L5), align_scope (L4), align_mark (LM), align_share (L9) and align_share_status, align_backlog and align_stale_code', () => {
     const names = TOOL_SCHEMAS.map((t) => t.name);
     expect(new Set(names).size).toBe(names.length);
     expect([...names].sort()).toEqual(
       [
         'align_ask',
         'align_backfill',
+        'align_backlog',
         'align_capture',
         'align_check_alignment',
         'align_check_drift',
@@ -196,7 +197,7 @@ describe('the published surface', () => {
     const writes = TOOL_SCHEMAS.filter((t) => t.annotations?.readOnlyHint === false)
       .map((t) => t.name)
       .sort();
-    expect(writes).toEqual(['align_backfill', 'align_capture', 'align_check_drift', 'align_mark', 'align_scope', 'align_share', 'align_share_status', 'align_sync']);
+    expect(writes).toEqual(['align_backfill', 'align_backlog', 'align_capture', 'align_check_drift', 'align_mark', 'align_scope', 'align_share', 'align_share_status', 'align_sync']);
   });
 
   /**

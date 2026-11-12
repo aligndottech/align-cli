@@ -191,7 +191,6 @@ align connect                        # pick a source to import: git, docs, jira,
 align connect jira --token ...       # import one source directly
 align check                          # check your staged diff against the graph
 align mcp --setup                    # wire your agent to the graph
-align backlog <decision>             # one issue per task in Linear, GitHub or Jira
 ```
 
 To make tickets from a decision, ask your agent: "make tickets for that decision". It shows you the plan first

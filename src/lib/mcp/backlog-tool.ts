@@ -4,7 +4,7 @@
  * Two calls, and the second cannot happen without the first:
  * 1. `decision` (+ optional tracker, team, repo, project): shapes the tasks and returns the plan (tracker, destination, the
  *    titles, a plan token). Nothing is created, and nothing is written but the pending plan on this machine.
- * 2. `confirm_token`: creates exactly the tasks of that plan, once. The token comes only from call 1, so an agent that
+ * 2. `plan_id`: creates exactly the tasks of that plan, once. The token comes only from call 1, so an agent that
  *    never planned cannot create, and one that planned has been handed the plan to show the user.
  *
  * What it reuses, not forks: run.ts does every question, the ledger, the lock and the creating, exactly as `align backlog`
@@ -18,10 +18,10 @@ import type { EnvironmentConfig } from '../config.js';
 import type { createGatewayClient } from '../gateway-client.js';
 import { resolveMcpEnvironment } from '../mcp-env.js';
 import { backlogPaths, backlogRepoKey, createBacklogDeps } from '../backlog/deps.js';
-import { getEntry, type PlannedTask, withLock } from '../backlog/ledger.js';
-import { isPlanToken, savePlan, takePlan } from '../backlog/pending.js';
+import { type PlannedTask, withLock } from '../backlog/ledger.js';
+import { peekPlan, savePlan, takePlan } from '../backlog/pending.js';
 import {
-  type BacklogDeps, createIssues, credentialFor, loadTasks, NeedsChoice, resolveBacklog, type Resolved, savedTargetLine, Stop,
+  type BacklogDeps, createIssues, credentialFor, loadTasks, NeedsChoice, priorEntry, resolveBacklog, type Resolved, savedTargetLine, Stop,
 } from '../backlog/run.js';
 import { TRACKER_LABEL, TRACKERS } from '../backlog/trackers.js';
 import { LockedError } from '../backlog/ledger.js';
@@ -34,7 +34,7 @@ const SPEC: StrictSpec = {
   required: [],
   properties: {
     decision: { type: 'string', description: 'The decision to turn into issues: its id, or words that name it. Pass this to PLAN.', maxLength: 500 },
-    confirm_token: { type: 'string', description: 'The plan_id the plan call returned, passed back AFTER the user said yes to that plan. Pass only this to CREATE.', maxLength: 64 },
+    plan_id: { type: 'string', description: 'The plan_id the plan call returned, passed back AFTER the user said yes to that plan. Pass only this to CREATE.', maxLength: 64 },
     tracker: { type: 'string', description: 'linear, github or jira. Leave out to use the saved one or the only one connected.', enum: TRACKERS },
     team: { type: 'string', description: 'Linear team key. Leave out unless the user named one or the tool asked.', maxLength: 100 },
     repo: { type: 'string', description: 'GitHub repository as owner/repo. Leave out unless the user named one or the tool asked.', maxLength: 200 },
@@ -49,7 +49,7 @@ export const BACKLOG_TOOL_SCHEMA = {
   description:
     'Turn one decision into a backlog of issues (one per task, up to 8) in the user\'s own Linear, GitHub Issues or Jira. Call it ONLY when the user asks for tickets, issues or a backlog from a decision. Never call it on your own initiative. ' +
     'It works in two steps. Step 1: pass `decision` (and tracker, team, repo or project only if the user said them). You get a PLAN: tracker, destination, the task titles, and a plan_id. Nothing is created until step 2. ' +
-    'Show the plan to the user, with the destination and the number of issues, and ask whether to create them. Step 2, only after the user says yes: call again with only `confirm_token` set to the plan_id. That creates exactly the tasks you showed, once. ' +
+    'Show the plan to the user, with the destination and the number of issues, and ask whether to create them. Step 2, only after the user says yes: call again with only `plan_id` set to the plan_id. That creates exactly the tasks you showed, once. ' +
     'If the plan comes back as needs_choice, ask the user the question it carries (its options are real choices) and call step 1 again with their answer. Never guess a team, repo or project. ' +
     'If the user changes their mind about a task or the destination, plan again. The tool remembers the destination per repo after the first success, so later plans need no question. ' +
     'It uses the user\'s own tracker credential, and never takes a token or key.',
@@ -84,13 +84,13 @@ export async function runBacklogTool(
   args: Record<string, unknown> | undefined, client: ReturnType<typeof createGatewayClient>, env: EnvironmentConfig, ctx: BacklogToolContext = {},
 ): Promise<BacklogToolResult> {
   const input = strictInput(SPEC, args);
-  const token = input['confirm_token'];
+  const token = input['plan_id'];
   const decision = input['decision'];
   if (token !== undefined && (decision !== undefined || ['tracker', 'team', 'repo', 'project'].some((k) => input[k] !== undefined))) {
-    throw new Error(`${BACKLOG_TOOL}: pass only confirm_token to create, or decision to plan, not both. To change the plan, plan again.`);
+    throw new Error(`${BACKLOG_TOOL}: pass only plan_id to create, or decision to plan, not both. To change the plan, plan again.`);
   }
   if (token === undefined && (typeof decision !== 'string' || decision.trim() === '')) {
-    throw new Error(`${BACKLOG_TOOL} requires "decision" to plan a backlog, or "confirm_token" to create the plan the user approved.`);
+    throw new Error(`${BACKLOG_TOOL} requires "decision" to plan a backlog, or "plan_id" to create the plan the user approved.`);
   }
   const w = await wiringFor(client, env, ctx);
   try {
@@ -139,18 +139,18 @@ async function plan(input: Record<string, unknown>, w: Wiring): Promise<BacklogT
   return {
     status: 'plan', plan_id: token, expires_at: expiresAt, tracker: r.tracker, destination: r.target, used_saved_target: r.usedSaved,
     decision: { id: r.dec.id, title: r.dec.title }, count: pending.length, resumed: l.resumed,
-    tasks: pending.map((t) => ({ title: t.title })),
+    tasks: pending.map((t) => ({ title: t.title, body: t.body })),
     text: `PLAN ONLY. Nothing has been created.\n${saved}${pending.length} ${pending.length === 1 ? 'issue' : 'issues'} in ${where} from "${r.dec.title}"${l.resumed ? ' (the rest of an earlier run)' : ''}:\n` +
-      `${pending.map((t) => `  - ${t.title}`).join('\n')}\n` +
-      `Show this plan to the user and ask whether to create these issues in ${where}. Only if they say yes, call ${BACKLOG_TOOL} with confirm_token "${token}" and nothing else. The token works once, for 30 minutes.`,
+      `${pending.map((t) => `  - ${t.title}${t.body ? `\n      ${t.body.replace(/\s+/g, ' ').slice(0, 160)}` : ''}`).join('\n')}\n` +
+      `Show this plan to the user and ask whether to create these issues in ${where}. Only if they say yes, call ${BACKLOG_TOOL} with plan_id "${token}" and nothing else. The token works once, for 30 minutes.`,
   };
 }
 
 async function confirm(token: string, w: Wiring): Promise<BacklogToolResult> {
-  const stored = isPlanToken(token) ? takePlan(w.planDir, token) : null;
-  if (!stored) {
-    throw new Error(`No pending plan for that token: it was never issued, was already used, or expired. Nothing was created. Plan again with ${BACKLOG_TOOL} and "decision", show the user the plan, then confirm.`);
-  }
+  const gone = new Error(`No pending plan for that token: it was never issued, was already used, or expired. Nothing was created. Plan again with ${BACKLOG_TOOL} and "decision", show the user the plan, then confirm.`);
+  // Look first, spend the token last: a missing credential or a busy ledger must not cost the user their plan.
+  const stored = peekPlan(w.planDir, token);
+  if (!stored) throw gone;
   const lines: string[] = [];
   const d = w.makeDeps({ out: (l) => lines.push(l), err: (l) => lines.push(l) });
   const r: Resolved = {
@@ -160,11 +160,22 @@ async function confirm(token: string, w: Wiring): Promise<BacklogToolResult> {
   const where = `${TRACKER_LABEL[r.tracker]} (${r.target})`;
   return withLock(d.ledgerPath, async () => {
     // The ledger outranks the plan: a run that finished while the user was deciding must not be created twice.
-    const prior = getEntry(d.ledgerPath, r.key);
-    const tasks = prior?.tasks ?? stored.tasks;
+    const prior = priorEntry(d, r);
     if (prior && prior.tasks.every((t) => t.key)) {
-      return { status: 'already_created', tracker: r.tracker, destination: r.target, issues: issuesOf(tasks), text: `Those issues already exist in ${where}, so nothing was created:\n${tasks.map((t) => `  ${t.key}  ${t.title}  ${t.url}`).join('\n')}` };
+      if (!takePlan(w.planDir, token)) throw gone;
+      return { status: 'already_created', tracker: r.tracker, destination: r.target, issues: issuesOf(prior.tasks), text: `Those issues already exist in ${where}, so nothing was created:\n${prior.tasks.map((t) => `  ${t.key}  ${t.title}  ${t.url}`).join('\n')}` };
     }
+    // What the user approved is what is created: if the ledger now holds a different list, say so and create nothing.
+    if (prior && prior.tasks.map((t) => t.title).join('\n') !== stored.tasks.map((t) => t.title).join('\n')) {
+      return { status: 'plan_changed', text: `The tasks for this decision changed since you planned (another run wrote a different list), so nothing was created. Plan again and show the user the new plan.` };
+    }
+    const tasks = prior?.tasks ?? stored.tasks;
+    const unsure = tasks.filter((t) => !t.key && t.uncertain);
+    if (unsure.length > 0) {
+      return { status: 'needs_check', text: `An earlier run got no answer from ${TRACKER_LABEL[r.tracker]} for: ${unsure.map((t) => `"${t.title}"`).join(', ')}. Those issues may already exist, so nothing was created. Ask the user to check ${where}, then to run: align backlog ${r.dec.id}` };
+    }
+    // The delete is the claim: a second confirm racing this one finds the plan gone.
+    if (!takePlan(w.planDir, token)) throw gone;
     const done = await createIssues(d, r, tasks, prior !== undefined);
     const made = issuesOf(done.tasks);
     const missing = done.tasks.length - made.length;
