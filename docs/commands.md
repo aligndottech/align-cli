@@ -56,6 +56,9 @@ align check                   Check current changes against the decision graph (
                               flags: --env --all --hook --advisory --format --block-on-critical --adjudicate-deferred --ci --json --title --base --depth --resolve
 align review                  same as align check
 
+align backlog <decision>      Turn a decision into one issue per task, created straight away in Linear, GitHub Issues or Jira
+                              flags: --tracker --team --repo --project --token --dry-run --force --max --env
+
 align share [ids]             Share ratified local decisions, and your judgements on them, with your team (previewed first; never without a yes)
                               flags: --env --to --all-ratified --since --yes --confirm --typed --retract --open --no-open --qr --no-qr --copy
 align push                    same as align share
@@ -361,6 +364,35 @@ and why. The same characters inside plain text, and multi-line `|`/`>` text bloc
 
 Known limit: every MCP entry Align adds runs a bare `align`. The agent resolves `align`
 through its own PATH, so it runs whichever `align` comes first on the PATH the agent sees.
+
+## Turn a decision into issues (`align backlog`)
+
+`align backlog <decision>` shapes one decision into a short list of tasks with the model `align ask` already
+uses, then creates one issue per task straight away in the tracker you name. The argument is a decision id
+(`align decisions list`) or search words. It works with Linear, GitHub Issues and Jira.
+
+```bash
+align backlog 3f2a9c1e --tracker linear --team ALI          # create now
+align backlog "move auth to OIDC" --tracker github --repo acme/api --dry-run
+```
+
+- **It says what it will do first.** The output starts with the tracker, the team, repo or project, and the
+  number of issues, then lists each title and the link to the created issue. `--dry-run` prints the same plan and
+  sends nothing to the tracker.
+- **It never guesses where issues go.** Pass `--team` (Linear), `--repo` (GitHub) or `--project` (Jira). At a
+  terminal it asks once instead. With no terminal, a missing target or a missing `--tracker` (when more than one
+  is connected) exits with code 2 and names the flag. A search that matches several decisions needs the id.
+- **Each issue links back.** The body ends with the decision, and its source when it has one.
+- **Running it twice does not duplicate.** The plan and the created issue keys are saved in
+  `backlog-ledger.json` in the CLI state directory, per decision, tracker and target. A second run prints what
+  exists and creates nothing. If a run stops halfway, the same command creates only the missing issues, from the
+  same plan. `--force` creates a fresh set.
+- **No model, no tasks.** With no model configured the command stops and says how to set one. It never writes
+  tasks of its own.
+- **Credentials are yours.** It uses the token from `align connect`, `LINEAR_API_KEY` or `GITHUB_TOKEN`, or
+  `--token`. Align's own browser sign-ins are read-only, and a read-only token is refused by the tracker, which
+  the command reports as "can read but not write". Use a personal API key that can create issues. Jira needs the
+  site and email saved by `align connect jira`. `--max <n>` caps the number of tasks (default 8).
 
 ## Agent wiring
 

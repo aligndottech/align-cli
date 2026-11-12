@@ -71,7 +71,7 @@ async function get(vendor: string, url: string, headers: Record<string, string>,
 const asRecord = (v: unknown): Record<string, unknown> => (typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : {});
 const text = (v: unknown): string | undefined => (typeof v === 'string' && v !== '' ? v : undefined);
 
-function atlassianHeaders(fields: Record<string, string>): Record<string, string> {
+export function atlassianHeaders(fields: Record<string, string>): Record<string, string> {
   const token = fields['token'];
   const email = fields['email'];
   if (!token || !email) throw new ScopeLookupError('The Atlassian connection has no email saved, so its list cannot be read. Reconnect with: align connect <jira|confluence>', 'unsupported');
@@ -295,7 +295,7 @@ export async function checkJiraJql(fields: Record<string, string>, projects: str
   return 'ok';
 }
 
-function linearHeaders(fields: Record<string, string>): Record<string, string> {
+export function linearHeaders(fields: Record<string, string>): Record<string, string> {
   const token = fields['token'];
   if (!token) throw new ScopeLookupError('The Linear connection has no token saved. Reconnect: align connect linear', 'unsupported');
   // A personal API key goes bare and an OAuth token as Bearer; Linear refuses the other way round with a 400 (connector-core).
