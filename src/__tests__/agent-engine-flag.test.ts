@@ -25,4 +25,8 @@ describe('align --engine', () => {
     await run(['--engine', 'codex']);
     expect(runDefaultAction).not.toHaveBeenCalled();
   });
+  it('--switch reaches the default action', async () => {
+    await run(['--switch']);
+    expect(runDefaultAction.mock.calls[0]?.[0]).toMatchObject({ switch: true });
+  });
 });

@@ -163,6 +163,8 @@ export function createConfigStore(deps: ConfigStoreDeps = {}) {
     agent?: string;
     /** The engine behind Align's own agent, 'align' or 'claude', as last chosen with --engine. */
     agentEngine?: string;
+    /** How Align is used in each repo, by absolute repo path: 'keep' (the user's own agent) or 'own' (Align's agent). */
+    runChoices?: Record<string, string>;
     /** Which local relationship detector to run when ALIGN_DETECTOR is unset: 'v0' or 'v1'. */
     detector?: string;
     launchOff?: boolean;
@@ -608,6 +610,15 @@ export function createConfigStore(deps: ConfigStoreDeps = {}) {
     },
     setAgentEngine(engine: 'align' | 'claude') {
       store.set('agentEngine', engine);
+    },
+    // How bare `align` is used in one repo, by absolute path. The whole map is read and set as
+    // one value because conf treats a dot in a key as a path separator. Validated on read.
+    getRunChoice(repo: string): 'keep' | 'own' | undefined {
+      const v = (store.get('runChoices') ?? {})[repo];
+      return v === 'keep' || v === 'own' ? v : undefined;
+    },
+    setRunChoice(repo: string, mode: 'keep' | 'own') {
+      store.set('runChoices', { ...(store.get('runChoices') ?? {}), [repo]: mode });
     },
     // C4: set by `align use --undo` so bare `align` stops opening an agent (and re-adding the
     // configs just restored) until the user picks one again.

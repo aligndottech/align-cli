@@ -47,11 +47,23 @@ decision that ruled that out.*
 
 Run it in a git repo. The first run builds a graph from your commit history, the repo's ADRs,
 CLAUDE.md and AGENTS.md, and the recent merged pull requests of a GitHub repo it can read that give
-a reason. After that, `align`
-opens Align's own coding agent over that graph, and refreshes connected sources in the
+a reason. Then the first `align` in a repo asks how you want to use Align:
+
+```text
+Align found Claude Code on this machine. How do you want to use Align?
+1. Keep Claude Code. Align checks each edit and answers questions inside it.
+2. Use Align's own coding agent.
+Change this later: align --switch
+```
+
+"Keep" is preselected when Claude Code, Codex or Cursor is installed, and it wires Align into
+that agent the way `align mcp --setup` does, after listing the files and asking. With none of
+the three installed, option 2 is preselected. Align remembers the answer for that repo, so
+later runs don't ask. `align --switch` asks again. After a "2", `align` opens Align's own
+coding agent over that graph. Either way, connected sources refresh in the
 background, at most every 15 minutes per source (`align sync --off` turns that off).
 
-You choose what runs behind it:
+If you choose Align's own agent, you choose what runs behind it:
 
 - **Your own API key** (Anthropic, OpenAI, Gemini and others, set with `align ai`), or a local
   model through Ollama.

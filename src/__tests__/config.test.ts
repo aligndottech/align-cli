@@ -65,6 +65,23 @@ describe('config store', () => {
     expect(c.getAgentEngine()).toBeUndefined();
   });
 
+  it('remembers how Align is used per repo, keyed by path (dots in a path are not key separators)', () => {
+    const c = createConfigStore();
+    expect(c.getRunChoice('/work/a.b')).toBeUndefined();
+    c.setRunChoice('/work/a.b', 'keep');
+    c.setRunChoice('/work/other', 'own');
+    expect(c.getRunChoice('/work/a.b')).toBe('keep');
+    expect(c.getRunChoice('/work/other')).toBe('own');
+    c.setRunChoice('/work/a.b', 'own');
+    expect(c.getRunChoice('/work/a.b')).toBe('own');
+  });
+
+  it('ignores a stored run choice this CLI does not know', () => {
+    const c = createConfigStore();
+    c.setRunChoice('/work/x', 'plugin' as never);
+    expect(c.getRunChoice('/work/x')).toBeUndefined();
+  });
+
   const entry = (over = {}) => ({ created: false, sha256: 'a', firstSha256: 'a', backup: 'made' as const, ...over });
 
   it('records written configs by path (dots in the path are not key separators) and drops only the finished ones', () => {

@@ -443,7 +443,7 @@ export function importRetryHint(sourceId: string, envName: EnvName): string {
  * prints the list and writes nothing. False means the
  * person declined: the caller writes nothing.
  */
-async function confirmAgentWrites(o: { interactive: boolean; approve?: boolean }): Promise<{ confirmed: boolean; editors: EditorTarget[] }> {
+export async function confirmAgentWrites(o: { interactive: boolean; approve?: boolean }): Promise<{ confirmed: boolean; editors: EditorTarget[] }> {
   // Detected once: the same agents are listed here and written by connectDetectedAgents.
   const editors = detectEditors();
   const files = planSetupWrites({ cwd: process.cwd(), editors });
@@ -466,7 +466,7 @@ async function confirmAgentWrites(o: { interactive: boolean; approve?: boolean }
  * tell whether the project .mcp.json - the one that wires Claude Code - actually landed.
  * Naming an agent as connected off a write that threw would be false.
  */
-function writeAgentAlignment(envName: EnvName): string[] {
+export function writeAgentAlignment(envName: EnvName): string[] {
   try {
     const foreign: string[] = [];
     const written = setupAgentAlignment({ cwd: process.cwd(), env: envName, onForeign: (file) => foreign.push(file) });

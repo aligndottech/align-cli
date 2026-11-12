@@ -11,7 +11,7 @@ const getEnvironment = vi.hoisted(() => vi.fn());
 const getDefaultEnv = vi.hoisted(() => vi.fn().mockReturnValue('prod'));
 const getAgent = vi.hoisted(() => vi.fn().mockReturnValue(undefined));
 vi.mock('../lib/config.js', () => ({
-  createConfigStore: vi.fn(() => ({ getEnvironment, getDefaultEnv, getAgent })),
+  createConfigStore: vi.fn(() => ({ getEnvironment, getDefaultEnv, getAgent, isLaunchOff: () => false })),
 }));
 
 const listDecisions = vi.hoisted(() => vi.fn().mockResolvedValue([]));
@@ -36,6 +36,9 @@ vi.mock('../lib/launch/launch.js', async (importOriginal) => ({
 }));
 
 // Bare `align` opens Align's own agent; the session is mocked at its boundary too.
+// The question has its own tests (first-run-choice.test.ts, agent-default-action.test.ts); here it answers "Align's own agent".
+const runFirstRunChoice = vi.hoisted(() => vi.fn().mockResolvedValue({ action: 'own' }));
+vi.mock('../commands/first-run-choice.js', () => ({ runFirstRunChoice }));
 const runAgentSession = vi.hoisted(() => vi.fn().mockResolvedValue(0));
 vi.mock('../lib/agent/run-agent-session.js', () => ({ runAgentSession }));
 
@@ -63,6 +66,7 @@ describe('bare `align`', () => {
     runSetup.mockClear();
     printBanner.mockClear();
     getAgent.mockReset().mockReturnValue(undefined);
+    runFirstRunChoice.mockReset().mockResolvedValue({ action: 'own' });
     listDecisions.mockReset().mockResolvedValue([]);
     getEnvironment.mockReset();
     getDefaultEnv.mockReturnValue('prod');
@@ -376,12 +380,12 @@ describe('bare `align`', () => {
       } finally { exit.mockRestore(); runSetup.mockReset().mockResolvedValue(undefined); }
     });
 
-    it('tells the wizard the agent opens next, so its outro drops the "run align" line', async () => {
+    it('tells the wizard nothing opens yet, so its outro does not say "Opening" before the question', async () => {
       wizardBuildsLocal();
       const exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
       try {
         await withTty(async () => { await bare(); });
-        expect(runSetup).toHaveBeenCalledWith({ launchNext: true });
+        expect(runSetup).toHaveBeenCalledWith({ launchNext: false });
       } finally { exit.mockRestore(); }
     });
 
