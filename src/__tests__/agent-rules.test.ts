@@ -253,11 +253,11 @@ describe('writeProjectMcpConfig', () => {
   );
 
   // .mcp.json is the SHARED, committed file that pi, Claude Code and others all read,
-  // so it must stay host-neutral. pi's directTools belongs in the pi-owned override
+  // so it must stay host-neutral. pi's exposure belongs in the pi-owned override
   // written by mcp-setup, not here.
   it('omits host-specific fields so the shared file stays portable', () => {
     writeProjectMcpConfig(dir);
-    expect(readJson('.mcp.json').mcpServers.align).not.toHaveProperty('directTools');
+    expect(readJson('.mcp.json').mcpServers.align).not.toHaveProperty('exposure');
   });
 
   it('encodes a non-prod env into the args', () => {

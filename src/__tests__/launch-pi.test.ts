@@ -39,10 +39,10 @@ describe('buildPiLaunch', () => {
     expect(spec.files.find((f) => f.name === 'align-instructions.md')!.content).toBe(`${alignNudgeBody()}\n`);
   });
 
-  it('the MCP write is align-local (never align) in the agent-dir file, with directTools', () => {
+  it('the MCP write is align-local (never align) in the agent-dir file, with direct exposure', () => {
     const w = buildPiLaunch(ctx()).writes![0]!;
     expect(w).toMatchObject({ kind: 'mcp-entry', file: '/home/u/.pi/agent/mcp.json', topKey: 'mcpServers', name: 'align-local' });
-    expect((w as { entry: Record<string, unknown> }).entry).toMatchObject({ ...alignEntryShape(['mcp', '--env', 'local']), directTools: true });
+    expect((w as { entry: Record<string, unknown> }).entry).toMatchObject({ ...alignEntryShape(['mcp', '--env', 'local']), exposure: 'direct' });
   });
 
   it.each([

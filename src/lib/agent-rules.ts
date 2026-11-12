@@ -237,7 +237,7 @@ export function writeCursorRule(cwd: string): boolean {
 // .mcp.json - the tool-agnostic, project-local MCP config. pi reads it (via
 // pi-mcp-adapter), so does Claude Code, and it is committed, so one write covers the
 // whole team rather than each person's per-host config. Deliberately host-NEUTRAL: pi's
-// `directTools` goes in the Pi-owned override that mcp-setup.ts writes, never here.
+// `exposure` goes in the Pi-owned override that mcp-setup.ts writes, never here.
 export function writeProjectMcpConfig(cwd: string, env?: string, onForeign?: OnForeign): boolean {
   const status = safeWriteJson(path.join(cwd, '.mcp.json'), (config) => {
     const servers = (config['mcpServers'] ?? {}) as Record<string, unknown>;
