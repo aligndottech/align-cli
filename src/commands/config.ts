@@ -31,4 +31,24 @@ export function registerConfigCommand(program: Command): void {
         console.log(`ALIGN_DETECTOR is set in this shell and overrides the saved choice (${process.env['ALIGN_DETECTOR']}).`);
       }
     });
+  config
+    .command('backlog-offer [state]')
+    .description('The one line align capture prints offering to turn a plan-shaped decision into tickets: on or off (default on)')
+    .action((state: string | undefined) => {
+      const store = createConfigStore();
+      if (state === undefined) {
+        const on = store.getBacklogOffer();
+        console.log(`Backlog offer: ${on ? 'on' : 'off'}`);
+        console.log(`Change it with: align config backlog-offer ${on ? 'off' : 'on'}`);
+        return;
+      }
+      if (state !== 'on' && state !== 'off') {
+        console.error(`"${state}" is not a state. Allowed: on, off.`);
+        process.exitCode = 1;
+        return;
+      }
+      store.setBacklogOffer(state === 'on');
+      console.log(`Saved: backlog offer ${state}.`);
+      if (process.env['ALIGN_NO_BACKLOG_OFFER']) console.log('ALIGN_NO_BACKLOG_OFFER is set in this shell and keeps the offer off.');
+    });
 }

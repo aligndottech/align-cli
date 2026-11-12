@@ -46,6 +46,20 @@ async function post(tracker: TrackerId, url: string, headers: Record<string, str
 const rec = (v: unknown): Record<string, unknown> => (typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : {});
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v !== '' ? v : undefined);
 
+/** The workspace's url key (the `acme` in linear.app/acme), so one team key in two workspaces is two destinations. A read, never a write. */
+export async function linearWorkspace(fields: Record<string, string>, f: typeof fetch): Promise<string> {
+  let res: Response;
+  try {
+    res = await f('https://api.linear.app/graphql', { method: 'POST', headers: linearHeaders(fields), body: JSON.stringify({ query: 'query { organization { urlKey } }' }), redirect: 'manual', signal: AbortSignal.timeout(TIMEOUT_MS) });
+  } catch (e) {
+    if (e instanceof ScopeLookupError) throw new Error(e.message);
+    throw new Error('Could not reach Linear to read which workspace this key belongs to, so nothing was created.');
+  }
+  const key = res.ok ? str(rec(rec(rec(await res.json().catch(() => ({})))['data'])['organization'])['urlKey']) : undefined;
+  if (key === undefined) throw new Error(`Linear would not say which workspace this key belongs to (answered ${res.status}), so nothing was created.`);
+  return key;
+}
+
 const LINEAR_CREATE = 'mutation($input: IssueCreateInput!) { issueCreate(input: $input) { success issue { identifier url } } }';
 
 /** Resolve a team key to the id issueCreate wants. Undefined when the token cannot see that team. */

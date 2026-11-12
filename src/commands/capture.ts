@@ -6,6 +6,11 @@ import { createConfigStore, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { resolveAppUrl } from '../lib/env-resolver.js';
 import { recordFunnelStage } from '../lib/usage-telemetry.js';
+import { backlogOffer } from '../lib/backlog/offer.js';
+import { backlogPaths, backlogRepoKey, connectedTrackers } from '../lib/backlog/deps.js';
+import { getSavedTarget } from '../lib/backlog/targets.js';
+import { inHookContext } from '../lib/hook-context.js';
+import { inCi } from '../lib/telemetry-ci.js';
 
 // Display label only - gateway's registry.resolveUrl() handles real detection
 function labelFromUrl(input: string): string {
@@ -23,6 +28,21 @@ function isUrl(input: string): boolean {
   try { new URL(input); return true; } catch { return false; }
 }
 
+/** One line, after a capture, never an error: the offer is a courtesy and a capture that worked must not fail on it. */
+async function offerBacklog(config: ReturnType<typeof createConfigStore>, envName: EnvName, decision: Parameters<typeof backlogOffer>[0]['decision']): Promise<void> {
+  try {
+    const envNames: EnvName[] = envName === 'local' ? ['local'] : [envName, 'local'];
+    const saved = getSavedTarget(backlogPaths().targetsPath, await backlogRepoKey())?.tracker;
+    const offer = backlogOffer({
+      env: process.env, tty: Boolean(process.stdin.isTTY && process.stdout.isTTY), inCi: inCi(), inHook: inHookContext(),
+      enabled: config.getBacklogOffer(), count: 1, decision, trackers: connectedTrackers(config, envNames), saved,
+    });
+    if ('line' in offer) { console.log(chalk.dim(offer.line)); console.log(''); }
+  } catch {
+    // Nothing to say: the capture itself has already been reported.
+  }
+}
+
 export function registerCaptureCommand(program: Command): void {
   program
     .command('capture <url>')
@@ -38,7 +58,8 @@ export function registerCaptureCommand(program: Command): void {
       // preferLocalEmbedded: the local client serves capture, so a no-account
       // user's `align capture` must land in their local graph, not 401 against
       // the unauthenticated cloud default.
-      const env = config.getEnvironment(resolveEnv(opts.env, { preferLocalEmbedded: true }));
+      const envName = resolveEnv(opts.env, { preferLocalEmbedded: true });
+      const env = config.getEnvironment(envName);
       const client = createGatewayClient(env);
       const platform = labelFromUrl(input);
 
@@ -62,6 +83,7 @@ export function registerCaptureCommand(program: Command): void {
         console.log('');
         console.log(chalk.dim(`View: ${resolveAppUrl(env)}/decisions/${decision.id}`));
         console.log('');
+        await offerBacklog(config, envName, decision);
       } catch (err) {
         const msg = (err as Error).message;
         // The gateway answers 422 unsupported_source for a link it cannot read (no

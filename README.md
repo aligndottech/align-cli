@@ -191,12 +191,16 @@ align connect                        # pick a source to import: git, docs, jira,
 align connect jira --token ...       # import one source directly
 align check                          # check your staged diff against the graph
 align mcp --setup                    # wire your agent to the graph
+align backlog <decision>             # one issue per task in Linear, GitHub or Jira
 ```
+
+To make tickets from a decision, ask your agent: "make tickets for that decision". It shows you the plan first
+(tracker, team, the task titles) and creates nothing until you say yes. `align backlog` does the same from a terminal.
 
 Local mode keeps the read-only tokens you paste in your OS credential store, and reads `ALIGN_<SOURCE>_TOKEN` first if you use a password manager. See [Importing](docs/importing.md#local-mode-tokens-where-they-live-and-how-to-supply-them).
 
-`align --help` lists `ask`, `connect`, `check`, `share` (alias `push`), `mcp` and `agents`. The
-rest (`search`, `decisions`, `stale`, `export`, `ratify`, `backlog`, `context`, ...) still work and are in
+`align --help` lists `ask`, `connect`, `check`, `backlog`, `share` (alias `push`), `mcp` and `agents`. The
+rest (`search`, `decisions`, `stale`, `export`, `ratify`, `context`, ...) still work and are in
 [docs/commands.md](docs/commands.md).
 
 Something not working? `align doctor` checks Node, that `align` is on your PATH, that the gateway

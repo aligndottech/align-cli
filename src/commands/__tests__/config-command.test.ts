@@ -48,3 +48,26 @@ describe('align config detector', () => {
     expect(text).toMatch(/overrides the saved choice/);
   });
 });
+
+describe('align config backlog-offer', () => {
+  it('reads on by default, and says how to turn it off', async () => {
+    vi.stubEnv('ALIGN_NO_BACKLOG_OFFER', '');
+    const text = await run('backlog-offer');
+    expect(text).toMatch(/Backlog offer: on/); expect(text).toMatch(/align config backlog-offer off/);
+  });
+  it('off is saved and read back, and on undoes it', async () => {
+    expect(await run('backlog-offer', 'off')).toMatch(/Saved: backlog offer off/);
+    expect(createConfigStore().getBacklogOffer()).toBe(false);
+    expect(await run('backlog-offer')).toMatch(/Backlog offer: off/);
+    await run('backlog-offer', 'on');
+    expect(createConfigStore().getBacklogOffer()).toBe(true);
+  });
+  it('rejects anything else without saving it', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await run('backlog-offer', 'maybe');
+    expect(err.mock.calls.join(' ')).toMatch(/"maybe" is not a state/);
+    expect(process.exitCode).toBe(1);
+    expect(createConfigStore().getBacklogOffer()).toBe(true);
+    err.mockRestore();
+  });
+});
