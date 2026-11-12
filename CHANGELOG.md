@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.77.0](https://github.com/aligndottech/align-cli/compare/cli-v0.76.1...cli-v0.77.0) (2026-11-12)
+
+
+### Features
+
+* **backlog:** ask your agent for tickets, remembered targets, one-line offer, unhidden ([#578](https://github.com/aligndottech/align-cli/issues/578)) ([124f8cd](https://github.com/aligndottech/align-cli/commit/124f8cdc482dc972ec6725ee0121803252491e29))
+* **cli:** align backlog turns a decision into issues in Linear, GitHub or Jira ([#574](https://github.com/aligndottech/align-cli/issues/574)) ([4e8b8e0](https://github.com/aligndottech/align-cli/commit/4e8b8e097de97aa56b294fb51f8089a46ab6177f))
+* count edit-check hook and MCP use after the telemetry notice ([#576](https://github.com/aligndottech/align-cli/issues/576)) ([f4783e4](https://github.com/aligndottech/align-cli/commit/f4783e426ec18c9155587791fbfb37c2be946f47))
+
 ## [0.76.1](https://github.com/aligndottech/align-cli/compare/cli-v0.76.0...cli-v0.76.1) (2026-11-12)
 
 

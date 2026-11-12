@@ -1,6 +1,6 @@
 {
   "name": "@aligndottech/cli",
-  "version": "0.76.1",
+  "version": "0.77.0",
   "mcpName": "io.github.aligndottech/cli",
   "type": "module",
   "description": "Your AI agents know the code. They don't know the company. Local CLI and MCP server that checks your coding agent's change against your team's decisions from Jira, Confluence, Linear, Notion, Slack, Teams, Zoom, GitHub, GitLab, git history and repo docs.",
