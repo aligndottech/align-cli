@@ -255,6 +255,7 @@ export async function runDemo(opts: DemoOptions, deps: DemoDeps = {}): Promise<n
     say('');
 
     say('To run Align on your own repo:');
+    say('   npm install -g @aligndottech/cli');
     say('   cd your-repo && align');
     return 0;
   } finally {
