@@ -10,6 +10,7 @@ import { createConfigStore, migrateConfigDirectory } from './lib/config.js';
 import { getLocalDbPath, isLegacyGraphPath, legacyLocalDbDir, migrateLocalDb, repointLegacyLocalDb } from './lib/local-mode.js';
 import { excludeGraphFromBackups } from './lib/backup-exclusion.js';
 import { buildProgram } from './cli.js';
+import { invokedCommandName } from './lib/demo/invoked.js';
 import { resolveDetectorVersion } from './detector/detector-version.js';
 import { describeFatal } from './lib/fatal.js';
 import { printRedactionNotice } from './lib/redaction-notice.js';
@@ -30,13 +31,18 @@ process.on('unhandledRejection', handleFatal);
 // A synchronous write: an asynchronous stderr pipe (macOS) is not flushed once 'exit' runs.
 process.on('exit', () => printRedactionNotice((line) => { try { writeSync(2, `${line}\n`); } catch { /* stderr closed */ } }));
 
+class SkipStartupMigrations extends Error {}
+
 // One-time directory migrations (Copilot review on #231), run exactly once at
 // real process startup - never inside createConfigStore()/getLocalDbPath() themselves,
 // which stay pure so tests that mock `conf` don't also need to mock the filesystem.
 // A migration is a nice-to-have, never a requirement: an unreadable/unwritable
 // ~/.config on some machine must not stop align from running the command the user
 // actually asked for, so failures here are swallowed rather than reaching handleFatal.
+// Not for `align demo`: it promises nothing is written under the caller's ~/.align, and these
+// migrations copy a legacy config and graph into it. The demo's children run them in a temp HOME.
 try {
+  if (invokedCommandName(process.argv) === 'demo') throw new SkipStartupMigrations();
   // ~/.align is the one home now. Copy anything an older install left under the OS config
   // directory, from every place one was ever written.
   const legacyConfigDirs = [envPaths('align-cli', { suffix: 'nodejs' }).config, envPaths('align-cli', { suffix: '' }).config];
@@ -57,7 +63,7 @@ try {
   // after an upgrade (once; a no-op without a graph). Best effort, never fatal (backup-exclusion.ts).
   excludeGraphFromBackups(getLocalDbPath());
 } catch (e) {
-  if (process.env['ALIGN_DEBUG']) console.error('align: startup migration failed (non-fatal):', e);
+  if (!(e instanceof SkipStartupMigrations) && process.env['ALIGN_DEBUG']) console.error('align: startup migration failed (non-fatal):', e);
 }
 
 // An unknown ALIGN_DETECTOR is fatal before any command runs: a typo must never run the default silently.

@@ -80,6 +80,11 @@ align env set <env>           Set the default environment for all commands
 align env list                List the environments and every team destination joined with align join, with both hosts
 align env get                 Show the current default environment
 
+# Watch the edit hook catch a decision in a throwaway repo
+
+align demo                    See the edit hook catch a decision in a throwaway repo (no account, no AI key, nothing touches your files)
+                              flags: --keep
+
 # Usage telemetry on, off, status
 
 align telemetry               Manage anonymous telemetry in local-only mode (on after a one-time notice; off in CI)

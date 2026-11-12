@@ -45,8 +45,8 @@ const SERVER_OUTCOMES = ['ok', 'partial', 'needs_reauth', 'error'];
 const SERVER_SCOPES = ['yours', 'team'];
 const SERVER_TRIGGERS = ['connect', 'background', 'manual', 'mcp'];
 
-/** The commands the CLI registers that the gateway deliberately leaves out: `dev` and `connector` are internal (ALIGN_INTERNAL=1), `local` never pings, and `doctor` sends no telemetry of any kind. */
-const NOT_SENT = new Set(['local', 'dev', 'connector', 'doctor']);
+/** The commands the CLI registers that the gateway deliberately leaves out: `dev` and `connector` are internal (ALIGN_INTERNAL=1), `local` never pings, and `doctor` and `demo` send no telemetry of any kind (`demo` runs in a temp HOME and must leave the caller's ~/.align alone). */
+const NOT_SENT = new Set(['local', 'dev', 'connector', 'doctor', 'demo']);
 
 /**
  * There is deliberately NO allowlist of commands the gateway rejects. The old
@@ -70,7 +70,7 @@ describe('the CLI mirror of the gateway telemetry contract (pinned)', () => {
     expect(sorted(SYNC_SCOPES)).toEqual(sorted(SERVER_SCOPES));
     for (const t of SYNC_TRIGGERS) expect(SERVER_TRIGGERS).toContain(t);
   });
-  it('every command the CLI registers is on the gateway\'s list, bar the four it leaves out on purpose (no allowlist of rejected commands)', () => {
+  it('every command the CLI registers is on the gateway\'s list, bar the ones it leaves out on purpose (no allowlist of rejected commands)', () => {
     const names = cliCommands();
     expect(names.length).toBeGreaterThan(10); // positive control: the tree was actually read
     const missing = names.filter((n) => !NOT_SENT.has(n) && !SERVER_COMMANDS.includes(n));
