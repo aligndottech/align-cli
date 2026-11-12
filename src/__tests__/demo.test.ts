@@ -224,6 +224,8 @@ describe('runDemo', () => {
     expect(out.text()).toContain(TITLE);
     expect(out.text()).toMatch(/silent|nothing/i);
     expect(out.text()).toMatch(/align\b.*your own repo|your own repo/i);
+    // Someone who ran this through npx has no `align` on PATH yet, so the next step must install it.
+    expect(out.text()).toContain('npm install -g @aligndottech/cli');
     expect(out.text()).not.toContain('\u2014');
   });
 
