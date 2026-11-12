@@ -11,6 +11,17 @@ Align collects your team's decisions from commits, tickets, chat and meetings in
 Your coding agent can look up the decisions behind the code, and where each one came from,
 before it changes it.
 
+See it catch a decision in a few seconds, with nothing installed and no account or AI key:
+
+```bash
+npx @aligndottech/cli demo
+```
+
+It runs in a temp folder and leaves your repo and `~/.align` alone. The first run downloads a
+small on-device model (about 50 MB) once.
+
+To use it on your own repo:
+
 ```bash
 npm install -g @aligndottech/cli
 align
