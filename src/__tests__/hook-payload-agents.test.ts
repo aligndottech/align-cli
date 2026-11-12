@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { normalizeHookPayload } from '../lib/hook-payload.js';
 
 // One advisory engine, N hosts. Each host pipes its own payload shape on stdin;
@@ -64,6 +67,44 @@ describe('normalizeHookPayload - pi', () => {
       input: { path: 'a.ts', content: 'x' },
     });
     expect(got?.hook_event_name).toBe('PostToolUse');
+  });
+});
+
+// The shapes above were read out of pi's source and its docs. These two files are the real
+// thing: pi 1.5.2 handed them to an extension in a live session (fixtures/hook-payloads/
+// README says how they were captured). They gate the mapper on what pi actually sends, so a
+// field rename on either side fails here instead of going quiet in every user's session -
+// a pre-edit check that reads no text exits 0 and looks exactly like one that found nothing.
+describe('normalizeHookPayload - pi (captured 2026-11-12, pi 1.5.2)', () => {
+  const fixtures = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'hook-payloads');
+  const pre = JSON.parse(readFileSync(join(fixtures, 'pi-pre.json'), 'utf8')) as Record<string, unknown>;
+  const post = JSON.parse(readFileSync(join(fixtures, 'pi-post.json'), 'utf8')) as Record<string, unknown>;
+
+  it('maps the captured edit tool_call to a checkable PreToolUse', () => {
+    const got = normalizeHookPayload(pre);
+    expect(got).toEqual({
+      hook_event_name: 'PreToolUse',
+      tool_name: 'edit',
+      tool_input: {
+        file_path: 'retry.ts',
+        edits: [{ old_string: 'export const RETRY_LIMIT = 3;', new_string: 'export const RETRY_LIMIT = 1;' }],
+      },
+    });
+  });
+
+  // The shim does not forward the event as-is: it sends {type, toolName, input} and drops
+  // toolCallId. Both shapes have to map, or the captured file would pin a payload the
+  // extension never sends.
+  it('maps the payload the shim actually pipes, which drops toolCallId', () => {
+    const piped = { type: pre['type'], toolName: pre['toolName'], input: pre['input'] };
+    expect(normalizeHookPayload(piped)).toEqual(normalizeHookPayload(pre));
+  });
+
+  it('maps the captured tool_result to PostToolUse', () => {
+    const got = normalizeHookPayload(post);
+    expect(got?.hook_event_name).toBe('PostToolUse');
+    expect(got?.tool_name).toBe('edit');
+    expect(got?.tool_input?.file_path).toBe('retry.ts');
   });
 });
 

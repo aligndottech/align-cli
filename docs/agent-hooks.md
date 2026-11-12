@@ -33,7 +33,7 @@ out the agent entries and the user hook files, and does not touch project files.
 | Host | File `align` writes | Pre-edit check | Non-blocking context to the model | Can block | Payload fixture |
 |---|---|---|---|---|---|
 | **Claude Code** | project `.claude/settings.json` | yes (`PreToolUse`) | yes, on both Pre and Post | opt-in, critical retry only | real (Claude Code is the canonical shape) |
-| **pi** | project `.pi/extensions/align.ts` | yes (`tool_call`) | yes, via the `tool_result` content patch | opt-in, critical retry only | from pi's source |
+| **pi** | project `.pi/extensions/align.ts` | yes (`tool_call`) | yes, via the `tool_result` content patch | opt-in, critical retry only | real (captured 2026-11-12, align 0.75.1, pi 1.5.2) |
 | **Gemini CLI** | project `.gemini/settings.json` | yes (`BeforeTool`) | yes, on `AfterTool` only | opt-in, critical retry only | from Gemini's docs |
 | **OpenCode** | project `.opencode/plugins/align.js` | yes (`tool.execute.before`) | yes, by mutating the result in `tool.execute.after` | opt-in, critical retry only | from OpenCode's source |
 | **Codex** | user `~/.codex/hooks.json` ([docs](https://developers.openai.com/codex/hooks)) | yes (`PreToolUse` on `apply_patch`) | yes, `PreToolUse` has `additionalContext` | opt-in, critical retry only | **pending real capture** |
@@ -49,6 +49,17 @@ out the agent entries and the user hook files, and does not touch project files.
 Every host still gets the MCP server and the `AGENTS.md` nudge, JetBrains once you have pasted
 its config in yourself. Claude Desktop, Windsurf, Zed, VS Code and JetBrains AI Assistant do not
 get the deterministic layer, and no amount of config on our side changes that.
+
+**pi: the two things a real session settled.** Both are recorded in the row above now that a
+payload has been captured, so they are here to stop the next reader re-deriving them.
+
+- *The tools are declared only if the entry asks.* pi defaults every MCP server to `codemode`
+  exposure, which makes the tools callable from a codemode script and hides them from the
+  model's tool list. `align mcp --setup` therefore writes `"exposure": "direct"` in the
+  pi-owned entry; without it the setup reports pi connected and the model has nothing to call.
+- *The nudge's tool name is not pi's tool name.* pi registers every server tool as
+  `mcp__<server>__<tool>`, so `align_check_alignment` is not a name a pi session has. Making
+  that line host-aware is a follow-up; the hook path below does not depend on it.
 
 **Junie CLI is the exception in that group, and the gap is ours rather than the host's.** It
 documents seven hook events, `PreToolUse` among them, configured under a `hooks` key in

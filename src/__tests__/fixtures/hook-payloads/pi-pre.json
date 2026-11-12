@@ -1,0 +1,23 @@
+{
+  "_capture": {
+    "host": "pi",
+    "event": "tool_call",
+    "piVersion": "1.5.2",
+    "alignVersion": "0.75.1",
+    "capturedAt": "2026-11-12",
+    "baseCommit": "97c9c9bf69902a76041cf7e696564ec803100d23",
+    "note": "Captured from a real session: a scripted model asked for one edit that contradicts a recorded decision. toolCallId redacted."
+  },
+  "type": "tool_call",
+  "toolName": "edit",
+  "toolCallId": "tool:1758000000000:example01",
+  "input": {
+    "path": "retry.ts",
+    "edits": [
+      {
+        "oldText": "export const RETRY_LIMIT = 3;",
+        "newText": "export const RETRY_LIMIT = 1;"
+      }
+    ]
+  }
+}
