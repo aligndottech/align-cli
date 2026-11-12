@@ -32,6 +32,13 @@ The short version, for local-only mode:
   commands align's installed hooks run (`align check --hook`, `align check --advisory`,
   `align context inject`). `align mcp`, and a run inside an agent `align` launched, show no
   notice, so they send nothing until it has printed in a terminal.
+- **`align demo` sends one count, and only that.** One anonymous event per run, after the demo
+  finishes, with no install id and no notice: see
+  [`cli.funnel.demo_run`](#clifunneldemo_run) below. It stops for `align telemetry off`,
+  `DO_NOT_TRACK=1`, `ALIGN_TELEMETRY=0` and CI. To honour a stored `off` it reads your
+  `~/.align/config.json` and nothing else; it never creates, writes or migrates anything there.
+  If that file is missing (a fresh install) the count is sent. If it exists but cannot be read or
+  understood, nothing is sent, because we cannot tell whether you turned telemetry off.
 - **`align doctor` sends nothing of any kind**, in either mode, whatever you have chosen: no usage
   count, no install count, no notice, and the `align mcp` it starts for its one test question
   sends nothing either, and neither stores nor changes anything about your telemetry choice. It
@@ -116,6 +123,29 @@ Sent when the setup wizard finishes, after its closing message.
 
 That is the whole beacon tier: `install` and `setup_completed`. They follow the same rule as
 everything below; they are listed apart because they are the funnel's denominator.
+
+## Sent by `align demo`
+
+`align demo` runs in a throwaway home folder and never creates or reads `~/.align`, so it has no
+install id and no stored telemetry answer. It sends one count per run instead, to the same
+`POST https://api.align.tech/telemetry/anonymous` (or your `ALIGN_GATEWAY_URL`), from the
+`align` process that ran the demo, after the demo has finished, unless you have turned telemetry off. It does not wait longer than 2
+seconds, never changes the demo's exit code, and ignores any error. No notice is shown for it.
+
+### `cli.funnel.demo_run`
+
+| Field | What it is |
+|---|---|
+| `command` | Always the literal `demo`. |
+| `cliVersion` | The CLI version. |
+| `stage` | Always `demo_run`. |
+| `os` | Node's `process.platform`: `darwin`, `linux`, `win32` and the other values in that closed set. |
+| `success` | `true` if the demo ran to the end, `false` if it did not. |
+| `durationSeconds` | How long the run took, rounded to whole seconds. |
+
+There is no install id, no repo, path or host name, and no decision text. The gateway refuses an
+install id on this event, writes no database row for it, and counts it in PostHog under one shared
+id with person profiles off, so runs cannot be tied to each other or to a machine.
 
 ## Sent after the notice, in local-only mode
 

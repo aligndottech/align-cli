@@ -3,6 +3,9 @@ import { DOCTOR_ENV, telemetryDisabledByEnv } from './telemetry-env.js';
 import { inHookContext, markHookContext } from './hook-context.js';
 import { inCi } from './telemetry-ci.js';
 import { maybeShowTelemetryNotice, storeEnvOptOut } from './telemetry-consent.js';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { alignConfigDir } from './private-files.js';
 import pkg from '../../package.json' with { type: 'json' };
 
 /**
@@ -543,13 +546,73 @@ function noticeShownOn(config: { getTelemetryNoticeShownAt(): string | undefined
  * The anonymous payload, the one place its shape is spelled. Targets ALIGN_HOSTED_GATEWAY_URL,
  * never a `gatewayUrl` off the env - see recordAnonymousCommandUsage for why.
  */
-async function postAnonymous(payload: Record<string, string | number>, capMs?: number): Promise<void> {
+async function postAnonymous(payload: Record<string, string | number | boolean>, capMs?: number): Promise<void> {
   const target = process.env['ALIGN_GATEWAY_URL'] || ALIGN_HOSTED_GATEWAY_URL;
   await postWithTimeout(`${target}/telemetry/anonymous`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   }, capMs);
+}
+
+/** The gateway's stage for the `align demo` run count. Not in FUNNEL_STAGES: it has its own emitter,
+ *  because it is the one event with no install id (see recordDemoRun). */
+export const DEMO_RUN_STAGE = 'demo_run';
+
+/**
+ * One anonymous count per `align demo` run, sent by the parent process after the demo finishes.
+ * The body is `command` ('demo'), `cliVersion`, `stage`, `os`, `success` and `durationSeconds`
+ * (whole seconds), and nothing else: no install id, no repo, path, hostname or decision text.
+ *
+ * It never opens the config store, which creates ~/.align and can migrate an older config, and
+ * `align demo` promises to leave that folder alone. DO_NOT_TRACK, ALIGN_TELEMETRY and CI stop it
+ * through the helpers every other send uses, and a stored `align telemetry off` (or a stored No)
+ * stops it too, read by storedAnswerAllowsDemoCount. Capped at TELEMETRY_TIMEOUT_MS, never throws.
+ */
+/**
+ * Whether the stored telemetry answer lets the demo count be sent, read without touching anything:
+ * no createConfigStore (it makes the directory and migrates), just the config file `align
+ * telemetry off` writes (`<alignConfigDir>/config.json`, key `telemetryConsent`). Fails CLOSED:
+ * - no file (ENOENT): a fresh install, no answer given, so the env checks decide;
+ * - a file with no `telemetryConsent` key: no answer given, same;
+ * - `off` or `declined`: no;
+ * - a file that exists but cannot be read or parsed, is not an object, or holds a value that is not
+ *   one of the three: no, because the user's choice is unknowable and might be `off`.
+ */
+function storedAnswerAllowsDemoCount(): boolean {
+  let text: string;
+  try {
+    text = readFileSync(join(alignConfigDir(), 'config.json'), 'utf8');
+  } catch (err) {
+    return (err as { code?: string }).code === 'ENOENT';
+  }
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
+    const v = (parsed as Record<string, unknown>)['telemetryConsent'];
+    if (v === undefined) return true;
+    if (v === 'granted') return true;
+    return false; // 'off', 'declined', or a value we do not know
+  } catch {
+    return false;
+  }
+}
+
+export async function recordDemoRun(run: { success: boolean; durationMs: number }, opts: { capMs?: number } = {}): Promise<void> {
+  try {
+    if (telemetryOptedOut()) return;
+    if (!storedAnswerAllowsDemoCount()) return;
+    await postAnonymous({
+      command: 'demo',
+      cliVersion: pkg.version,
+      stage: DEMO_RUN_STAGE,
+      os: process.platform,
+      success: run.success,
+      durationSeconds: Math.round(run.durationMs / 1000),
+    }, opts.capMs);
+  } catch {
+    // Telemetry must never fail or delay the demo.
+  }
 }
 
 /**
