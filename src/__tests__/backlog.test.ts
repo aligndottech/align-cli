@@ -2,11 +2,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { type BacklogDeps, type BacklogOptions, type DecisionInput, runBacklog } from '../lib/backlog/run.js';
+import { type BacklogOptions, NeedsChoice, resolveBacklog, runBacklog } from '../lib/backlog/run.js';
+import { creates, DEC, type Fx, fixture as makeFixture, text } from './helpers/backlog-fixture.js';
 
 /**
  * Test List, `align backlog` (a person-run command: one decision -> one issue per task, created straight away):
- * - dry-run: prints tracker, target and N issues; sends NO request at all; writes no ledger row.
+ * - dry-run: prints tracker, target and N issues; creates nothing (it may read the Linear workspace name); writes no ledger row.
  * - linear: one issueCreate per task, team resolved from --team, description links back to the decision and its source.
  * - github and jira: one create per task against the repo / project given.
  * - idempotent: a second run on the same decision + target creates nothing; --force creates again.
@@ -16,58 +17,28 @@ import { type BacklogDeps, type BacklogOptions, type DecisionInput, runBacklog }
  * - ambiguous target (2 teams) or tracker (2 credentials): non-TTY exits 2 naming the flag; TTY asks once.
  * - a credential that cannot create issues (403): exit 1 saying so, nothing recorded.
  * - model text has no em dashes; more tasks than --max are cut and said so.
+ * Added with the seamless follow-up:
+ * - saved target: a successful run saves tracker + destination; the next run with no flags uses it with no question and says so;
+ *   a flag overrides (and becomes the new default); a dry run or a failed run saves nothing; a saved target whose tracker has no
+ *   credential, or a saved destination for another tracker, is never applied.
+ * - lock: two concurrent runs on one decision create one set of issues, not two; a lock left by a dead process does not block.
+ * - the Linear workspace is part of the ledger key (the same team key in another workspace is another destination).
+ * - structured choices (the MCP caller): an ambiguous tracker, team or decision comes back as options, creating nothing.
  */
 let dir: string;
 beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'align-backlog-')); });
 afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
 
-const DEC: DecisionInput = { id: '3f2a9c1e-0000-4000-8000-000000000001', title: 'Move auth to OIDC', summary: 'We use OIDC for all logins.', sourceUrl: 'https://github.com/o/r/pull/9', actions: ['Add OIDC provider config'] };
-const TASKS = JSON.stringify({ tasks: [{ title: 'Add OIDC provider config', body: 'Wire the provider.' }, { title: 'Migrate login route', body: 'Switch the route.' }] });
-
-interface Fx { out: string[]; err: string[]; calls: Array<{ url: string; body: string }>; shapeCalls: { n: number }; deps: BacklogDeps; asks: string[]; model: { current: { ok: true; text: string } | { ok: false; message: string } }; creds: Record<string, Record<string, string> | null>; failNext: { n: number; status: number } }
-function fixture(): Fx {
-  const f = { out: [] as string[], err: [] as string[], calls: [] as Array<{ url: string; body: string }>, shapeCalls: { n: 0 }, asks: [] as string[],
-    model: { current: { ok: true, text: TASKS } as Fx['model']['current'] },
-    creds: { linear: { token: 'lin_api_x' }, github: null, jira: null } as Fx['creds'], failNext: { n: 0, status: 500 } };
-  let n = 0;
-  const fetchFake = (async (url: string, init?: { body?: string }) => {
-    const body = init?.body ?? '';
-    f.calls.push({ url, body });
-    const json = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status });
-    if (url.includes('api.linear.app')) {
-      if (body.includes('issueCreate')) {
-        if (f.failNext.n > 0) { f.failNext.n--; return json({}, f.failNext.status); }
-        n++; return json({ data: { issueCreate: { success: true, issue: { identifier: `ENG-${n}`, url: `https://linear.app/t/issue/ENG-${n}` } } } });
-      }
-      if (body.includes('first: 100')) return json({ data: { teams: { nodes: [{ id: 'T1', key: 'ENG', name: 'Align' }, { id: 'T2', key: 'OPS', name: 'Ops' }], pageInfo: { hasNextPage: false } } } });
-      return json({ data: { teams: { nodes: [{ id: 'T1', key: 'ENG', name: 'Align' }] } } });
-    }
-    if (url.includes('api.github.com')) { n++; return json({ number: n, html_url: `https://github.com/o/r/issues/${n}` }, 201); }
-    if (url.includes('/rest/api/3/issue')) { n++; return json({ key: `PRJ-${n}` }, 201); }
-    return json({}, 404);
-  }) as unknown as typeof fetch;
-  const deps: BacklogDeps = {
-    getDecision: async (id) => { if (id !== DEC.id) throw new Error('not found'); return DEC; },
-    search: async () => [DEC],
-    shape: async () => { f.shapeCalls.n++; return f.model.current; },
-    credentials: (t) => f.creds[t] ?? null,
-    fetch: fetchFake, ledgerPath: path.join(dir, 'ledger.json'), interactive: false,
-    choose: async (q, opts) => { f.asks.push(q); return opts[0]!.value; },
-    decisionUrl: (id) => `https://app.align.tech/decisions/${id}`,
-    out: (l) => f.out.push(l), err: (l) => f.err.push(l),
-  };
-  return Object.assign(f, { deps }) as unknown as Fx;
-}
+const fixture = (): Fx => makeFixture(dir);
 const run = (f: Fx, o: Partial<BacklogOptions> = {}) => runBacklog({ decision: '3f2a9c1e-0000-4000-8000-000000000001', tracker: 'linear', team: 'ENG', ...o }, f.deps);
-const text = (f: Fx) => [...f.out, ...f.err].join('\n');
-const creates = (f: Fx) => f.calls.filter((c) => c.body.includes('issueCreate') || c.url.includes('/issues') || c.url.includes('/rest/api/3/issue'));
 
 describe('dry-run', () => {
-  it('prints tracker, target and count, and sends no request and writes no ledger', async () => {
+  it('prints tracker, target and count, creates nothing and writes no ledger', async () => {
     const f = fixture();
     expect(await run(f, { dryRun: true })).toBe(0);
-    expect(f.calls).toHaveLength(0);
+    expect(creates(f)).toHaveLength(0); // reads (the workspace name) are allowed; writes are not
     expect(fs.existsSync(f.deps.ledgerPath)).toBe(false);
+    expect(f.saved.writes).toHaveLength(0);
     expect(text(f)).toMatch(/Linear/); expect(text(f)).toContain('ENG'); expect(text(f)).toContain('2 issues');
     expect(text(f)).toContain('Add OIDC provider config');
   });
@@ -147,11 +118,11 @@ describe('refusals send nothing', () => {
   it('no model: says so, invents nothing', async () => {
     const f = fixture(); f.model.current = { ok: false, message: 'No LLM configured.' };
     expect(await run(f)).toBe(1);
-    expect(text(f)).toContain('No LLM configured.'); expect(f.calls).toHaveLength(0);
+    expect(text(f)).toContain('No LLM configured.'); expect(creates(f)).toHaveLength(0);
   });
   it('unreadable model output: refuses', async () => {
     const f = fixture(); f.model.current = { ok: true, text: 'sure, here are some tasks!' };
-    expect(await run(f)).toBe(1); expect(f.calls).toHaveLength(0); expect(fs.existsSync(f.deps.ledgerPath)).toBe(false);
+    expect(await run(f)).toBe(1); expect(creates(f)).toHaveLength(0); expect(fs.existsSync(f.deps.ledgerPath)).toBe(false);
   });
   it('two teams and no --team: non-TTY exits 2 naming --team', async () => {
     const f = fixture();
@@ -238,5 +209,142 @@ describe('shaping output', () => {
     const f = fixture(); f.model.current = { ok: true, text: JSON.stringify({ tasks: Array.from({ length: 12 }, (_, i) => ({ title: `T${i}`, body: 'b' })) }) };
     await run(f, { dryRun: true, max: 5 });
     expect(text(f)).toContain('5 issues'); expect(text(f)).toMatch(/12.*5|cut/i);
+  });
+});
+
+describe('a saved target', () => {
+  it('a successful run saves tracker and destination, and says how to change it', async () => {
+    const f = fixture();
+    expect(await run(f)).toBe(0);
+    expect(f.saved.writes).toEqual([{ tracker: 'linear', target: 'ENG' }]);
+    expect(text(f)).toMatch(/Saved Linear ENG as the default/); expect(text(f)).toMatch(/--team/);
+  });
+  it('a dry run and a failed run save nothing', async () => {
+    const f = fixture();
+    await run(f, { dryRun: true });
+    f.failNext = { n: 5, status: 500 };
+    expect(await run(f)).toBe(1);
+    expect(f.saved.writes).toHaveLength(0);
+  });
+  it('the next run with no flags uses it without a question, even with two trackers connected, and says which', async () => {
+    const f = fixture(); f.creds['github'] = { token: 'g' };
+    f.saved.current = { tracker: 'linear', target: 'ENG' }; f.deps.interactive = true;
+    expect(await run(f, { tracker: undefined, team: undefined })).toBe(0);
+    expect(f.asks).toHaveLength(0);
+    expect(creates(f)).toHaveLength(2);
+    expect(text(f)).toMatch(/Using your saved target: Linear ENG/);
+  });
+  it('and non-interactively too: no flag is needed once a target is saved', async () => {
+    const f = fixture(); f.creds['github'] = { token: 'g' }; f.saved.current = { tracker: 'linear', target: 'ENG' };
+    expect(await run(f, { tracker: undefined, team: undefined })).toBe(0);
+    expect(creates(f)).toHaveLength(2);
+  });
+  it('a flag overrides it and becomes the new default', async () => {
+    const f = fixture(); f.saved.current = { tracker: 'linear', target: 'ENG' };
+    expect(await run(f, { team: 'OPS' })).toBe(0);
+    expect(text(f)).toContain('(OPS)'); expect(text(f)).not.toMatch(/Using your saved target/);
+    expect(f.saved.writes).toEqual([{ tracker: 'linear', target: 'OPS' }]);
+  });
+  it('a saved destination is never applied to a different tracker', async () => {
+    const f = fixture(); f.creds['github'] = { token: 'g' }; f.saved.current = { tracker: 'linear', target: 'ENG' };
+    expect(await run(f, { tracker: 'github', team: undefined })).toBe(2);
+    expect(text(f)).toContain('--repo'); expect(f.calls).toHaveLength(0);
+  });
+  it('a saved tracker with no credential any more is ignored, not trusted', async () => {
+    const f = fixture(); f.creds['linear'] = null; f.creds['github'] = { token: 'g' };
+    f.saved.current = { tracker: 'linear', target: 'ENG' };
+    expect(await run(f, { tracker: undefined, team: undefined, repo: 'o/r' })).toBe(0);
+    expect(text(f)).toContain('GitHub Issues (o/r)'); expect(text(f)).not.toMatch(/Using your saved target/);
+  });
+});
+
+describe('two runs at once', () => {
+  it('create one set of issues between them, and the loser says why it stopped', async () => {
+    const f = fixture(); const g = fixture();
+    g.deps.ledgerPath = f.deps.ledgerPath; g.deps.fetch = f.deps.fetch;
+    const [a, b] = await Promise.all([run(f), run(g)]);
+    expect([a, b].sort()).toEqual([0, 1]);
+    expect(creates(f)).toHaveLength(2);
+    expect([...g.err, ...f.err].join('\n')).toMatch(/already running/i);
+    // The loser's rerun finds the winner's work and creates nothing.
+    expect(await run(g)).toBe(0); expect(creates(f)).toHaveLength(2);
+  });
+  it('a lock left behind by a process that no longer exists does not block', async () => {
+    const f = fixture();
+    fs.writeFileSync(`${f.deps.ledgerPath}.lock`, JSON.stringify({ pid: 2_147_483_646, at: new Date().toISOString() }));
+    expect(await run(f)).toBe(0); expect(creates(f)).toHaveLength(2);
+    expect(fs.existsSync(`${f.deps.ledgerPath}.lock`)).toBe(false);
+  });
+  it('the lock is released when a run fails', async () => {
+    const f = fixture(); f.model.current = { ok: false, message: 'No LLM configured.' };
+    await run(f);
+    expect(fs.existsSync(`${f.deps.ledgerPath}.lock`)).toBe(false);
+  });
+});
+
+describe('the Linear workspace is part of the destination', () => {
+  it('the same team key in another workspace is created again; the same workspace is not', async () => {
+    const f = fixture();
+    await run(f); f.calls.length = 0;
+    expect(await run(f)).toBe(0); expect(creates(f)).toHaveLength(0);
+    f.workspace.current = 'other-co';
+    expect(await run(f)).toBe(0); expect(creates(f)).toHaveLength(2);
+  });
+});
+
+describe('structured choices for a caller that cannot be asked (MCP)', () => {
+  const ask = (f: Fx, o: Partial<BacklogOptions> = {}) => resolveBacklog({ decision: DEC.id, structuredChoices: true, ...o }, f.deps);
+  it('two trackers and no saved target: the tracker options, nothing sent', async () => {
+    const f = fixture(); f.creds['github'] = { token: 'g' };
+    const e = await ask(f).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(NeedsChoice);
+    expect((e as NeedsChoice).choice).toMatchObject({ field: 'tracker', options: [{ value: 'linear' }, { value: 'github' }] });
+    expect(f.calls).toHaveLength(0);
+  });
+  it('two teams: the team list, with keys and names', async () => {
+    const f = fixture();
+    const e = await ask(f).catch((x: unknown) => x);
+    expect((e as NeedsChoice).choice).toMatchObject({ field: 'team', options: [{ value: 'ENG', label: 'ENG  Align' }, { value: 'OPS', label: 'OPS  Ops' }] });
+  });
+  it('github with no repo: a free-text question with no options', async () => {
+    const f = fixture(); f.creds['github'] = { token: 'g' };
+    const e = await ask(f, { tracker: 'github' }).catch((x: unknown) => x);
+    expect((e as NeedsChoice).choice).toMatchObject({ field: 'repo', options: [] });
+  });
+  it('search words with several hits: the decisions to choose from; with one hit it is used', async () => {
+    const f = fixture(); f.deps.search = async () => [DEC, { ...DEC, id: '3f2a9c1e-0000-4000-8000-000000000002', title: 'Other' }];
+    const e = await ask(f, { decision: 'oidc', team: 'ENG' }).catch((x: unknown) => x);
+    expect((e as NeedsChoice).choice).toMatchObject({ field: 'decision', options: [{ value: DEC.id }, { value: '3f2a9c1e-0000-4000-8000-000000000002' }] });
+    f.deps.search = async () => [DEC];
+    expect((await ask(f, { decision: 'oidc', team: 'ENG' })).dec.id).toBe(DEC.id);
+  });
+  it('the CLI wording is unchanged: the same ambiguity still says which flag to pass', async () => {
+    const f = fixture(); f.creds['github'] = { token: 'g' };
+    expect(await run(f, { tracker: undefined })).toBe(2); expect(text(f)).toContain('--tracker');
+  });
+});
+
+describe('a ledger written before the workspace joined the key', () => {
+  it('is still found: the decision is not created a second time in Linear', async () => {
+    const f = fixture();
+    const legacy = `${DEC.id}|linear||eng`;
+    fs.writeFileSync(f.deps.ledgerPath, JSON.stringify({ [legacy]: { at: 'x', tasks: [{ title: 'Add OIDC provider config', body: 'b', key: 'ENG-7', url: 'https://linear.app/t/issue/ENG-7' }] } }));
+    expect(await run(f)).toBe(0);
+    expect(creates(f)).toHaveLength(0); expect(f.shapeCalls.n).toBe(0);
+    expect(text(f)).toContain('ENG-7');
+  });
+});
+
+describe('the lock cannot be taken twice over a dead holder', () => {
+  it('a lock stale by age is taken over, and one run releases only its own lock', async () => {
+    const f = fixture();
+    fs.writeFileSync(`${f.deps.ledgerPath}.lock`, JSON.stringify({ pid: process.pid, at: new Date(Date.now() - 60 * 60_000).toISOString() }));
+    expect(await run(f)).toBe(0); expect(creates(f)).toHaveLength(2);
+    // A lock that now belongs to someone else is left alone by a run that finishes late.
+    const g = fixture(); g.deps.ledgerPath = f.deps.ledgerPath;
+    const real = g.deps.shape;
+    g.deps.shape = async (d, m) => { fs.writeFileSync(`${f.deps.ledgerPath}.lock`, JSON.stringify({ pid: process.pid, at: new Date().toISOString(), nonce: 'someone-else' })); return real(d, m); };
+    await run(g, { force: true });
+    expect(JSON.parse(fs.readFileSync(`${f.deps.ledgerPath}.lock`, 'utf8')).nonce).toBe('someone-else');
   });
 });

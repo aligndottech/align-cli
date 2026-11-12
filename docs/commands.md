@@ -56,6 +56,9 @@ align check                   Check current changes against the decision graph (
                               flags: --env --all --hook --advisory --format --block-on-critical --adjudicate-deferred --ci --json --title --base --depth --resolve
 align review                  same as align check
 
+align backlog <decision>      Turn a decision into one issue per task, created straight away in Linear, GitHub Issues or Jira (the first run asks where; later runs reuse it)
+                              flags: --tracker --team --repo --project --token --dry-run --force --max --env
+
 align share [ids]             Share ratified local decisions, and your judgements on them, with your team (previewed first; never without a yes)
                               flags: --env --to --all-ratified --since --yes --confirm --typed --retract --open --no-open --qr --no-qr --copy
 align push                    same as align share
@@ -195,6 +198,8 @@ align drift                   Show org-wide drift summary (decisions that may be
 align config                  Change align settings
 align config detector [version]
                               Which relationship detector runs: v0 or v1 (default v0)
+align config backlog-offer [state]
+                              The one line align capture prints offering to turn a plan-shaped decision into tickets: on or off (default on)
 
 # What your graph has done for you
 
@@ -228,11 +233,6 @@ align ratify <id>             Stand behind an agent-made decision as a human: ma
 align glossary                Your org alias glossary: product names, service names and codenames, confirmed by a person (cloud)
 align glossary review         List the proposed aliases waiting for a decision. Confirm or reject them in the web app (cloud)
                               flags: --env --bootstrap --list
-
-# Turn a decision into issues in Linear, GitHub or Jira
-
-align backlog <decision>      Turn a decision into one issue per task, created straight away in Linear, GitHub Issues or Jira
-                              flags: --tracker --team --repo --project --token --dry-run --force --max --env
 
 # The local graph: start, status, reset, forget
 
@@ -369,32 +369,58 @@ through its own PATH, so it runs whichever `align` comes first on the PATH the a
 
 ## Turn a decision into issues (`align backlog`)
 
-`align backlog <decision>` shapes one decision into a short list of tasks with the model `align ask` already
-uses, then creates one issue per task straight away in the tracker you name. The argument is a decision id
-(`align decisions list`) or search words. It works with Linear, GitHub Issues and Jira.
+**The easy way: ask your agent.** With `align mcp --setup` done, say "make tickets for that decision" in Claude Code,
+Cursor or any agent that has the Align tools. The agent calls `align_backlog`, which works in two steps:
+
+1. It plans. The tool shapes the decision into up to 8 tasks and returns the plan: the tracker, the team, repo or
+   project, and the task titles. **Nothing is created yet.** The agent shows you the plan.
+2. You say yes. The agent calls the tool again with the plan's token, and exactly those tasks are created, once.
+
+The plan token is a speed bump, not a lock: it makes a tool-only agent show you the plan, but an agent that can also run shell commands could read it from the CLI state directory, and it could already use your tracker key from its environment. Confirm in the agent's own prompt if that matters to you.
+
+If the destination is not clear (two trackers connected, a Linear team you have not named), the tool hands the agent
+the options as a question, and the agent asks you. It never guesses a team, repo or project. After the first run that
+works, Align remembers where this repo's backlog goes, so the next one asks nothing.
+
+**The same thing from a terminal:** `align backlog <decision>` shapes one decision into a short list of tasks with the
+model `align ask` already uses, then creates one issue per task straight away in the tracker you name. The argument is a
+decision id (`align decisions list`) or search words. It works with Linear, GitHub Issues and Jira.
 
 ```bash
-align backlog 3f2a9c1e --tracker linear --team ALI          # create now
+align backlog 3f2a9c1e --tracker linear --team ENG          # create now
+align backlog 3f2a9c1e                                      # later runs: uses the target saved for this repo
 align backlog "move auth to OIDC" --tracker github --repo acme/api --dry-run
 ```
 
 - **It says what it will do first.** The output starts with the tracker, the team, repo or project, and the
   number of issues, then lists each title and the link to the created issue. `--dry-run` prints the same plan and
-  sends nothing to the tracker.
+  creates nothing in the tracker (for Linear it reads the workspace name, which is a read).
 - **It never guesses where issues go.** Pass `--team` (Linear), `--repo` (GitHub) or `--project` (Jira). At a
   terminal it asks once instead. With no terminal, a missing target or a missing `--tracker` (when more than one
   is connected) exits with code 2 and names the flag. A search that matches several decisions needs the id.
+- **It remembers where this repo's backlog goes.** After a run that created its issues, the tracker and the team,
+  repo or project are saved for this repo (keyed by its git remote, else its folder) in `backlog-targets.json` in
+  the CLI state directory. The next run, from the terminal or from your agent, uses it with no question and says
+  "Using your saved target". A flag overrides it, and the next run that works becomes the new default. The file
+  holds a tracker name and a key, never a credential. A saved tracker whose connection is gone is ignored.
 - **Each issue links back.** The body ends with the decision, and its source when it has one.
 - **Running it twice does not duplicate.** The plan and the created issue keys are saved in
-  `backlog-ledger.json` in the CLI state directory, per decision, tracker and target. A second run prints what
-  exists and creates nothing. If a run stops halfway, the same command creates only the missing issues, from the
-  same plan. `--force` creates a fresh set.
+  `backlog-ledger.json` in the CLI state directory, per decision, tracker and target (for Linear the workspace is
+  part of the target, for Jira the site). A second run prints what exists and creates nothing. If a run stops
+  halfway, the same command creates only the missing issues, from the same plan. `--force` creates a fresh set.
+  Two runs at the same time cannot both create: the second stops and says another `align backlog` is running.
 - **No model, no tasks.** With no model configured the command stops and says how to set one. It never writes
   tasks of its own.
 - **Credentials are yours.** It uses the token from `align connect`, `LINEAR_API_KEY` or `GITHUB_TOKEN`, or
   `--token`. Align's own browser sign-ins are read-only, and a read-only token is refused by the tracker, which
   the command reports as "can read but not write". Use a personal API key that can create issues. Jira needs the
-  site and email saved by `align connect jira`. `--max <n>` caps the number of tasks (default 8).
+  site and email saved by `align connect jira`. `--max <n>` caps the number of tasks (default 8). The agent tool
+  takes no token at all: it uses the same connection you already made.
+- **One line after `align capture`.** At a terminal, after you capture one decision that carries a plan (it lists
+  actions, or it is an ADR) and you have a tracker connected, `align capture` ends with one line: `Turn this into
+  tickets in Linear? align backlog <id>`. It is never printed in CI, in a hook, inside an agent Align launched, for
+  an import of many decisions, or by the agent tools. Turn it off with `align config backlog-offer off`, or set
+  `ALIGN_NO_BACKLOG_OFFER=1`.
 
 ## Agent wiring
 
