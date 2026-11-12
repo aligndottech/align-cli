@@ -20,6 +20,8 @@ const state = vi.hoisted(() => ({
   noticeShownAt: undefined as string | undefined,
   sentAt: {} as Record<string, number>,
   throws: false,
+  // an install whose stored notice predates the wording that names agent use
+  oldNoticeOnly: false,
 }));
 
 vi.mock('../lib/config.js', () => ({
@@ -28,6 +30,7 @@ vi.mock('../lib/config.js', () => ({
     return {
       getTelemetryConsent: () => state.consent,
       getTelemetryNoticeShownAt: () => state.noticeShownAt,
+      getAgentUseNoticeShownAt: () => (state.oldNoticeOnly ? undefined : state.noticeShownAt),
       getInstallId: () => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       getAgentUseSentAt: (k: string) => state.sentAt[k],
       setAgentUseSentAt: (k: string, at: number) => { state.sentAt[k] = at; },
@@ -36,7 +39,7 @@ vi.mock('../lib/config.js', () => ({
   ALIGN_HOSTED_GATEWAY_URL: 'https://api.align.tech',
 }));
 
-import { AGENT_USE_WINDOW_MS, mcpVerdictClass, recordAgentUse, type AgentUse } from '../lib/agent-use-telemetry.js';
+import { AGENT_USE_WINDOW_MS, type AgentUse, mcpVerdictClass, recordAgentUse } from '../lib/agent-use-telemetry.js';
 import { markHookContext, resetHookContextForTests } from '../lib/hook-context.js';
 
 const fetchSpy = vi.fn();
@@ -57,6 +60,7 @@ describe('recordAgentUse', () => {
     state.noticeShownAt = NOTICE_SHOWN;
     state.sentAt = {};
     state.throws = false;
+    state.oldNoticeOnly = false;
     fetchSpy.mockReset();
     fetchSpy.mockResolvedValue(new Response(null, { status: 201 }));
     resetHookContextForTests();
@@ -103,6 +107,11 @@ describe('recordAgentUse', () => {
       expect(await recordAgentUse(local, HOOK)).toBe(false);
       expect(fetchSpy).not.toHaveBeenCalled();
       expect(state.sentAt).toEqual({});
+    });
+    it('on an install that only saw the older notice, which did not name agent use', async () => {
+      state.oldNoticeOnly = true;
+      expect(await recordAgentUse(local, HOOK)).toBe(false);
+      expect(fetchSpy).not.toHaveBeenCalled();
     });
     it.each([['DO_NOT_TRACK', '1'], ['ALIGN_TELEMETRY', '0'], ['CI', 'true'], ['GITHUB_ACTIONS', 'true']])('under %s=%s', async (name, value) => {
       vi.stubEnv(name, value);

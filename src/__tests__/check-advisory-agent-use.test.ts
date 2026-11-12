@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Command } from 'commander';
 import { registerCheckCommand } from '../commands/check.js';
 import type * as AdvisoryVerdictModule from '../lib/advisory-verdict.js';
-import { contentHashOf, type StoredVerdict } from '../lib/advisory-verdict.js';
 
 const mockCheckAlignment = vi.fn();
 const mockRecordAgentUse = vi.hoisted(() => vi.fn().mockResolvedValue(true));

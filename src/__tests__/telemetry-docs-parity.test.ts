@@ -41,6 +41,7 @@ vi.mock('../lib/config.js', () => ({
       return true;
     },
     releaseFunnelStage: vi.fn(),
+    getAgentUseNoticeShownAt: () => noticeShownAt,
     getAgentUseSentAt: () => undefined,
     setAgentUseSentAt: vi.fn(),
     getAgentActiveDay: () => undefined,

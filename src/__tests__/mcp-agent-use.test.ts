@@ -1,12 +1,13 @@
 /** An MCP tool call offers one content-free agent_use event: the tool name and the class of the answer. */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type * as AgentUseModule from '../lib/agent-use-telemetry.js';
 import type { EnvironmentConfig } from '../lib/config.js';
 
 const recordFunnelStage = vi.hoisted(() => vi.fn().mockResolvedValue(true));
 vi.mock('../lib/usage-telemetry.js', () => ({ recordFunnelStage }));
 const recordAgentUse = vi.hoisted(() => vi.fn().mockResolvedValue(true));
 vi.mock('../lib/agent-use-telemetry.js', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../lib/agent-use-telemetry.js')>()),
+  ...(await importOriginal<typeof AgentUseModule>()),
   recordAgentUse,
 }));
 

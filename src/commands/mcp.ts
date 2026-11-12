@@ -13,7 +13,7 @@ import { createGatewayClient } from '../lib/gateway-client.js';
 import { alignEntryTargetsElsewhere, alignServerEntry, detectEditors, removeMcpConfig, writeMcpConfig } from '../lib/mcp-setup.js';
 import { codexHookTrustNotice, editedHookNotice } from '../lib/user-hooks.js';
 import { commandIntro } from '../lib/brand.js';
-import { mcpVerdictClass, recordAgentUse, type AgentUse } from '../lib/agent-use-telemetry.js';
+import { type AgentUse, mcpVerdictClass, recordAgentUse } from '../lib/agent-use-telemetry.js';
 import { recordFunnelStage } from '../lib/usage-telemetry.js';
 import { inviteNudgeLine } from '../lib/invite-prompt.js';
 import { renderMcpInstructions } from '../lib/mcp-instructions.shared.js';

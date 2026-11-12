@@ -538,7 +538,7 @@ export function localTierAllows(
   return consent === 'granted' || noticeShown;
 }
 
-export function noticeShownOn(config: { getTelemetryNoticeShownAt(): string | undefined }): boolean {
+function noticeShownOn(config: { getTelemetryNoticeShownAt(): string | undefined }): boolean {
   return config.getTelemetryNoticeShownAt() !== undefined;
 }
 
@@ -813,10 +813,14 @@ export async function beginInvocationTelemetry(commandPath: string, opts: { hook
   // `demo` still gets the NOTICE (12 Nov 2026): agent use only counts once an install has shown it, and a person who
   // starts with `demo` may never run a command that prints it. It sends nothing of its own here, and the marker above
   // is already set, so storeEnvOptOut and the install beacon stay out of it.
+  // The config store is opened for it only when the notice WILL print (a terminal, no env opt-out, not CI, and no stored
+  // answer by the file read `demo` already uses): opening it creates ~/.align and migrates an older config, which an
+  // opted-out user or a piped run must never see from `demo`.
   const isDemo = commandPath === 'demo';
   if (TELEMETRY_FREE_COMMANDS.has(commandPath)) {
     process.env[DOCTOR_ENV] = '1';
-    if (!isDemo) return false;
+    const mayShow = telemetryDisabledByEnv() === undefined && !inCi() && Boolean(process.stderr.isTTY) && Boolean(process.stdin.isTTY) && storedAnswerAllowsDemoCount();
+    if (!isDemo || !mayShow) return false;
   }
   if (opts.hook) markHookContext();
   try {

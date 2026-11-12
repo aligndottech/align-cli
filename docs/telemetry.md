@@ -39,9 +39,10 @@ The short version, for local-only mode:
   [`cli.funnel.agent_use`](#clifunnelagent_use-local-mode), and only once the notice has printed on
   this install. Nothing else is sent from a hook: no `cli.command`, no funnel stage.
 - **`align demo` sends one count, and only that.** One anonymous event per run, after the demo
-  finishes, with no install id. On a first run in a terminal it also prints the notice above and
-  records that you saw it (that is the one thing it writes to `~/.align`); it sends nothing else
-  from that step. See
+  finishes, with no install id. On a first run in a real terminal, with no opt-out and no stored
+  answer, it also prints the notice above and records that you saw it, which creates `~/.align`.
+  Under `DO_NOT_TRACK=1`, `ALIGN_TELEMETRY=0`, CI, a stored `off` or No, or with no terminal, it prints
+  nothing and touches nothing there. It sends nothing else from that step. See
   [`cli.funnel.demo_run`](#clifunneldemo_run) below. It stops for `align telemetry off`,
   `DO_NOT_TRACK=1`, `ALIGN_TELEMETRY=0` and CI. To honour a stored `off` it reads your
   `~/.align/config.json` and nothing else; it never creates, writes or migrates anything there.
@@ -135,8 +136,8 @@ everything below; they are listed apart because they are the funnel's denominato
 ## Sent by `align demo`
 
 `align demo` runs in a throwaway home folder, so the demo itself never touches your `~/.align`. The
-`align` process that started it only records that you saw the notice there, and it has no
-install id and no stored telemetry answer to send. It sends one count per run instead, to the same
+`align` process that started it records that you saw the notice only in the case described above, and the
+count has no install id and no stored telemetry answer to send. It sends one count per run instead, to the same
 `POST https://api.align.tech/telemetry/anonymous` (or your `ALIGN_GATEWAY_URL`), from the
 `align` process that ran the demo, after the demo has finished, unless you have turned telemetry off. It does not wait longer than 2
 seconds, never changes the demo's exit code, and ignores any error. The notice is shown on a first run in a terminal, but the count does not wait for it.
@@ -222,13 +223,14 @@ and `align mcp` do send is `agent_use`, below.
 ### `cli.funnel.agent_use` (local mode)
 
 One event each time your coding agent's edit check (`align check --advisory`, the hook Align
-installs) runs, or the agent calls an Align tool over `align mcp`. It tells us that Align is being
+installs) checks an edit, or the agent calls an Align tool over `align mcp`. It tells us that Align is being
 used inside an agent, which is the use the rest of this page cannot see. It is sent only in
 local-only mode (cloud mode records these on the server), only after the notice has printed on
-this install (or after `align telemetry on`), and never under `align telemetry off`, an earlier
+this install (or after `align telemetry on`). An install that only saw the older notice, which did not
+name agent use, is shown the new one once on its next run in a terminal and sends nothing from hooks or MCP until then, and never under `align telemetry off`, an earlier
 No, `DO_NOT_TRACK=1`, `ALIGN_TELEMETRY=0` or in CI.
 
-It is rate limited: at most one event per path and tool every 10 minutes, kept in your config
+It is rate limited: at most one event per path and tool every 15 minutes, kept in your config
 file, so a hook that runs on every edit sends a handful an hour at most. A hook waits at most 0.4
 seconds for it, never changes the hook's result, and ignores any error.
 

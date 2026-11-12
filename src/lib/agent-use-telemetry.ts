@@ -1,6 +1,6 @@
 import type { EnvironmentConfig } from './config.js';
 import pkg from '../../package.json' with { type: 'json' };
-import { localTierAllows, noticeShownOn, postAnonymous, telemetryOptedOut } from './usage-telemetry.js';
+import { localTierAllows, postAnonymous, telemetryOptedOut } from './usage-telemetry.js';
 
 /**
  * One anonymous, content-free event per edit-check hook run and per MCP tool call, so the funnel
@@ -32,11 +32,11 @@ export type AgentUse = {
 /**
  * At most one event per via+tool in this window, kept in the config store so it holds across the
  * separate processes a hook is. Chosen over a per-process cap because a hook IS a new process per
- * edit, and over a daily counter because a counter needs a second send to report it. Ten minutes
- * keeps the worst case (every tool, both paths) near 80 events an hour per install, under the
- * gateway's 120 an hour per-install limit, and the funnel reads days, not volume.
+ * edit, and over a daily counter because a counter needs a second send to report it. Fifteen minutes
+ * keeps the worst case (19 keys: the hook plus every MCP tool) at 76 events an hour per install,
+ * under the gateway's separate 100 an hour agent_use bucket, and the funnel reads days, not volume.
  */
-export const AGENT_USE_WINDOW_MS = 10 * 60 * 1000;
+export const AGENT_USE_WINDOW_MS = 15 * 60 * 1000;
 
 /**
  * Resolves true when a send was made (not necessarily delivered). Never throws and never waits
@@ -62,7 +62,10 @@ export async function recordAgentUse(
 
     const { createConfigStore } = await import('./config.js');
     const config = createConfigStore();
-    if (!localTierAllows(config.getTelemetryConsent(), 'command', noticeShownOn(config))) return false;
+    // The notice that names agent use, not just any notice: an install that only saw the older wording
+    // sends nothing until it has seen this one. `align telemetry on` is an explicit yes and still counts.
+    const seenNotice = config.getAgentUseNoticeShownAt() !== undefined;
+    if (!localTierAllows(config.getTelemetryConsent(), 'command', seenNotice)) return false;
 
     const key = `${use.via}:${use.tool}`;
     const now = opts.now ?? Date.now();

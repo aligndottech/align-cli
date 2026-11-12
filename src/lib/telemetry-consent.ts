@@ -9,6 +9,8 @@ import type { TelemetryConsent } from './config.js';
 export interface TelemetryNoticeStore {
   getTelemetryConsent(): TelemetryConsent | undefined;
   getTelemetryNoticeShownAt(): string | undefined;
+  /** When the wording that discloses agent use printed. Optional so a store without it keeps the older rule. */
+  getAgentUseNoticeShownAt?(): string | undefined;
   markTelemetryNoticeShown(): void;
 }
 
@@ -62,7 +64,11 @@ export function maybeShowTelemetryNotice(
     if (isSet(process.env['ALIGN_WRAPPED'])) return false;
     if (telemetryDisabledByEnv() !== undefined || inCi()) return false;
     if (config.getTelemetryConsent() !== undefined) return false;
-    if (config.getTelemetryNoticeShownAt() !== undefined) return false;
+    // Shown means the CURRENT wording: an install that only saw the older notice (no agent use in it)
+    // is shown this one once, because agent_use sends wait on it.
+    const shown = config.getTelemetryNoticeShownAt() !== undefined;
+    const sawAgentUseWording = config.getAgentUseNoticeShownAt ? config.getAgentUseNoticeShownAt() !== undefined : true;
+    if (shown && sawAgentUseWording) return false;
     // The real control (review of e794c6e, P0): the notice is the disclosure every local send
     // waits on, so it counts only when a person can read it. A person at a terminal has both
     // stdin and stderr on it. Anything else - stderr to /dev/null, a pipe, a hook runner, cron,
