@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.76.1](https://github.com/aligndottech/align-cli/compare/cli-v0.76.0...cli-v0.76.1) (2026-11-12)
+
+
+### Bug Fixes
+
+* a doctor-started align mcp no longer uses up the install count; local-mode docs match ([#573](https://github.com/aligndottech/align-cli/issues/573)) ([f45b385](https://github.com/aligndottech/align-cli/commit/f45b385bb514060849950fd19a616528d0bf8b0e))
+* count an install whose first run has no terminal (agent-started align mcp, Bash tool) ([#572](https://github.com/aligndottech/align-cli/issues/572)) ([2cc1029](https://github.com/aligndottech/align-cli/commit/2cc1029ae7d269badb1fbc6987f98e99c0d2d3a8))
+* declare pi's MCP tools with pi's exposure key ([#569](https://github.com/aligndottech/align-cli/issues/569)) ([fa388c0](https://github.com/aligndottech/align-cli/commit/fa388c0831b02860aa62e7a5964104b376933a0b))
+
 ## [0.76.0](https://github.com/aligndottech/align-cli/compare/cli-v0.75.1...cli-v0.76.0) (2026-11-12)
 
 
