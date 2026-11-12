@@ -11,6 +11,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clearTelemetryEnv } from './helpers/telemetry-env.js';
 import { DOCTOR_ENV } from '../lib/telemetry-env.js';
+import { alignConfigDir } from '../lib/private-files.js';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { EnvironmentConfig, TelemetryConsent } from '../lib/config.js';
 
 const HOSTED_URL = vi.hoisted(() => 'https://api.align.tech');
@@ -205,6 +208,11 @@ describe('the one-time telemetry notice', () => {
   describe('first terminal run of demo and setup', () => {
     // beginInvocationTelemetry marks a demo run telemetry-free for the whole process; do not leak it into the next case.
     afterEach(() => { delete process.env[DOCTOR_ENV]; });
+    // `demo` only shows the notice where ~/.align/config.json already exists (it must never create it; see demo-notice-store.test.ts).
+    beforeEach(() => {
+      mkdirSync(alignConfigDir(), { recursive: true });
+      writeFileSync(join(alignConfigDir(), 'config.json'), '{}');
+    });
 
     it.each([['demo'], ['setup']])('`align %s` shows the notice once and marks it', async (command) => {
       await runCommand(command);

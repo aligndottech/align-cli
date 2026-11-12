@@ -3,7 +3,7 @@ import { DOCTOR_ENV, telemetryDisabledByEnv } from './telemetry-env.js';
 import { inHookContext, markHookContext } from './hook-context.js';
 import { inCi } from './telemetry-ci.js';
 import { maybeShowTelemetryNotice, storeEnvOptOut } from './telemetry-consent.js';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { alignConfigDir } from './private-files.js';
 import pkg from '../../package.json' with { type: 'json' };
@@ -813,13 +813,13 @@ export async function beginInvocationTelemetry(commandPath: string, opts: { hook
   // `demo` still gets the NOTICE (12 Nov 2026): agent use only counts once an install has shown it, and a person who
   // starts with `demo` may never run a command that prints it. It sends nothing of its own here, and the marker above
   // is already set, so storeEnvOptOut and the install beacon stay out of it.
-  // The config store is opened for it only when the notice WILL print (a terminal, no env opt-out, not CI, and no stored
-  // answer by the file read `demo` already uses): opening it creates ~/.align and migrates an older config, which an
-  // opted-out user or a piped run must never see from `demo`.
+  // The config store is opened for it only when the notice WILL print (a terminal, no env opt-out, not CI, no stored
+  // answer) AND ~/.align/config.json already exists. Demo skips startup migration, so creating that file here would make
+  // migrateConfigDirectory skip a legacy config on the next real command and orphan it. No file: show and mark nothing.
   const isDemo = commandPath === 'demo';
   if (TELEMETRY_FREE_COMMANDS.has(commandPath)) {
     process.env[DOCTOR_ENV] = '1';
-    const mayShow = telemetryDisabledByEnv() === undefined && !inCi() && Boolean(process.stderr.isTTY) && Boolean(process.stdin.isTTY) && storedAnswerAllowsDemoCount();
+    const mayShow = telemetryDisabledByEnv() === undefined && !inCi() && Boolean(process.stderr.isTTY) && Boolean(process.stdin.isTTY) && storedAnswerAllowsDemoCount() && existsSync(join(alignConfigDir(), 'config.json'));
     if (!isDemo || !mayShow) return false;
   }
   if (opts.hook) markHookContext();

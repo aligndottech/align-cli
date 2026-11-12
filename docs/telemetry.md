@@ -40,7 +40,8 @@ The short version, for local-only mode:
   this install. Nothing else is sent from a hook: no `cli.command`, no funnel stage.
 - **`align demo` sends one count, and only that.** One anonymous event per run, after the demo
   finishes, with no install id. On a first run in a real terminal, with no opt-out and no stored
-  answer, it also prints the notice above and records that you saw it, which creates `~/.align`.
+  answer, and only if `~/.align/config.json` already exists, it also prints the notice above and records that you saw it.
+  It never creates that file; with none, the notice waits for your next real command.
   Under `DO_NOT_TRACK=1`, `ALIGN_TELEMETRY=0`, CI, a stored `off` or No, or with no terminal, it prints
   nothing and touches nothing there. It sends nothing else from that step. See
   [`cli.funnel.demo_run`](#clifunneldemo_run) below. It stops for `align telemetry off`,
