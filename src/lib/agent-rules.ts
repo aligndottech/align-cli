@@ -159,9 +159,11 @@ function managedNudgeBlock(opts: { claudeHooks: boolean }): string {
     'across Slack, Jira, GitHub, Linear and more (via the `align` MCP server).',
     '',
     '- BEFORE writing or changing non-trivial code, check it against prior decisions',
-    '  (`align_check_alignment`, or run `align check`). A conflict means a past decision opposes',
-    '  the change - reconcile it or confirm with the user before proceeding.',
-    '- When unsure why something is the way it is, ask the graph first (`align_ask`).',
+    '  (`align_check_alignment`, or `mcp__align__align_check_alignment` where the host prefixes',
+    '  tool names with the server, or run `align check`). A conflict means a past decision',
+    '  opposes the change - reconcile it or confirm with the user before proceeding.',
+    '- When unsure why something is the way it is, ask the graph first (`align_ask`, or',
+    '  `mcp__align__align_ask` the same way).',
     ...(opts.claudeHooks
       ? [
           '- Claude Code hooks also surface related decisions automatically: before an edit is',

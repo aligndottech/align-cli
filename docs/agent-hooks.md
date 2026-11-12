@@ -57,9 +57,10 @@ payload has been captured, so they are here to stop the next reader re-deriving 
   exposure, which makes the tools callable from a codemode script and hides them from the
   model's tool list. `align mcp --setup` therefore writes `"exposure": "direct"` in the
   pi-owned entry; without it the setup reports pi connected and the model has nothing to call.
-- *The nudge's tool name is not pi's tool name.* pi registers every server tool as
-  `mcp__<server>__<tool>`, so `align_check_alignment` is not a name a pi session has. Making
-  that line host-aware is a follow-up; the hook path below does not depend on it.
+- *The nudge names the tool in both forms.* pi registers every server tool as
+  `mcp__<server>__<tool>`, so a pi session has `mcp__align__align_check_alignment` and not the
+  bare name. The shared `AGENTS.md` block gives both, which is also what a host that prefixes
+  tool names needs, and runs no host branch to get there.
 
 **Junie CLI is the exception in that group, and the gap is ours rather than the host's.** It
 documents seven hook events, `PreToolUse` among them, configured under a `hooks` key in

@@ -222,6 +222,21 @@ describe('writeAgentsNudge', () => {
     const md = readFileSync(join(dir, 'AGENTS.md'), 'utf8');
     expect(md.split(ALIGN_NUDGE_START)).toHaveLength(2);
   });
+
+  // A host that prefixes MCP tool names with the server has no bare `align_` tool, so a nudge
+  // naming only the bare form sends that agent looking for something it cannot call. Both
+  // forms cost one clause and cover either naming without a host branch in the shared file.
+  it('names the tools in both forms, so a host that prefixes MCP tool names resolves them', () => {
+    writeAgentsNudge(dir);
+    writeManagedNudge(dir);
+    for (const f of ['AGENTS.md', 'CLAUDE.md']) {
+      const md = readFileSync(join(dir, f), 'utf8');
+      expect(md, f).toContain('`align_check_alignment`');
+      expect(md, f).toContain('`mcp__align__align_check_alignment`');
+      expect(md, f).toContain('`align_ask`');
+      expect(md, f).toContain('`mcp__align__align_ask`');
+    }
+  });
 });
 
 describe('writeCursorRule', () => {
