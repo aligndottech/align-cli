@@ -1276,7 +1276,7 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<strin
   const tryLead = launchLabel
     ? `Opening ${launchLabel}. Try these in it:`
     : leadsIntoPrompts
-      ? 'Run align to open Align with your graph, then try:'
+      ? `Open ${chosenLabel} in this repo, or run align to use Align's own agent, then try:`
       : agents.length === 0 && agent === null
       ? 'Once one is installed, open it in this repo and try:'
       : agentTryLead({ agents, chosen: chosenLabel, inRepo: true, envName: 'local' });

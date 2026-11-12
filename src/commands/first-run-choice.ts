@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import { createConfigStore } from '../lib/config.js';
-import { getRepoRoot } from '../lib/git.js';
+import { runChoiceKey } from '../lib/run-choice-key.js';
 import { findOnPath } from '../lib/launch/detect.js';
 import { askRunMode, type ChoiceResult, resolveRunChoice, suggestRunMode } from '../lib/first-run-choice.js';
 
@@ -20,10 +20,10 @@ async function wireExistingAgents(): Promise<boolean> {
   return true;
 }
 
-/** The answer is per repo: the git root, or the folder itself outside git. */
+/** The answer is per repo: the main repository's root (worktrees share it), or the folder itself outside git. */
 export async function runFirstRunChoice(o: { switching?: boolean; alreadyWired?: boolean } = {}): Promise<ChoiceResult> {
   const config = createConfigStore();
-  const repo = (await getRepoRoot()) ?? process.cwd();
+  const repo = await runChoiceKey(process.cwd());
   return resolveRunChoice({
     tty: Boolean(process.stdin.isTTY && process.stdout.isTTY),
     switching: o.switching === true,

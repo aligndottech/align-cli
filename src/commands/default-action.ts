@@ -54,6 +54,22 @@ export async function runDefaultAction(opts: Record<string, unknown> = {}): Prom
   // What runs here is `runSetup`, which itself routes by login / ALIGN_ENV, so an
   // ALIGN_ENV=prod machine with no token lands in the team login, not the local wizard.
   const tty = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  // `--switch` changes a choice that exists only in a repo that is set up and where Align may
+  // launch. Where it cannot apply it says why, rather than being ignored.
+  if (opts['switch'] === true) {
+    const why = !hasLocal
+      ? 'align --switch needs a repo that is already set up. Run align first.'
+      : launchSuppressed()
+        ? 'align --switch does not apply inside an agent Align started (ALIGN_WRAPPED or ALIGN_NO_LAUNCH is set).'
+        : config.isLaunchOff()
+          ? 'align --switch does not apply because launching is off (align use --undo turned it off). Pick an agent with align use <agent> first.'
+          : undefined;
+    if (why) {
+      console.error(why);
+      process.exit(1);
+      return;
+    }
+  }
   if (!hasLocal && !hasCloud) {
     // Onboarding asks questions. Without a TTY - a pipe, a CI step, a Dockerfile - those
     // prompts cannot be answered, and starting anyway leaves a half-drawn cancelled prompt

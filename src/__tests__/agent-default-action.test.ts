@@ -124,6 +124,31 @@ describe('bare `align` on a set-up local graph', () => {
     expect(err.mock.calls.join(' ')).toContain('needs a terminal');
     expect(runFirstRunChoice).not.toHaveBeenCalled();
   });
+  it('--switch with no local graph set up says so and exits non-zero, asking nothing', async () => {
+    getEnvironment.mockImplementation(() => ({ mode: 'cloud' }));
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await runDefaultAction({ switch: true });
+    expect(err.mock.calls.join(' ')).toContain('align --switch needs a repo that is already set up');
+    expect(exit).toHaveBeenCalledWith(1);
+    expect(runFirstRunChoice).not.toHaveBeenCalled();
+    expect(runSetup).not.toHaveBeenCalled();
+  });
+  it('--switch inside an agent Align started says so and exits non-zero', async () => {
+    vi.stubEnv('ALIGN_WRAPPED', '1');
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await runDefaultAction({ switch: true });
+    expect(err.mock.calls.join(' ')).toContain('inside an agent Align started');
+    expect(exit).toHaveBeenCalledWith(1);
+    expect(runFirstRunChoice).not.toHaveBeenCalled();
+  });
+  it('--switch after `align use --undo` turned launching off says so and exits non-zero', async () => {
+    isLaunchOff.mockReturnValue(true);
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await runDefaultAction({ switch: true });
+    expect(err.mock.calls.join(' ')).toContain('launching is off');
+    expect(exit).toHaveBeenCalledWith(1);
+    expect(runFirstRunChoice).not.toHaveBeenCalled();
+  });
   it('without a terminal the choice still resolves (the suggestion), and Align\'s agent still does not open', async () => {
     tty(false);
     await runDefaultAction({});

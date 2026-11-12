@@ -13,7 +13,7 @@ vi.mock('../commands/setup.js', () => ({ confirmAgentWrites, writeAgentAlignment
 const connectDetectedAgents = vi.hoisted(() => vi.fn().mockResolvedValue({ detected: 1, connected: 1, wired: ['Claude Code'] }));
 vi.mock('../commands/connect-agents.js', () => ({ connectDetectedAgents }));
 const getRepoRoot = vi.hoisted(() => vi.fn());
-vi.mock('../lib/git.js', () => ({ getRepoRoot }));
+vi.mock('../lib/run-choice-key.js', () => ({ runChoiceKey: getRepoRoot }));
 const findOnPath = vi.hoisted(() => vi.fn());
 vi.mock('../lib/launch/detect.js', () => ({ findOnPath }));
 
