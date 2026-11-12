@@ -272,12 +272,13 @@ describe('agent-only use over a week, real processes, a day-shifted clock', () =
     expect(days(rows, (r) => r.event_name === 'cli.funnel.agent_active')).toEqual([1, 2, 3, 4, 5, 6, 7]);
   });
 
-  it('C: an install whose person never saw the notice sends nothing from the agent, by design', async () => {
+  it('C: an install whose person never saw the notice is counted once (the install beacon) and sends no usage from the agent', async () => {
     await seed(false);
     for (let day = 0; day <= 7; day++) await agentSession(day);
     const rows = captured.map(row);
     record('C: no terminal run ever showed the telemetry notice (it needs a TTY); only the agent uses Align', rows, [`rows captured: ${rows.length}`]);
-    expect(rows).toEqual([]);
+    // The install count needs no terminal; everything else waits for the notice. Exactly one row, on day 0.
+    expect(rows).toEqual([{ day: 0, event_name: 'cli.funnel.install', command: 'align', via: expect.any(String) }]);
   });
 
   it('D: DO_NOT_TRACK=1 in the agent server stops agent_active along with everything else', async () => {
