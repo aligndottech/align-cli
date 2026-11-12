@@ -584,7 +584,7 @@ function storedAnswerAllowsDemoCount(): boolean {
   try {
     text = readFileSync(join(alignConfigDir(), 'config.json'), 'utf8');
   } catch (err) {
-    return (err as NodeJS.ErrnoException).code === 'ENOENT';
+    return (err as { code?: string }).code === 'ENOENT';
   }
   try {
     const parsed: unknown = JSON.parse(text);
