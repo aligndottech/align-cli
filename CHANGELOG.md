@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.76.0](https://github.com/aligndottech/align-cli/compare/cli-v0.75.1...cli-v0.76.0) (2026-11-12)
+
+
+### Features
+
+* the first bare align in a repo asks how to use Align ([#567](https://github.com/aligndottech/align-cli/issues/567)) ([05fce5f](https://github.com/aligndottech/align-cli/commit/05fce5f4188beb8209c4b0f00682c0a8bbec4aea))
+
 ## [0.75.1](https://github.com/aligndottech/align-cli/compare/cli-v0.75.0...cli-v0.75.1) (2026-11-12)
 
 
