@@ -10,6 +10,7 @@ import { getBaseDiff, getCurrentBranch, getHeadDiff, getStagedDiff, isGitRepo, l
 import type { AlignmentResult } from '../lib/gateway-client.js';
 import { type HookPayload, readHookPayload } from '../lib/hook-payload.js';
 import { decisionsThatWroteTheseLines, proposedChangeText, type RelatedDecision } from '../lib/agent/edit-text.js';
+import { type AgentUse, recordAgentUse } from '../lib/agent-use-telemetry.js';
 import { markHookContext } from '../lib/hook-context.js';
 import { markSurfaced, recentlySurfaced } from '../lib/advisory-dedup.js';
 import {
@@ -454,6 +455,16 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
 
     const format = opts.format ?? 'claude';
     const renderOpts = { pre, format, blockOnCritical: opts.blockOnCritical ?? false };
+    // One content-free event per real check (the class of the answer, nothing else), awaited under a
+    // short cap right before the exit so the request is not killed by it. Rate-limited per tool inside
+    // recordAgentUse, so most runs pay a config read and no network. Never throws.
+    const countUse = async (verdict: AgentUse['verdict']): Promise<void> => {
+      try {
+        await recordAgentUse(config.getEnvironment(envName), { via: 'hook', tool: 'check_advisory', verdict }, { capMs: HOOK_TELEMETRY_CAP_MS });
+      } catch {
+        // Telemetry must never fail or delay an edit.
+      }
+    };
     // A host with no channel for this event (Gemini's BeforeTool) gets nothing.
     const emit = (output: unknown | null): void => {
       if (output !== null) {
@@ -572,6 +583,7 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
       // Never silent on a non-answer. The writers are a deterministic answer in their own right.
       if (wrote.length) markSurfaced(cwd, wrote.map((d) => d.id));
       emit(wrote.length ? buildRelatedOutput([], renderOpts, wrote, true) : buildUnknownOutput(renderOpts));
+      await countUse('unknown');
       process.exit(0);
     }
 
@@ -580,7 +592,10 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
 
     // Genuinely nothing related: a real answer, so staying quiet is honest here - unless blame
     // named the decision that wrote these lines.
-    if (!found.length && !wrote.length) process.exit(0);
+    if (!found.length && !wrote.length) {
+      await countUse('no_context');
+      process.exit(0);
+    }
 
     const writerIds = new Set(wrote.map((d) => d.id));
     const fresh = found.filter((d) => !seen.has(d.id) && !writerIds.has(d.id));
@@ -630,11 +645,17 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
       markSurfaced(cwd, [...wrote, ...fresh].map((d) => d.id));
       emit(buildRelatedOutput(fresh, renderOpts, wrote, false, verdict));
     }
+    // Decisions found. Only a verdict that actually came back says aligned or conflicting; a failed
+    // one is unknown, and "not asked" or "did not fit the window" is just related.
+    await countUse(verdict.kind === 'conflicting' ? 'conflicting' : verdict.kind === 'aligned' ? 'aligned' : verdict.kind === 'no_verdict' ? 'unknown' : 'related');
   } catch {
     // Fail open: swallow everything (gateway error, network, bad config).
   }
   process.exit(0);
 }
+
+/** The most the advisory hook waits for its one telemetry send, once per rate-limit window per tool. */
+const HOOK_TELEMETRY_CAP_MS = 400;
 
 class LocalSkip extends Error {}
 

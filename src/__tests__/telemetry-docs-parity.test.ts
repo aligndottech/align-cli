@@ -41,6 +41,8 @@ vi.mock('../lib/config.js', () => ({
       return true;
     },
     releaseFunnelStage: vi.fn(),
+    getAgentUseSentAt: () => undefined,
+    setAgentUseSentAt: vi.fn(),
     getAgentActiveDay: () => undefined,
     setAgentActiveDay: vi.fn(),
     getEnvironment,
@@ -49,6 +51,7 @@ vi.mock('../lib/config.js', () => ({
 }));
 vi.mock('../lib/resolve-env.js', () => ({ resolveEnv: vi.fn().mockReturnValue('prod') }));
 
+import { recordAgentUse } from '../lib/agent-use-telemetry.js';
 import { TELEMETRY_NOTICE } from '../lib/telemetry-consent.js';
 import {
   BEACON_STAGES,
@@ -137,6 +140,11 @@ describe('docs/telemetry.md matches what the CLI sends', () => {
     getTelemetryConsent.mockReturnValue('granted');
     await recordFunnelStage(localEnv, 'first_useful_decision', 'ask');
     expect(sentFields()).toEqual(documentedFields('`cli.funnel.<stage>` (local mode)'));
+  });
+
+  it('a local-mode agent_use event (hook and mcp send the same fields)', async () => {
+    await recordAgentUse(localEnv, { via: 'hook', tool: 'check_advisory', verdict: 'aligned' });
+    expect(sentFields()).toEqual(documentedFields('`cli.funnel.agent_use` (local mode)'));
   });
 
   it('a local-mode agent_active ping carries exactly the stage table\'s four fields', async () => {

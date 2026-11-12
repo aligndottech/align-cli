@@ -13,6 +13,7 @@ import { createGatewayClient } from '../lib/gateway-client.js';
 import { alignEntryTargetsElsewhere, alignServerEntry, detectEditors, removeMcpConfig, writeMcpConfig } from '../lib/mcp-setup.js';
 import { codexHookTrustNotice, editedHookNotice } from '../lib/user-hooks.js';
 import { commandIntro } from '../lib/brand.js';
+import { mcpVerdictClass, recordAgentUse, type AgentUse } from '../lib/agent-use-telemetry.js';
 import { recordFunnelStage } from '../lib/usage-telemetry.js';
 import { inviteNudgeLine } from '../lib/invite-prompt.js';
 import { renderMcpInstructions } from '../lib/mcp-instructions.shared.js';
@@ -458,6 +459,9 @@ export function createCallToolHandler(
     }
     // any successful tool call is use. Once a day per install, the once-a-day guard is recordFunnelStage's.
     void recordFunnelStage(env, 'agent_active', 'mcp');
+    // One content-free event per tool call (class of the answer only), rate-limited per tool inside
+    // recordAgentUse. Not awaited, like every other send here.
+    void recordAgentUse(env, { via: 'mcp', tool: name as AgentUse['tool'], verdict: mcpVerdictClass(name, result) });
     const text = serializeMcpResult(result);
     appendChatTrace({
       kind: 'mcp_call', tool: name, args, client: clientInfo ?? null, ok: true, result: text,

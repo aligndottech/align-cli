@@ -19,6 +19,8 @@ import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildProgram } from '../cli.js';
+import { TOOL_SCHEMAS } from '../commands/mcp.js';
+import { AGENT_USE_STAGE, AGENT_USE_TOOLS, AGENT_USE_VERDICTS, AGENT_USE_VIA } from '../lib/agent-use-telemetry.js';
 import { DEMO_RUN_STAGE, FUNNEL_STAGES, SUBCOMMAND_PARENTS, SYNC_OUTCOMES, SYNC_SCOPES, SYNC_SOURCES, SYNC_TRIGGERS } from '../lib/usage-telemetry.js';
 
 const THERE = 'services/gateway/src/routes/telemetryAnonymousRoutes.ts';
@@ -38,8 +40,18 @@ const SERVER_STAGES = [
   'install', 'setup_started', 'setup_completed', 'import_completed', 'mcp_wired',
   'first_capture', 'first_useful_decision', 'teammate_requested', 'agent_launched',
   'sessions_scanned', 'candidates_found', 'candidates_confirmed', 'decisions_ratified',
-  'source_synced', 'agent_active', 'demo_run',
+  'source_synced', 'agent_active', 'agent_use', 'demo_run',
 ];
+// Pinned from the gateway branch that adds agent_use (Tom, 12 Nov 2026); update the source line after it merges.
+const SERVER_AGENT_USE_VIA = ['hook', 'mcp'];
+const SERVER_AGENT_USE_TOOLS = [
+  'check_advisory',
+  'align_check_alignment', 'align_ask', 'align_search', 'align_capture', 'align_check_drift',
+  'align_get_impact', 'align_get_conflicts', 'align_get_related_decisions', 'align_get_topic_timeline',
+  'align_get_decision_rationale', 'align_get_decision_timeline', 'align_stale_code',
+  'align_backfill', 'align_sync', 'align_scope', 'align_mark', 'align_share', 'align_share_status',
+];
+const SERVER_AGENT_USE_VERDICTS = ['aligned', 'conflicting', 'related', 'unknown', 'no_context', 'not_applicable'];
 const SERVER_SOURCES = ['git', 'docs', 'github', 'jira', 'confluence', 'slack', 'teams', 'zoom', 'gitlab', 'linear', 'notion'];
 const SERVER_OUTCOMES = ['ok', 'partial', 'needs_reauth', 'error'];
 const SERVER_SCOPES = ['yours', 'team'];
@@ -62,13 +74,21 @@ const sorted = (xs: readonly string[]): string[] => [...xs].sort();
 
 describe('the CLI mirror of the gateway telemetry contract (pinned)', () => {
   it('every funnel stage the CLI can send, plus the install beacon, is exactly the gateway\'s list', () => {
-    expect(sorted([...FUNNEL_STAGES, 'install', DEMO_RUN_STAGE])).toEqual(sorted(SERVER_STAGES));
+    expect(sorted([...FUNNEL_STAGES, 'install', DEMO_RUN_STAGE, AGENT_USE_STAGE])).toEqual(sorted(SERVER_STAGES));
   });
   it('the sync enums: sources, outcomes and scopes equal the gateway\'s; triggers are a subset of its list', () => {
     expect(sorted(SYNC_SOURCES)).toEqual(sorted(SERVER_SOURCES));
     expect(sorted(SYNC_OUTCOMES)).toEqual(sorted(SERVER_OUTCOMES));
     expect(sorted(SYNC_SCOPES)).toEqual(sorted(SERVER_SCOPES));
     for (const t of SYNC_TRIGGERS) expect(SERVER_TRIGGERS).toContain(t);
+  });
+  it('the agent_use enums are exactly the gateway\'s, and every tool the MCP server can offer is on the list', () => {
+    expect(sorted(AGENT_USE_VIA)).toEqual(sorted(SERVER_AGENT_USE_VIA));
+    expect(sorted(AGENT_USE_TOOLS)).toEqual(sorted(SERVER_AGENT_USE_TOOLS));
+    expect(sorted(AGENT_USE_VERDICTS)).toEqual(sorted(SERVER_AGENT_USE_VERDICTS));
+    const served = TOOL_SCHEMAS.map((t) => t.name);
+    expect(served.length).toBeGreaterThan(5); // positive control: the schemas were actually read
+    for (const name of served) expect(SERVER_AGENT_USE_TOOLS, `${name} would be dropped from agent_use`).toContain(name);
   });
   it('every command the CLI registers is on the gateway\'s list, bar the ones it leaves out on purpose (no allowlist of rejected commands)', () => {
     const names = cliCommands();
@@ -124,7 +144,10 @@ describe.skipIf(!other.ok)(`the CLI mirror against ${THERE} on ${ref} (live)`, (
     expect(sorted(listOf(src, 'SUBCOMMAND_PARENTS'))).toEqual(sorted(SERVER_SUBCOMMAND_PARENTS));
   });
   it('every stage, enum value and registered command the CLI can send is accepted by the live file', () => {
-    expect(sorted(listOf(src, 'FUNNEL_STAGES'))).toEqual(sorted([...FUNNEL_STAGES, 'install', DEMO_RUN_STAGE]));
+    expect(sorted(listOf(src, 'FUNNEL_STAGES'))).toEqual(sorted([...FUNNEL_STAGES, 'install', DEMO_RUN_STAGE, AGENT_USE_STAGE]));
+    expect(sorted(listOf(src, 'AGENT_USE_VIA_VALUES'))).toEqual(sorted(AGENT_USE_VIA));
+    expect(sorted(listOf(src, 'AGENT_USE_TOOLS'))).toEqual(sorted(AGENT_USE_TOOLS));
+    expect(sorted(listOf(src, 'AGENT_USE_VERDICTS'))).toEqual(sorted(AGENT_USE_VERDICTS));
     for (const t of SYNC_TRIGGERS) expect(listOf(src, 'SYNC_TRIGGER_VALUES')).toContain(t);
     const known = listOf(src, 'KNOWN_COMMANDS');
     expect(cliCommands().filter((n) => !NOT_SENT.has(n) && !known.includes(n))).toEqual([]);

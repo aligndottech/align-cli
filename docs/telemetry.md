@@ -13,7 +13,8 @@ The short version, for local-only mode:
 
   ```
   Align sends anonymous usage counts: which commands and coding agent you use,
-  which tools you connect and how many items, the CLI version, and your OS.
+  which tools you connect and how many items, whether your agent's edit checks and
+  Align tools ran and what kind of result they gave, the CLI version, and your OS.
   Never code, decision text, or file, repo or org names.
   Turn it off: align telemetry off (or DO_NOT_TRACK=1). Details: align.tech/privacy#cli
   ```
@@ -21,7 +22,7 @@ The short version, for local-only mode:
 - **Usage counts wait for that notice to print in a real terminal.** A run with no terminal -
   output piped or sent to `/dev/null`, a hook, cron, systemd, `docker build`, an agent's shell
   tool - shows no notice and sends no usage count: the notice waits for your next run in a
-  terminal. The one exception is the install count below, which is sent on the first run even
+  terminal. `align demo` and `align setup` print it too, on their first run in a terminal. The one exception is the install count below, which is sent on the first run even
   when that run has no terminal (an agent starting `align mcp`, for example), because otherwise
   an install that only ever runs through an agent would never be counted. It holds only the CLI
   version, your OS and the random install id.
@@ -31,12 +32,16 @@ The short version, for local-only mode:
   see the variable - an agent's `align mcp` server with a trimmed environment, the background
   sync - stay silent too. `align telemetry status` says so, and `align telemetry on` clears it.
   Bare CI is not remembered; it is checked on every run.
-- **Nothing is sent from CI**, and the notice is not shown there. Nothing is ever sent by the
-  commands align's installed hooks run (`align check --hook`, `align check --advisory`,
-  `align context inject`). `align mcp`, and a run inside an agent `align` launched, show no
-  notice, so they send nothing until it has printed in a terminal.
+- **Nothing is sent from CI**, and the notice is not shown there. Align's installed hooks
+  (`align check --hook`, `align check --advisory`, `align context inject`), `align mcp`, and a run
+  inside an agent `align` launched never print the notice. The agent's edit check
+  (`align check --advisory`) and `align mcp` tool calls send one small event each, described under
+  [`cli.funnel.agent_use`](#clifunnelagent_use-local-mode), and only once the notice has printed on
+  this install. Nothing else is sent from a hook: no `cli.command`, no funnel stage.
 - **`align demo` sends one count, and only that.** One anonymous event per run, after the demo
-  finishes, with no install id and no notice: see
+  finishes, with no install id. On a first run in a terminal it also prints the notice above and
+  records that you saw it (that is the one thing it writes to `~/.align`); it sends nothing else
+  from that step. See
   [`cli.funnel.demo_run`](#clifunneldemo_run) below. It stops for `align telemetry off`,
   `DO_NOT_TRACK=1`, `ALIGN_TELEMETRY=0` and CI. To honour a stored `off` it reads your
   `~/.align/config.json` and nothing else; it never creates, writes or migrates anything there.
@@ -129,11 +134,12 @@ everything below; they are listed apart because they are the funnel's denominato
 
 ## Sent by `align demo`
 
-`align demo` runs in a throwaway home folder and never creates or reads `~/.align`, so it has no
-install id and no stored telemetry answer. It sends one count per run instead, to the same
+`align demo` runs in a throwaway home folder, so the demo itself never touches your `~/.align`. The
+`align` process that started it only records that you saw the notice there, and it has no
+install id and no stored telemetry answer to send. It sends one count per run instead, to the same
 `POST https://api.align.tech/telemetry/anonymous` (or your `ALIGN_GATEWAY_URL`), from the
 `align` process that ran the demo, after the demo has finished, unless you have turned telemetry off. It does not wait longer than 2
-seconds, never changes the demo's exit code, and ignores any error. No notice is shown for it.
+seconds, never changes the demo's exit code, and ignores any error. The notice is shown on a first run in a terminal, but the count does not wait for it.
 
 ### `cli.funnel.demo_run`
 
@@ -201,7 +207,8 @@ It exists because `align mcp` sends one `cli.command` when the server starts, so
 keeps one server running for a week would show use on the first day only. Listing the tools or
 starting the server sends no `agent_active`; a call that fails sends none either.
 
-None of these, and no `cli.command`, is ever sent from inside an agent hook.
+None of these, and no `cli.command`, is ever sent from inside an agent hook. The one event a hook
+and `align mcp` do send is `agent_use`, below.
 
 `source_synced` is the one stage with its own table below.
 
@@ -211,6 +218,33 @@ None of these, and no `cli.command`, is ever sent from inside an agent hook.
 | `cliVersion` | The CLI version. |
 | `stage` | Which milestone, from the list above. |
 | `command` | The command that reached it, same rules as `cli.command`. |
+
+### `cli.funnel.agent_use` (local mode)
+
+One event each time your coding agent's edit check (`align check --advisory`, the hook Align
+installs) runs, or the agent calls an Align tool over `align mcp`. It tells us that Align is being
+used inside an agent, which is the use the rest of this page cannot see. It is sent only in
+local-only mode (cloud mode records these on the server), only after the notice has printed on
+this install (or after `align telemetry on`), and never under `align telemetry off`, an earlier
+No, `DO_NOT_TRACK=1`, `ALIGN_TELEMETRY=0` or in CI.
+
+It is rate limited: at most one event per path and tool every 10 minutes, kept in your config
+file, so a hook that runs on every edit sends a handful an hour at most. A hook waits at most 0.4
+seconds for it, never changes the hook's result, and ignores any error.
+
+| Field | What it is |
+|---|---|
+| `installId` | The same random UUID. |
+| `cliVersion` | The CLI version. |
+| `stage` | Always `agent_use`. |
+| `command` | `check` for the edit check, `mcp` for a tool call. |
+| `via` | `hook` or `mcp`. |
+| `tool` | `check_advisory` for the edit check, or the name of the Align tool called (for example `align_ask`). A closed list of Align's own tool names. |
+| `verdict` | The kind of answer, from a closed list: `aligned`, `conflicting`, `related`, `unknown`, `no_context` or `not_applicable`. Never the answer itself. |
+| `os` | Node's `process.platform`. |
+
+No file, path, repo, org, decision text, prompt, query or code is part of it. The gateway refuses
+any field not in this table.
 
 ### `cli.funnel.source_synced` (local mode)
 

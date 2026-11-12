@@ -177,6 +177,7 @@ export function createConfigStore(deps: ConfigStoreDeps = {}) {
     writtenConfigs?: Record<string, WrittenConfig>;
     funnelStagesRecorded?: string[];
     agentActiveDay?: string;
+    agentUseSentAt?: Record<string, number>;
     providerKeys?: Partial<Record<GuidedProviderKey, string>>;
     llm?: LlmPreference;
     askKeyOfferDismissed?: boolean;
@@ -828,6 +829,14 @@ export function createConfigStore(deps: ConfigStoreDeps = {}) {
     },
     setAgentActiveDay(day: string): void {
       store.set('agentActiveDay', day);
+    },
+    // epoch ms each `agent_use` key (via:tool) last went out. The once-per-window guard in
+    // agent-use-telemetry.ts reads it, so a hook that runs on every edit sends a few events an hour.
+    getAgentUseSentAt(key: string): number | undefined {
+      return (store.get('agentUseSentAt') ?? {})[key];
+    },
+    setAgentUseSentAt(key: string, at: number): void {
+      store.set('agentUseSentAt', { ...(store.get('agentUseSentAt') ?? {}), [key]: at });
     },
     markFunnelStageRecorded(stage: string): void {
       const existing = store.get('funnelStagesRecorded') ?? [];

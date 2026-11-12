@@ -17,10 +17,12 @@ export interface TelemetryNoticeStore {
  * prints once, to stderr, before anything is sent, and nothing that depends on it sends until
  * it has printed (usage-telemetry.ts's localTierAllows). The founder-approved wording - change
  * it only with the privacy page (align.tech/privacy#cli) and docs/telemetry.md in the same PR.
+ * Changed 12 Nov 2026 (Tom): adds the edit-check hook and MCP tool use, counted after this notice.
  */
 export const TELEMETRY_NOTICE =
   'Align sends anonymous usage counts: which commands and coding agent you use,\n' +
-  'which tools you connect and how many items, the CLI version, and your OS.\n' +
+  "which tools you connect and how many items, whether your agent's edit checks and\n" +
+  'Align tools ran and what kind of result they gave, the CLI version, and your OS.\n' +
   'Never code, decision text, or file, repo or org names.\n' +
   'Turn it off: align telemetry off (or DO_NOT_TRACK=1). Details: align.tech/privacy#cli';
 
