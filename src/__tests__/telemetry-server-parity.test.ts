@@ -49,7 +49,7 @@ const SERVER_AGENT_USE_TOOLS = [
   'align_check_alignment', 'align_ask', 'align_search', 'align_capture', 'align_check_drift',
   'align_get_impact', 'align_get_conflicts', 'align_get_related_decisions', 'align_get_topic_timeline',
   'align_get_decision_rationale', 'align_get_decision_timeline', 'align_stale_code',
-  'align_backfill', 'align_sync', 'align_scope', 'align_mark', 'align_share', 'align_share_status',
+  'align_backfill', 'align_sync', 'align_scope', 'align_mark', 'align_share', 'align_share_status', 'align_backlog',
 ];
 const SERVER_AGENT_USE_VERDICTS = ['aligned', 'conflicting', 'related', 'unknown', 'no_context', 'not_applicable'];
 const SERVER_SOURCES = ['git', 'docs', 'github', 'jira', 'confluence', 'slack', 'teams', 'zoom', 'gitlab', 'linear', 'notion'];
