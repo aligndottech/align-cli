@@ -181,7 +181,8 @@ export function toolSchemasFor(env: EnvironmentConfig): typeof TOOL_SCHEMAS {
     if (tool.name === 'align_ask' || tool.name === 'align_search') {
       return { ...tool, description: tool.description + suffix };
     }
-    if (cloudOnly && (tool.name === TOPIC_TIMELINE_TOOL || tool.name === DECISION_TIMELINE_TOOL)) {
+    // The topic timeline is served locally now; only the change history is not.
+    if (cloudOnly && tool.name === DECISION_TIMELINE_TOOL) {
       return { ...tool, description: tool.description + cloudOnly };
     }
     return tool;

@@ -20,10 +20,17 @@
  * 3. the topic-timeline tool hits the stub, which names the limit
  * 4. the decision-timeline tool hits the stub, which names the limit
  */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+
+// The topic timeline searches, so the embedder is faked: no model download in a unit test.
+vi.mock('../lib/local-embeddings.js', () => ({
+  getEmbedding: vi.fn(async () => new Float32Array(384).fill(0.1)),
+  cosineSimilarity: vi.fn(() => 0.9),
+  EMBEDDING_MODEL_ID: 'Xenova/all-MiniLM-L6-v2',
+}));
 
 import { createLocalDb } from '../lib/local-db.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
@@ -61,6 +68,7 @@ beforeEach(() => {
   });
   const rows = db.listDecisions({ limit: 5 });
   decisionId = rows[0]!.id;
+  db.setEmbedding(decisionId, new Float32Array(384).fill(0.1), 'Xenova/all-MiniLM-L6-v2');
   db.close();
 });
 
@@ -116,8 +124,13 @@ describe('in local mode', () => {
     ).rejects.not.toThrow(CLOUD_ONLY);
   });
 
+  it('serves the topic timeline from the local graph, not the cloud-only stub', async () => {
+    client = createGatewayClient(localEnv());
+    const out = await dispatchTool('align_get_topic_timeline', { topic: 'webhooks' }, client, localEnv());
+    expect(JSON.stringify(out)).toContain('Verify webhook signatures with HMAC');
+  });
+
   it.each([
-    ['align_get_topic_timeline', { topic: 'webhooks' }],
     ['align_get_decision_timeline', { decision_id: 'd1' }],
   ])('degrades %s to the stub, which names the limit', async (name, args) => {
     client = createGatewayClient(localEnv());

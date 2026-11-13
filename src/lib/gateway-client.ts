@@ -200,8 +200,9 @@ export interface SearchResults {
     // serializeMcpResult happening to be a denylist. See lib/decision-relations.ts.
     successor?: DecisionRelation;
     conflicts_with?: DecisionRelation;
-    // Up to 3 LATER decisions on this row's topic, cloud only, on any status. An entry
-    // with no `relation` was never linked - "newer and similar", not "replaced this".
+    // Up to 3 LATER decisions on this row's topic, on any status. Cloud and local both send it
+    // (local: local-later-on-topic.ts, dated by decided_at). An entry with no `relation` was
+    // never linked - "newer and similar", not "replaced this".
     later_on_topic?: DecisionRelation[];
   }>;
   count: number;

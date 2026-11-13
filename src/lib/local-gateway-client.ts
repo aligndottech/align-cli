@@ -14,6 +14,8 @@ import { rerankByTitle } from './search-rerank.js';
 import { reciprocalRankFusion } from './hybrid-rank.js';
 import { expandedTerms } from './query-expand.js';
 import { linkPass } from './local-link-pass.js';
+import { dateOf, laterOnTopic } from './local-later-on-topic.js';
+import type { TimelineRow, TopicTimelineResult } from './mcp-timeline-tools.js';
 import { redactSecrets } from './share/secret-scan.js';
 import { noteRedacted } from './redaction-notice.js';
 import { LOCAL_CONFLICTS_NOTE } from './local-conflicts-note.js';
@@ -684,10 +686,29 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
           similar = await hybrid(reduced, await getEmbedding(reduced));
         }
       }
+      // later_on_topic, the local half of the cloud field: for each hit, the LATER decisions on its
+      // topic. Without it an old rule a newer commit refuted came back first with nothing saying a newer
+      // one exists. Neighbours share the search's scope and as-of bound, and skip rows this
+      // person marked not-a-decision.
+      const vectors = similar.length ? new Map(db.getAllEmbeddings({ ...boundedFilter, model: EMBEDDING_MODEL_ID })
+        .filter(e => !hidden.has(e.decisionId)).map(e => [e.decisionId, e.embedding])) : new Map<string, Float32Array>();
+      const laterFor = (row: NonNullable<ReturnType<typeof db.getDecisionById>>) => {
+        const own = vectors.get(row.id);
+        const neighbours = own ? [...vectors].filter(([id]) => id !== row.id).map(([id, v]) => ({ decisionId: id, score: cosineSimilarity(own, v) })) : [];
+        return laterOnTopic({
+          hit: row, neighbours, threshold: RELATES_THRESHOLD,
+          linksOfHit: db.listLinks({ decisionId: row.id, createdBefore }),
+          rowById: (id) => {
+            const r = hidden.has(id) ? null : db.getDecisionById(id);
+            return r && (createdBefore === undefined || isBeforeCutoff(r.createdAt, createdBefore)) ? r : null;
+          },
+        });
+      };
       const results = similar
         .map(s => {
           const row = db.getDecisionById(s.decisionId);
           if (!row) return null;
+          const later = laterFor(row);
           // source_url and platform were read from SQLite here and then discarded, so
           // nothing downstream could say which repository a decision came from. The
           // hosted connector has derived both since #1441; this is that parity.
@@ -700,6 +721,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
             ...relationFieldsFor(row.id, createdBefore),
             similarity: s.score,
             created_at: row.createdAt,
+            ...(later.length ? { later_on_topic: later } : {}),
             ...(row.decidedAt ? { decided_at: row.decidedAt } : {}),
             platform: row.platform,
             ...(row.sourceUrl ? { source_url: row.sourceUrl } : {}),
@@ -715,6 +737,37 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
         })
         .filter((d): d is NonNullable<typeof d> => d !== null);
       return { results, count: results.length, strategy: 'semantic', scope: effectiveRepo, ...(dropNotes.length ? { notes: dropNotes } : {}) };
+    },
+
+    /**
+     * The topic timeline, served from the local graph: the same retrieval as search,
+     * re-ordered oldest first by each row's own date, so a rule and the commit that later corrected
+     * it read in the order they happened. The cloud's story fields (why, still_open, disagreements)
+     * are left ABSENT, not empty: the local graph does not hold them, and the renderer treats absent
+     * as "could not look" rather than "looked and found none".
+     */
+    async getTopicTimeline(topic: string, limit = 50, createdBefore?: string, scope?: { repo?: string; all?: boolean }): Promise<TopicTimelineResult> {
+      // Scoped exactly as align_ask is (the current repo by default), so the two tools agree.
+      const { results } = await this.searchDecisions(topic, limit, createdBefore, scope);
+      const dated = results.map(r => {
+        const row = db.getDecisionById(r.id)!;
+        return { r, row, d: dateOf(row) };
+      });
+      dated.sort((a, b) => (a.d?.ms ?? 0) - (b.d?.ms ?? 0) || (a.r.id < b.r.id ? -1 : a.r.id > b.r.id ? 1 : 0));
+      const decisions: TimelineRow[] = dated.map(({ r, row, d }) => ({
+        id: r.id, title: r.title, summary: r.summary, platform: row.platform,
+        ...(r.status ? { status: r.status } : {}),
+        created_at: row.createdAt,
+        ...(r.decided_at ? { decided_at: r.decided_at } : {}),
+        ...(d ? { date_basis: d.basis } : {}),
+        ...(r.source_url ? { source_url: r.source_url } : {}),
+      }));
+      const platforms = [...new Set(decisions.map(d => d.platform).filter((p): p is string => !!p))];
+      return {
+        topic, count: decisions.length, decisions, platforms, spans_platforms: platforms.length > 1,
+        superseded_count: decisions.filter(d => d.status === 'superseded').length,
+        retrieval: { semantic: true, lexical: true },
+      };
     },
 
     /**
