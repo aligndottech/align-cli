@@ -54,9 +54,9 @@ export async function connectDetectedAgents(
     // right after this, so leading with "No agent found" contradicts it. The snippet is for the rest.
     const others = 'Other MCP-capable agents (Cursor, VS Code, Windsurf, Zed, Codex, Gemini CLI, ...) work too';
     // "written above" is only true when the caller wrote the file in this run (`align local start` often does not).
-    const written = opts.projectMcpWritten === true ? ' (written above)' : '';
+    const written = opts.projectMcpWritten === true;
     const projectNote = win
-      ? `The project's .mcp.json${written} keeps the portable \`align\` command so it works for the whole ` +
+      ? `A project .mcp.json${written ? ' (written above)' : ', if present,'} keeps the portable \`align\` command so it works for the whole ` +
         'team, and Windows cannot spawn that one - so on this machine Claude Code and pi need the per-machine ' +
         'entry below too. '
       : opts.projectMcpWritten === true

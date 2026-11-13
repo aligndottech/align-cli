@@ -114,7 +114,7 @@ const REWRITES: Rewrite[] = [
  * redacts it too, but there the original is kept elsewhere; here the redacted text IS the only copy, so a digest in a
  * commit message or a decision would be lost for nothing. Kept as written, and not counted.
  */
-const DIGEST = /^(?:sha(?:1|224|256|384|512)(?:[_-]?\d+)?|sha3[_-]?\d+|md[245]|blake(?:2[bs]?|3)|fnv(?:1a?)?[_-]?(?:32|64|128)|crc(?:16|32|64)c?|xxh(?:32|64|3|128)|xxhash(?:32|64)?|murmur(?:2|3)(?:[_-]?\d+)?|cityhash(?:32|64|128)?|siphash(?:24)?|adler32|ripemd(?:160)?|whirlpool):[0-9a-f]+$/i;
+const DIGEST = /^(?:sha(?:1|224|256|384|512(?:[_-]?(?:224|256))?)|sha3[_-]?(?:224|256|384|512)|md[245]|blake(?:2[bs]?|3)|fnv(?:1a?)?[_-]?(?:32|64|128)|crc(?:16|32|64)c?|xxh(?:32|64|3|128)|xxhash(?:32|64)?|murmur(?:2|3)(?:[_-]?\d+)?|cityhash(?:32|64|128)?|siphash(?:24)?|adler32|ripemd(?:160)?|whirlpool):[0-9a-f]+$/i;
 
 /**
  * A build fingerprint written `build:3f9c...` has the `label:value` shape too. Kept as written when BOTH hold:

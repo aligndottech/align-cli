@@ -536,7 +536,7 @@ describe('connectDetectedAgents - what it claims .mcp.json covers', () => {
 
   it('still says the project file covers them on macOS and Linux, where it does', async () => {
     setPlatform('darwin');
-    await connectDetectedAgents('local', { approved: true });
+    await connectDetectedAgents('local', { approved: true, projectMcpWritten: true });
     expect(logged.join('\n')).toContain('need nothing further');
   });
 });
