@@ -44,7 +44,9 @@ export function registerSearchCommand(program: Command): void {
 
         for (const d of results.results) {
           const title = d.title.length > 50 ? `${d.title.slice(0, 47)  }...` : d.title;
-          const status = d.status === 'active' ? chalk.green(d.status) : chalk.dim(d.status);
+          // The local graph leaves status unset for a live row (only superseded/conflicted are written).
+          const statusText = d.status ?? 'active';
+          const status = statusText === 'active' ? chalk.green(statusText) : chalk.dim(statusText);
           const score = d.similarity ? chalk.dim(d.similarity.toFixed(2)) : chalk.dim('n/a');
           console.log(`${title.padEnd(52)}${status.padEnd(22)}${score}`);
           console.log(chalk.dim(`  ${d.id}`));

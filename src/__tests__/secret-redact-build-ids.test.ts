@@ -135,3 +135,35 @@ describe('an identifier word at the END of the label does not launder a credenti
   });
 });
 
+// Shane Wall's strings: a digest named for its hash algorithm is not a credential whatever its length, and the
+// label alone clears nothing. Each kept case sits beside a still-redacted case across the same boundary.
+describe('an algorithm-prefixed hex digest is kept, at any length', () => {
+  it('fnv1a64: kept, admin: with the same hex redacted', () => {
+    kept('fnv1a64:c279bbc77948a8c5');
+    redacted('admin:c279bbc77948a8c5', 'c279bbc77948a8c5');
+  });
+  it('sha256: short form kept, secret: with the same hex redacted', () => {
+    kept('sha256:9f86d081884c7d65');
+    redacted('secret:9f86d081884c7d65', '9f86d081884c7d65');
+  });
+  it('every named algorithm is kept', () => {
+    for (const a of ['sha1', 'sha256', 'sha512', 'md5', 'fnv1a32', 'fnv1a64', 'blake2b', 'blake3', 'crc32', 'xxh64', 'xxh3', 'murmur3', 'crc32c', 'sha3-256', 'sha512_256', 'xxhash64', 'cityhash64', 'siphash', 'adler32', 'ripemd160', 'whirlpool']) kept(`${a}:c279bbc77948a8c5`);
+  });
+  it('the sentence from the trial keeps its fingerprint', () => {
+    kept('Every lab brief records the source fingerprint fnv1a64:c279bbc77948a8c5 so a stale build is caught.');
+  });
+  it('a hash name followed by a non-hex value is still redacted', () => {
+    const v = fx('Sup3r', 'S3cret', 'Passw0rd');
+    redacted(`fnv1a64:${v}`, v);
+  });
+  it('a made-up sha tail is not a hash name', () => {
+    redacted('sha1999:c279bbc77948a8c5', 'c279bbc77948a8c5');
+  });
+  it('admin:hunter22x is still redacted', () => {
+    redacted('admin:hunter22x', 'hunter22x');
+  });
+  it('a credential word before the algorithm name is not exempt', () => {
+    redacted('password_sha256:c279bbc77948a8c5', 'c279bbc77948a8c5');
+  });
+});
+

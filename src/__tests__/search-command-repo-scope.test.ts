@@ -75,4 +75,17 @@ describe('align search --repo/--all', () => {
     const out = await search(['a query']);
     expect(out).not.toMatch(/Answering from/);
   });
+
+  // Local-graph rows carry no status unless they are superseded or conflicted, so the column printed "undefined".
+  it('prints "active" for a row with no status, never "undefined"', async () => {
+    searchDecisions.mockResolvedValue({
+      results: [{ id: 'abc', title: 'Use Postgres', summary: 's' }, { id: 'def', title: 'Old rule', summary: 's', status: 'superseded' }],
+      count: 2,
+      strategy: 'semantic',
+    });
+    const out = await search(['a query']);
+    expect(out).not.toContain('undefined');
+    expect(out).toMatch(/Use Postgres\s+active/);
+    expect(out).toMatch(/Old rule\s+superseded/);
+  });
 });
