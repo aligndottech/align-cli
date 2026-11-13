@@ -158,9 +158,9 @@ Hook limits worth knowing:
   against a real payload. The last three read hooks from a user-level file (`~/.codex/hooks.json`,
   `~/.cursor/hooks.json`, `~/.copilot/hooks/align.json`).
 - pi reads MCP servers itself from 0.99 and later, and an older pi needs the third-party
-  `pi-mcp-adapter` package installed in it. pi also blocks a
-  repo's MCP servers until you trust the project, and Align's entry counts as one, so accept pi's
-  trust prompt or Align's tools won't load. `pi -p` skips the prompt and runs without them.
+  `pi-mcp-adapter` package installed in it. pi also blocks a repo's MCP servers until you trust
+  the project, and Align's entry counts as one, so accept pi's trust prompt or Align's tools
+  won't load. `pi -p` skips the prompt and runs without them.
 - Claude Code asks you to approve a committed hook the first time. Accept, or it won't run.
 - Codex skips a hook in `~/.codex/hooks.json` until you approve it in Codex's one-time hook trust review, and `codex exec` never asks, so open Codex once interactively after `align setup`.
 - In a headless run (`claude -p`) Claude Code can't ask you to approve tools, so it denies Align's MCP tools unless you allow them, for example `"permissions": {"allow": ["mcp__align"]}` in `.claude/settings.json`. `align setup` deliberately doesn't add that for you. The edit hook needs no permission and runs either way.

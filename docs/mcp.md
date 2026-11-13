@@ -150,15 +150,16 @@ needs `pi install npm:pi-mcp-adapter`. `align mcp --setup` writes the user-level
 }
 ```
 
-The setup run also writes pi's own project file, `.pi/mcp.json`, with the same entry. That is the
-file that declares the tools for a teammate who cloned the repository and never ran the per-user
-setup: pi reads it for that project, and pi-mcp-adapter ranks it above `.mcp.json`, so on both
-paths the model gets the tools directly instead of behind `codemode`. On a machine that has a
-local graph they answer straight away. A clone is not a graph, though: the committed entry runs
-the local server (`align mcp --env local`), and a machine that has never run `align --local` has
-nothing to answer from, so its first call comes back `Local mode is not set up here. Run
-'align --local' ...`. That command is still the teammate's. The shared `.mcp.json` stays
-host-neutral and carries no pi key.
+The setup run also writes pi's own project file, `.pi/mcp.json`, with an `align` entry that asks
+for direct exposure. Built-in pi reads that file for the project rather than `.mcp.json`, and
+pi-mcp-adapter ranks it above `.mcp.json`, so with the project trusted both paths declare the
+align tools and hand them to the model directly instead of behind `codemode`. For a teammate who
+cloned the repository and never ran the per-user setup, that declaration is what the committed
+file fixes. On a machine that has a local graph they answer straight away; a clone is not a
+graph, though: the entry setup writes for a local project runs the local server (`align mcp
+--env local`), and a machine that has never run `align --local` has nothing to answer from, so
+its first call comes back `Local mode is not set up here. Run 'align --local' ...`. That command
+is still the teammate's. The shared `.mcp.json` stays host-neutral and carries no pi key.
 
 pi blocks a repo's MCP servers until you trust the project, and Align's entry counts as one.
 Accept pi's trust prompt or Align's tools won't load.
