@@ -1,7 +1,7 @@
 import { blameCandidates, type BlameVia } from './blame-candidates.js';
 import { createLocalDb, identifyingSourceUrl, type LinkRow, normaliseDecidedAt } from './local-db.js';
 import { deriveDeciderKind } from './decider-kind.js';
-import { provenanceOf } from './local-provenance.js';
+import { datesOf, provenanceOf } from './local-provenance.js';
 import { currentRepoIdentity, repoFromSourceUrl } from './repo-identity.js';
 import { cosineSimilarity, EMBEDDING_MODEL_ID, getEmbedding } from './local-embeddings.js';
 import { classifyCandidates } from './local-candidate-classify.js';
@@ -774,8 +774,8 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
      * Decisions whose source is a commit or PR that `git blame` named as the writer of the lines an
      * edit changes (blame-attribution.ts). A keyed lookup on `source_url`: no embedding, no model.
      */
-    decisionsBySourceRefs(commitShas: string[], prUrls: string[]): Array<{ id: string; title: string; summary: string; url?: string }> {
-      return db.findBySourceRefs(commitShas, prUrls).map((r) => ({ id: r.id, title: r.title, summary: r.summary, ...(r.sourceUrl ? { url: r.sourceUrl } : {}) }));
+    decisionsBySourceRefs(commitShas: string[], prUrls: string[]): Array<{ id: string; title: string; summary: string; url?: string; decided_at?: string; created_at?: string }> {
+      return db.findBySourceRefs(commitShas, prUrls).map((r) => ({ id: r.id, title: r.title, summary: r.summary, ...(r.sourceUrl ? { url: r.sourceUrl } : {}), ...datesOf(r) }));
     },
 
     async checkAlignment(
@@ -845,6 +845,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
             summary: c.summary,
             similarity: c.score,
             url: c.sourceUrl ?? undefined,
+            ...datesOf(c),
             ...provenanceOf(c),
           })),
           conflicts: [],
@@ -878,6 +879,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
           summary: c.summary,
           url: c.sourceUrl ?? undefined,
           provenance: provenanceOf(c),
+          dates: datesOf(c),
           relationship: rel?.type ?? 'relates', // canonical (was 'relates_to')
           confidence: rel?.confidence ?? c.score,
           typed: rel !== null,
@@ -897,7 +899,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
         const r = relationFieldsFor(id);
         return r.status === 'superseded' ? { status: r.status, successor: r.successor } : {};
       };
-      const relevant_decisions = typed.map(t => ({ id: t.id, title: t.title, summary: t.summary, similarity: t.similarity, url: t.url, found_by: t.found_by, ...t.provenance, ...replacedBy(t.id) }));
+      const relevant_decisions = typed.map(t => ({ id: t.id, title: t.title, summary: t.summary, similarity: t.similarity, url: t.url, found_by: t.found_by, ...t.dates, ...t.provenance, ...replacedBy(t.id) }));
       const rawConflicts = typed
         .filter(t => t.relationship === 'conflicts_with' || t.relationship === 'contradicts')
         .map(t => ({

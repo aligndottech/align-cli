@@ -290,6 +290,8 @@ export interface AlignmentResult {
     id: string; title: string; summary: string; similarity: number; url?: string;
     /** The link that opens this decision in Align; the gateway sends it when it knows its app URL. */
     decision_url?: string;
+    /** When the source says it was decided (ISO-8601), and the minute it was imported. Local mode today. */
+    decided_at?: string; created_at?: string;
     // Local mode always; cloud once it labels check output.
     decider_kind?: 'human' | 'agent' | 'unknown'; ratified?: boolean; ratified_at?: string | null; ratified_by?: string | null;
     /** LM, local only: a decision a person marked as replaced, with the one that replaces it. */
