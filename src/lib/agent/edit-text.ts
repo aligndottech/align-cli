@@ -1,7 +1,12 @@
 import type { HookToolInput } from '../hook-payload.js';
 import { findLineWriters, isWriterTitle } from '../blame-attribution.js';
 
-export type RelatedDecision = { id: string; title: string; summary?: string; url?: string; status?: 'superseded'; successor?: { id: string; title: string } };
+/**
+ * `decided_at` is when the source says the decision was MADE (a commit's own date); `created_at` is
+ * the minute this CLI imported it. The hook shows `decided_at`, and falls back to `created_at`
+ * only as a marked "imported" date, because an ingest minute is not a decision date.
+ */
+export type RelatedDecision = { id: string; title: string; summary?: string; url?: string; decided_at?: string; created_at?: string; status?: 'superseded'; successor?: { id: string; title: string } };
 
 type DecisionLookup = { decisionsBySourceRefs?: (shas: string[], prUrls: string[]) => RelatedDecision[] };
 

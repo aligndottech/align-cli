@@ -119,12 +119,17 @@ const HAS_ZONE_DESIGNATOR = /(Z|[+-]\d{2}:?\d{2})$/;
  * unparseable value is MISSING, not an error, same as the Python side. An offset
  * (e.g. `-05:00`) is normalized to UTC on both sides identically, via `_as_utc`'s
  * `.astimezone(UTC)` here and `.toISOString()`'s implicit UTC output there. */
-function decidedLabel(decidedAt: string | null | undefined): string | null {
+export function isoDay(decidedAt: string | null | undefined): string | null {
   if (!decidedAt || !ISO_DATE_RE.test(decidedAt)) return null;
   const naive = HAS_TIME.test(decidedAt) && !HAS_ZONE_DESIGNATOR.test(decidedAt);
   const parsed = new Date(naive ? `${decidedAt}Z` : decidedAt);
   if (Number.isNaN(parsed.getTime())) return null;
-  return `decided ${parsed.toISOString().slice(0, 10)}`;
+  return parsed.toISOString().slice(0, 10);
+}
+
+function decidedLabel(decidedAt: string | null | undefined): string | null {
+  const day = isoDay(decidedAt);
+  return day ? `decided ${day}` : null;
 }
 
 function buildBracket(d: RenderableDecision): string {
