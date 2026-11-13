@@ -65,6 +65,22 @@ describe('the align entry pi loads in a trusted project', () => {
     expect(foreign).toContain(path.join('.pi', 'mcp.json'));
   });
 
+  // pi's own file outranks .mcp.json, so an entry naming the local graph there would move every
+  // teammate's pi off the destination the shared file was protected to keep.
+  it('names the team destination, not the local graph, when the shared file keeps a team entry', () => {
+    const team = { command: 'align', args: ['mcp', '--env', 'prod'] };
+    put(sharedFile(), JSON.stringify({ mcpServers: { align: team } }));
+    const sharedBytes = readFileSync(sharedFile(), 'utf8');
+    const foreign: string[] = [];
+    setupAgentAlignment({ cwd, env: 'local', onForeign: (f) => foreign.push(f) });
+    expect(readJson(piFile()).mcpServers.align).toEqual({ ...team, exposure: 'direct' });
+    expect(readFileSync(sharedFile(), 'utf8')).toBe(sharedBytes);
+    expect(foreign).toContain('.mcp.json');
+    const piBytes = readFileSync(piFile(), 'utf8');
+    setupAgentAlignment({ cwd, env: 'local', onForeign: (f) => foreign.push(f) });
+    expect(readFileSync(piFile(), 'utf8')).toBe(piBytes);
+  });
+
   it('merges into a pi file that already holds other servers and unrelated keys', () => {
     const other = { command: 'other-server', args: ['--x'] };
     put(piFile(), JSON.stringify({ mcpServers: { other }, generatedBy: 'team-config' }));

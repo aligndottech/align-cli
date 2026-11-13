@@ -237,22 +237,30 @@ export function writeCursorRule(cwd: string): boolean {
 }
 
 /**
+ * An entry that names a team env is the team's: a local run leaves it as it found it, and no other
+ * project file may point somewhere else either. Written once, because both files obey it.
+ */
+function isTeamAlignEntry(entry: unknown): boolean {
+  return entry !== undefined && !carriesLocalEnv(JSON.stringify(entry));
+}
+
+/**
  * The one writer of a committed project MCP file: an `align` entry under `mcpServers`, merged
  * into whatever the file already holds, and a team entry left as found. The two project files
  * differ only in their path and their entry shape, so the rule that decides both is here once.
  */
-function writeProjectServerEntry(cwd: string, file: string, format: Extract<McpFormat, 'mcpServers' | 'pi'>, env?: string, onForeign?: OnForeign): boolean {
+function writeProjectServerEntry(cwd: string, file: string, format: Extract<McpFormat, 'mcpServers' | 'pi'>, env?: string, onForeign?: OnForeign, entry?: Record<string, unknown>): boolean {
   const status = safeWriteJson(path.join(cwd, file), (config) => {
     const servers = (config['mcpServers'] ?? {}) as Record<string, unknown>;
     // A committed entry that targets a team env is the team's, not ours to replace.
-    if (onForeign && env === 'local' && servers['align'] !== undefined && !carriesLocalEnv(JSON.stringify(servers['align']))) {
+    if (onForeign && env === 'local' && isTeamAlignEntry(servers['align'])) {
       return undefined;
     }
     // `committed: true` keeps the Windows `cmd /c` wrapper OUT of these files. They are the
     // MCP configs that travel: a wrapper written by a Windows machine would be committed and
     // then fail to spawn for every teammate on macOS or Linux. Windows readers get the wrapper
     // from their own user-level entry instead.
-    servers['align'] = alignServerEntry(format, env, { committed: true });
+    servers['align'] = entry ?? alignServerEntry(format, env, { committed: true });
     config['mcpServers'] = servers;
     return config;
   }, projectWrite(cwd));
@@ -268,11 +276,25 @@ export function writeProjectMcpConfig(cwd: string, env?: string, onForeign?: OnF
   return writeProjectServerEntry(cwd, '.mcp.json', 'mcpServers', env, onForeign);
 }
 
+/** The shared file's `align` entry, when a local run would leave it as the team's. */
+function keptSharedAlign(sharedFile: string): Record<string, unknown> | undefined {
+  try {
+    const entry = (JSON.parse(readFileSync(sharedFile, 'utf8')) as { mcpServers?: Record<string, unknown> }).mcpServers?.['align'];
+    return isTeamAlignEntry(entry) && typeof entry === 'object' && entry !== null ? (entry as Record<string, unknown>) : undefined;
+  } catch {
+    return undefined; // no shared file, or not the JSON we wrote: nothing was kept
+  }
+}
+
 // .pi/mcp.json - pi's own project file. Built-in pi reads it and nothing else in the project,
 // and pi-mcp-adapter ranks it above .mcp.json, so it is the one place a project can ask for
 // pi's `exposure: "direct"` without teaching the shared file a pi key.
 export function writePiProjectMcpConfig(cwd: string, env?: string, onForeign?: OnForeign): boolean {
-  return writeProjectServerEntry(cwd, path.join('.pi', 'mcp.json'), 'pi', env, onForeign);
+  // That precedence cuts both ways: a local entry here would shadow a team entry the shared file
+  // was protected to keep, so pi names the same destination the team chose instead. Every other
+  // key travels with it (a team entry can carry its own env or url), and only the exposure changes.
+  const kept = onForeign && env === 'local' ? keptSharedAlign(path.join(cwd, '.mcp.json')) : undefined;
+  return writeProjectServerEntry(cwd, path.join('.pi', 'mcp.json'), 'pi', env, onForeign, kept && { ...kept, exposure: 'direct' });
 }
 
 // ---------------------------------------------------------------------------

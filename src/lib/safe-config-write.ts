@@ -806,7 +806,12 @@ export function undoWrittenConfigs(manifest: Record<string, WrittenConfig>, fs: 
   /** Directories align made for one file, innermost first, each only while empty. */
   const pruneDirs = (entry: WrittenConfig) => {
     for (const d of [...(entry.createdDirs ?? [])].reverse()) {
-      try { fs.rmdirSync(d); } catch { break; /* not empty (or gone): the outer ones hold it too */ }
+      try { fs.rmdirSync(d); } catch (err) {
+        // A directory someone else already removed (a checkout drops empty ones) must not hide an
+        // empty parent align made in the same write, which is still ours to take back.
+        if ((err as { code?: string }).code === 'ENOENT') continue;
+        break; /* not empty (or not ours to remove): the outer ones hold it too */
+      }
     }
   };
   for (const [file, entry] of Object.entries(manifest)) {

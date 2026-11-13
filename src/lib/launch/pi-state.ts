@@ -121,11 +121,15 @@ export function readPiState(cwd: string, home: string, opts: { localIsDefault: b
   const adapterSettings = readJson(path.join(agentDir, 'mcp-adapter.json'))?.['settings'] as Json | undefined;
   const projectLoads = trusted || adapterSettings?.['projectServers'] === 'allow';
   const loaded = (name: string) => (project?.[name] !== undefined ? (projectLoads ? project[name] : undefined) : user?.[name]);
+  // pi keeps a disabled server in the file and never starts it, so counting one left the launch
+  // with align-local skipped and no Align tools at all.
+  const align = loaded('align') as { enabled?: unknown } | undefined;
+  const alignLoaded = align?.enabled !== false && isLocalAlignServer(align, localIsDefault);
   const contextFiles = [...dirs.map(contextFile), contextFile(agentDir)].filter((f): f is string => f !== null);
   const settings = [readJson(path.join(agentDir, 'settings.json')), ...(trusted ? [readJson(path.join(cwd, '.pi', 'settings.json'))] : [])];
   return {
     projectHasExtension: globalExt || projectExt,
-    projectHasMcp: loaded('align-local') !== undefined || isLocalAlignServer(loaded('align'), localIsDefault),
+    projectHasMcp: loaded('align-local') !== undefined || alignLoaded,
     projectHasBlock: contextFiles.some((f) => readText(f)?.includes(ALIGN_NUDGE_START) ?? false),
     mcpAdapterInstalled: settings.some((s) => packageSources(s).some((p) => p.includes('pi-mcp-adapter'))),
     mcpFile,

@@ -94,6 +94,18 @@ describe('readPiState', () => {
     expect(read().projectHasMcp).toBe(false);
   });
 
+  // pi keeps a disabled server without starting it, so counting one made the launcher skip
+  // align-local and the session ran with no Align tools.
+  it('does not count an align entry pi will not start: enabled false', () => {
+    trust(agentDefault(), { [cwd]: true });
+    const piFile = path.join(cwd, '.pi', 'mcp.json');
+    const entry = { command: 'align', args: ['mcp', '--env', 'local'] };
+    put(piFile, JSON.stringify({ mcpServers: { align: { ...entry, enabled: false } } }));
+    expect(read().projectHasMcp).toBe(false);
+    put(piFile, JSON.stringify({ mcpServers: { align: { ...entry, enabled: true } } }));
+    expect(read().projectHasMcp).toBe(true);
+  });
+
   // pi-mcp-adapter blocks a project's .mcp.json servers until the project is trusted, and a
   // blocked project `align` also hides a user-level `align` of the same name. Counting either as loaded
   // made the launcher skip align-local, so pi started with no Align tools and said nothing.
