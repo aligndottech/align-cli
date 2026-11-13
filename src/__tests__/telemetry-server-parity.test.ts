@@ -49,7 +49,7 @@ const SERVER_AGENT_USE_TOOLS = [
   'align_check_alignment', 'align_ask', 'align_search', 'align_capture', 'align_check_drift',
   'align_get_impact', 'align_get_conflicts', 'align_get_related_decisions', 'align_get_topic_timeline',
   'align_get_decision_rationale', 'align_get_decision_timeline', 'align_stale_code',
-  'align_backfill', 'align_sync', 'align_scope', 'align_mark', 'align_share', 'align_share_status',
+  'align_backfill', 'align_sync', 'align_scope', 'align_mark', 'align_share', 'align_share_status', 'align_backlog',
 ];
 const SERVER_AGENT_USE_VERDICTS = ['aligned', 'conflicting', 'related', 'unknown', 'no_context', 'not_applicable'];
 const SERVER_SOURCES = ['git', 'docs', 'github', 'jira', 'confluence', 'slack', 'teams', 'zoom', 'gitlab', 'linear', 'notion'];
@@ -86,10 +86,7 @@ describe('the CLI mirror of the gateway telemetry contract (pinned)', () => {
     expect(sorted(AGENT_USE_VIA)).toEqual(sorted(SERVER_AGENT_USE_VIA));
     expect(sorted(AGENT_USE_TOOLS)).toEqual(sorted(SERVER_AGENT_USE_TOOLS));
     expect(sorted(AGENT_USE_VERDICTS)).toEqual(sorted(SERVER_AGENT_USE_VERDICTS));
-    // align_backlog (#578) is not on the merged gateway list yet, so recordAgentUse drops it rather than send a 400.
-    // Remove this exemption in the same PR that adds it to the gateway's AGENT_USE_TOOLS and to AGENT_USE_TOOLS here.
-    const NOT_YET_ON_GATEWAY = new Set(['align_backlog']);
-    const served = TOOL_SCHEMAS.map((t) => t.name).filter((n) => !NOT_YET_ON_GATEWAY.has(n));
+    const served = TOOL_SCHEMAS.map((t) => t.name);
     expect(served.length).toBeGreaterThan(5); // positive control: the schemas were actually read
     for (const name of served) expect(SERVER_AGENT_USE_TOOLS, `${name} would be dropped from agent_use`).toContain(name);
   });

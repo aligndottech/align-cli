@@ -77,10 +77,10 @@ describe('F2: local mode is not routed at a tool it cannot serve', () => {
     expect(instructionsFor(cloudEnv)).toContain('align_get_topic_timeline');
   });
 
-  it('does NOT name it in LOCAL instructions, because the local client always throws', () => {
-    // The local Proxy has no getTopicTimeline, so the call throws every time
-    // (mcp-timeline-trio-local.test.ts measures that). Routing an agent there is a
-    // guaranteed-fail instruction shipped to users.
+  it('does NOT name it in LOCAL instructions, which have no bytes left for it', () => {
+    // Local mode now serves the tool (mcp-timeline-trio-local.test.ts), so naming it
+    // would no longer route the agent at a failure. It stays out because the local 2048-byte
+    // budget is spent; the tool's own description carries it.
     expect(instructionsFor(localEnv)).not.toContain('align_get_topic_timeline');
   });
 
@@ -88,19 +88,18 @@ describe('F2: local mode is not routed at a tool it cannot serve', () => {
     for (const env of [cloudEnv, localEnv]) expect(instructionsFor(env).length).toBeLessThan(2048);
   });
 
-  it('marks the two cloud-only tools in local tool descriptions, so a call that happens anyway is legible', () => {
-    // The tools stay REGISTERED - deregistering per mode is a bigger change and the stub is
+  it('marks the cloud-only decision timeline in local tool descriptions, so a call that happens anyway is legible', () => {
+    // The tool stays REGISTERED - deregistering per mode is a bigger change and the stub is
     // honest. What was missing is any way for an agent reading descriptions to know.
     const local = toolSchemasFor(localEnv);
-    for (const name of ['align_get_topic_timeline', 'align_get_decision_timeline']) {
-      const t = local.find((x) => x.name === name);
-      expect(t, name).toBeDefined();
-      expect(t!.description, name).toMatch(/not available in local mode|cloud/i);
+    const t = local.find((x) => x.name === 'align_get_decision_timeline');
+    expect(t).toBeDefined();
+    expect(t!.description).toMatch(/not available in local mode/i);
+    // The rationale and topic-timeline tools DO work locally, so
+    // neither may carry that marking - a warning on a tool that works is false.
+    for (const name of ['align_get_decision_rationale', 'align_get_topic_timeline']) {
+      expect(local.find((x) => x.name === name)!.description, name).not.toMatch(/not available in local mode/i);
     }
-    // The rationale tool DOES work locally, so it must NOT carry that marking - a blanket
-    // warning on all three would be false about one of them.
-    const rationale = local.find((x) => x.name === 'align_get_decision_rationale');
-    expect(rationale!.description).not.toMatch(/not available in local mode/i);
   });
 
   it('leaves cloud descriptions unmarked', () => {

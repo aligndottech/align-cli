@@ -73,10 +73,10 @@ export const ALIGN_MCP_INSTRUCTIONS = renderMcpInstructions(
  * F2 (Copilot, #296 inline at mcp.ts:52): the topic-timeline guidance is CLOUD ONLY.
  *
  * The first port put this line in the shared base, which `instructionsFor` serves to BOTH
- * modes. Local mode has no `getTopicTimeline` - the local-mode Proxy throws on every call, and
- * mcp-timeline-trio-local.test.ts measures exactly that - so the line shipped a
- * guaranteed-fail instruction to every local user. An instruction naming a tool that cannot
- * work is the defect this trio was ported as a trio to avoid, one level up.
+ * modes, when local mode had no `getTopicTimeline` and the line was a guaranteed-fail instruction.
+ * Local mode now serves the tool (mcp-timeline-trio-local.test.ts), but the line stays cloud-only:
+ * the local instructions have no bytes left under the 2048 budget, and the tool's own description
+ * is what a local agent reads.
  *
  * It stays a per-server line rather than moving into mcp-instructions.shared.ts because the
  * two servers spell this tool differently (`get_topic_timeline` hosted,
@@ -181,7 +181,8 @@ export function toolSchemasFor(env: EnvironmentConfig): typeof TOOL_SCHEMAS {
     if (tool.name === 'align_ask' || tool.name === 'align_search') {
       return { ...tool, description: tool.description + suffix };
     }
-    if (cloudOnly && (tool.name === TOPIC_TIMELINE_TOOL || tool.name === DECISION_TIMELINE_TOOL)) {
+    // The topic timeline is served locally now; only the change history is not.
+    if (cloudOnly && tool.name === DECISION_TIMELINE_TOOL) {
       return { ...tool, description: tool.description + cloudOnly };
     }
     return tool;

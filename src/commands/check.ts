@@ -31,6 +31,7 @@ import { detectDeterministicHits, ratifiedDeterministicRules, ruleDenyReason } f
 import { dependencyIntentQuery } from '../lib/agent/dependency-intent.js';
 import { redactSecrets } from '../lib/share/secret-scan.js';
 import { decisionLinkFor } from '../lib/decision-links.js';
+import { isoDay, isoInstant } from '../lib/decision-render.js';
 import type { ChangeSource } from '../lib/co-change-check.js';
 import type { CoChangeViolation } from '../lib/co-change.js';
 
@@ -861,11 +862,45 @@ function excerptOf(d: RelatedDecision, room: number): string {
   const limit = Math.min(EXCERPT_BUDGET_CHARS, room);
   if (limit < MIN_EXCERPT_CHARS) return '';
   if (chars.length <= limit) return chars.join('');
+  // Keep WHOLE sentences from the front while they fit with the marker. The old cut was blind: it
+  // stopped at a character count, often just before the sentence that carried the reason.
+  const kept = wholeSentences(chars.join(''), limit - 3);
+  if (kept) return `${kept}...`;
+  // The first sentence alone is longer than the budget: cut it on a word boundary.
   const cut = chars.slice(0, limit - 3);
-  // Cut on a word boundary: drop the partial word unless the cut already fell on a space.
   const atBoundary = chars[limit - 3] === ' ';
   const body = atBoundary ? cut.join('') : cut.join('').replace(/\s+\S*$/, '');
   return `${body.trimEnd()}...`;
+}
+
+// A sentence ends at . ! or ? followed by a space and the start of the next one, so a path
+// (src/store.ts), a version (v1.2.3) or "e.g." followed by lowercase does not split it.
+const SENTENCE_BREAK = /(?<=[.!?])\s+(?=[A-Z0-9"'`([])/;
+
+/** The longest run of leading sentences that fits `max` code points, or '' when not even the first does. */
+function wholeSentences(text: string, max: number): string {
+  let kept = '';
+  for (const sentence of text.split(SENTENCE_BREAK)) {
+    const next = kept ? `${kept} ${sentence}` : sentence;
+    if (Array.from(next).length > max) break;
+    kept = next;
+  }
+  return kept;
+}
+
+// Newest decision first, so a later correction is read before the rule it replaced. Stable: items
+// with no usable date keep retrieval order and follow the dated ones.
+function newestFirst(decisions: RelatedDecision[]): RelatedDecision[] {
+  const at = (d: RelatedDecision): number => isoInstant(d.decided_at) ?? -Infinity;
+  return [...decisions].sort((a, b) => (at(a) < at(b) ? 1 : at(a) > at(b) ? -1 : 0));
+}
+
+// "[2026-09-14]" is when it was decided. Without decided_at the import day stands in and says so.
+function dateTag(d: RelatedDecision): string {
+  const decided = isoDay(d.decided_at);
+  if (decided) return `[${decided}] `;
+  const imported = isoDay(d.created_at);
+  return imported ? `[imported ${imported}] ` : '';
 }
 
 // A decision a person marked as replaced still comes back from retrieval (local mode carries `status` and
@@ -882,10 +917,10 @@ function safeTitle(title: string): string {
 
 // One writer of the bullet format. `budget.left` is shared by every list in one output.
 function decisionBullets(decisions: RelatedDecision[], budget: { left: number }): string[] {
-  return decisions.flatMap((d) => {
+  return newestFirst(decisions).flatMap((d) => {
     const excerpt = excerptOf(d, budget.left);
     budget.left -= excerpt.length;
-    const head = `- ${safeTitle(d.title)}${replacedNote(d)}`;
+    const head = `- ${dateTag(d)}${safeTitle(d.title)}${replacedNote(d)}`;
     return excerpt ? [head, `  ${excerpt}`] : [head];
   });
 }
