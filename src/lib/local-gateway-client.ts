@@ -305,7 +305,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
           .filter(r => (denseScore.get(r.id) ?? -1) >= LEXICAL_MIN_DENSE).slice(0, poolSize).map(r => r.id);
       } catch { /* dense only */ }
       const fused = reciprocalRankFusion([{ ids: denseOrder.map(r => r.decisionId), weight: 1 }, { ids: lexical, weight: 1 }]);
-      const split = splitRetrieved(dropMergeCarriers(fused, (id) => db.getDecisionById(id)).map(id => ({ decisionId: id, score: denseScore.get(id)! })), hidden, limit, (id) => db.getDecisionById(id)?.title, 'answer');
+      const split = splitRetrieved(dropMergeCarriers(fused, (id) => db.getDecisionById(id), hidden).map(id => ({ decisionId: id, score: denseScore.get(id)! })), hidden, limit, (id) => db.getDecisionById(id)?.title, 'answer');
       dropNotes.splice(0, dropNotes.length, ...split.notes);
       return split.kept;
     };
@@ -877,9 +877,13 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       // them. The cost of this direction: a future caller misspelling the value adjudicates,
       // so keep `depth` typed as the union at every call site rather than widening it.
       // The same later_on_topic rule as search, so the edit hook can say a decision has a newer one.
-      const checkVectors = new Map(db.getAllEmbeddings({ model: EMBEDDING_MODEL_ID }).map(e => [e.decisionId, e.embedding]));
+      // Same scope as this check's own retrieval above (findSimilar is unscoped here), built once and
+      // only when a candidate is shown, so a check with no candidates loads no vectors.
+      let checkVectors: Map<string, Float32Array> | undefined;
       const laterOf = (id: string) => {
         const row = db.getDecisionById(id);
+        checkVectors ??= new Map(db.getAllEmbeddings({ model: EMBEDDING_MODEL_ID })
+          .filter(e => !hidden.has(e.decisionId)).map(e => [e.decisionId, e.embedding]));
         const later = row ? laterOnTopicFor(row, checkVectors, { dbFilter: {}, createdBefore: undefined, hidden }) : [];
         return later.length ? { later_on_topic: later } : {};
       };
