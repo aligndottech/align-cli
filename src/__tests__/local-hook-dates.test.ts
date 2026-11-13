@@ -26,7 +26,7 @@ import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
 vi.setConfig({ testTimeout: process.platform === 'win32' ? 60_000 : 30_000 });
 
 /**
- * the edit hook shows each decision's date. The local client must hand it BOTH dates -
+ * The edit hook shows each decision's date. The local client must hand it BOTH dates -
  * `decided_at` (the source's own timestamp) and `created_at` (the minute this CLI imported it) -
  * and the two must differ in the fixture, or a test cannot tell which one the hook used.
  */
