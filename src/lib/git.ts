@@ -20,6 +20,15 @@ export const COMMIT_FILES_SHOWN = 10;
 // Build output dirs count only at the repo root: `src/build/compile.ts` is source. `doc/` is not `docs/`.
 const LOW_SIGNAL_PATH = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|Cargo\.lock|poetry\.lock|uv\.lock|go\.sum|Gemfile\.lock|composer\.lock|CHANGELOG[^/]*)$|\.(md|mdx|markdown|txt|rst|adoc|lock|snap|map|min\.js|min\.css)$|^(dist|build|out|coverage|node_modules)\/|(^|\/)(vendor|generated|__generated__|docs)\//i;
 
+// Source: a code extension or a conventional source directory. Anything else that is not low signal
+// (binaries, test output, tapes, workflows, .gitattributes) ranks between source and docs.
+const CODE_PATH = /\.(ts|tsx|js|jsx|mjs|cjs|py|rb|go|rs|java|kt|swift|c|h|cc|cpp|hpp|cs|php|scala|sh|sql|svelte|vue|qc|lua|ex|exs|clj|dart|zig)$|^(src|lib|app|cmd|pkg|internal|packages)\//i;
+
+function rankOf(f: string): number {
+  if (LOW_SIGNAL_PATH.test(f)) return 2;
+  return CODE_PATH.test(f) ? 0 : 1;
+}
+
 const C_ESCAPES: Record<string, number> = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13, '"': 34, '\\': 92 };
 
 /**
@@ -50,9 +59,9 @@ export function unquoteGitPath(path: string): string {
  */
 function capFiles(files: string[]): { filesChanged: string[]; filesOmitted?: number } {
   if (files.length <= COMMIT_FILES_SHOWN) return { filesChanged: files };
-  const source = files.filter((f) => !LOW_SIGNAL_PATH.test(f));
-  const rest = files.filter((f) => LOW_SIGNAL_PATH.test(f));
-  return { filesChanged: [...source, ...rest].slice(0, COMMIT_FILES_SHOWN), filesOmitted: files.length - COMMIT_FILES_SHOWN };
+  // Array.sort is stable, so git's order holds inside each rank.
+  const ranked = [...files].sort((a, b) => rankOf(a) - rankOf(b));
+  return { filesChanged: ranked.slice(0, COMMIT_FILES_SHOWN), filesOmitted: files.length - COMMIT_FILES_SHOWN };
 }
 
 export interface CommitHistoryResult {

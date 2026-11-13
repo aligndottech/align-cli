@@ -15,6 +15,7 @@ import { reciprocalRankFusion } from './hybrid-rank.js';
 import { expandedTerms } from './query-expand.js';
 import { linkPass } from './local-link-pass.js';
 import { dateOf, laterOnTopic } from './local-later-on-topic.js';
+import { dropMergeCarriers } from './local-merge-dedupe.js';
 import type { TimelineRow, TopicTimelineResult } from './mcp-timeline-tools.js';
 import { redactSecrets } from './share/secret-scan.js';
 import { noteRedacted } from './redaction-notice.js';
@@ -233,6 +234,34 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     return {};
   }
 
+  function laterOnTopicFor(
+    row: NonNullable<ReturnType<typeof db.getDecisionById>>,
+    vectors: Map<string, Float32Array>,
+    { dbFilter, createdBefore, hidden }: { dbFilter: { repo?: string; includeUnattributed?: boolean }; createdBefore: string | undefined; hidden: Map<string, unknown> },
+  ) {
+      const own = vectors.get(row.id);
+      const neighbours = own ? [...vectors].filter(([id]) => id !== row.id).map(([id, v]) => ({ decisionId: id, score: cosineSimilarity(own, v) })) : [];
+      return laterOnTopic({
+        hit: row, neighbours, threshold: RELATES_THRESHOLD,
+        rankOfHitIn: (id) => {
+          const theirs = vectors.get(id);
+          if (!theirs || !own) return Number.POSITIVE_INFINITY;
+          const toHit = cosineSimilarity(theirs, own);
+          let closer = 0;
+          for (const [other, v] of vectors) if (other !== id && other !== row.id && cosineSimilarity(theirs, v) > toHit) closer++;
+          return closer + 1;
+        },
+        linksOfHit: db.listLinks({ decisionId: row.id, createdBefore }),
+        rowById: (id) => {
+          const r = hidden.has(id) ? null : db.getDecisionById(id);
+          if (!r || (createdBefore !== undefined && !isBeforeCutoff(r.createdAt, createdBefore))) return null;
+          // A typed edge can cross repos; the search's scope still holds for what it reveals.
+          if (dbFilter.repo !== undefined && r.repo !== dbFilter.repo && !(r.repo === null && dbFilter.includeUnattributed)) return null;
+          return r;
+        },
+      });
+    }
+
   /**
    * The search behind searchDecisions and getTopicTimeline. `withLater` computes later_on_topic,
    * which costs one cosine per stored decision per hit; the timeline drops the field, so it skips it.
@@ -276,7 +305,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
           .filter(r => (denseScore.get(r.id) ?? -1) >= LEXICAL_MIN_DENSE).slice(0, poolSize).map(r => r.id);
       } catch { /* dense only */ }
       const fused = reciprocalRankFusion([{ ids: denseOrder.map(r => r.decisionId), weight: 1 }, { ids: lexical, weight: 1 }]);
-      const split = splitRetrieved(fused.map(id => ({ decisionId: id, score: denseScore.get(id)! })), hidden, limit, (id) => db.getDecisionById(id)?.title, 'answer');
+      const split = splitRetrieved(dropMergeCarriers(fused, (id) => db.getDecisionById(id)).map(id => ({ decisionId: id, score: denseScore.get(id)! })), hidden, limit, (id) => db.getDecisionById(id)?.title, 'answer');
       dropNotes.splice(0, dropNotes.length, ...split.notes);
       return split.kept;
     };
@@ -298,21 +327,11 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     // person marked not-a-decision.
     const vectors = withLater && similar.length ? new Map(db.getAllEmbeddings({ ...boundedFilter, model: EMBEDDING_MODEL_ID })
       .filter(e => !hidden.has(e.decisionId)).map(e => [e.decisionId, e.embedding])) : new Map<string, Float32Array>();
-    const laterFor = (row: NonNullable<ReturnType<typeof db.getDecisionById>>) => {
-      const own = vectors.get(row.id);
-      const neighbours = own ? [...vectors].filter(([id]) => id !== row.id).map(([id, v]) => ({ decisionId: id, score: cosineSimilarity(own, v) })) : [];
-      return laterOnTopic({
-        hit: row, neighbours, threshold: RELATES_THRESHOLD,
-        linksOfHit: db.listLinks({ decisionId: row.id, createdBefore }),
-        rowById: (id) => {
-          const r = hidden.has(id) ? null : db.getDecisionById(id);
-          if (!r || (createdBefore !== undefined && !isBeforeCutoff(r.createdAt, createdBefore))) return null;
-          // A typed edge can cross repos; the search's scope still holds for what it reveals.
-          if (dbFilter.repo !== undefined && r.repo !== dbFilter.repo && !(r.repo === null && dbFilter.includeUnattributed)) return null;
-          return r;
-        },
-      });
-    };
+    const laterFor = (row: NonNullable<ReturnType<typeof db.getDecisionById>>) => laterOnTopicFor(row, vectors, { dbFilter, createdBefore, hidden });
+    // Order is the fused relevance rank (dense + title + lexical), the one documented rule; each
+    // row's `similarity` is its dense cosine and need not descend. Re-sorting by cosine would undo
+    // the fusion that lets an exact-identifier commit beat higher-cosine mentions (see the
+    // local-search-hybrid and rerank tests).
     const results = similar
       .map(s => {
         const row = db.getDecisionById(s.decisionId);
@@ -674,7 +693,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     // `repo`/`all` mirror searchDecisions' scope resolution - naming neither
     // defaults to the current repo (+ unattributed rows) when one exists.
     async listDecisions(
-      params: { limit?: number; repo?: string; all?: boolean; unratified?: boolean; status?: string } = {},
+      params: { limit?: number; repo?: string; all?: boolean; unratified?: boolean; status?: string; platform?: string } = {},
     ) {
       const limit = params.limit ?? 200;
       const { dbFilter } = await resolveScope({ repo: params.repo, all: params.all });
@@ -703,7 +722,11 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
             ...relationFieldsFor(row.id),
           };
         })
-        .filter((d) => params.status !== 'active' || d.status !== 'superseded')
+        // Both filters run before the slice, so a match past the limit is still returned.
+        .filter((d) => params.platform === undefined || d.platform === params.platform)
+        .filter((d) => params.status === undefined ? true
+          : params.status === 'active' ? d.status !== 'superseded'
+          : d.status === params.status)
         .slice(0, limit);
     },
 
@@ -853,6 +876,13 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       // (`align check` and `--ci`, check.ts) pass no depth at all. Inverting it would silence
       // them. The cost of this direction: a future caller misspelling the value adjudicates,
       // so keep `depth` typed as the union at every call site rather than widening it.
+      // The same later_on_topic rule as search, so the edit hook can say a decision has a newer one.
+      const checkVectors = new Map(db.getAllEmbeddings({ model: EMBEDDING_MODEL_ID }).map(e => [e.decisionId, e.embedding]));
+      const laterOf = (id: string) => {
+        const row = db.getDecisionById(id);
+        const later = row ? laterOnTopicFor(row, checkVectors, { dbFilter: {}, createdBefore: undefined, hidden }) : [];
+        return later.length ? { later_on_topic: later } : {};
+      };
       if (opts.depth === 'related') {
         return {
           status: 'retrieved',
@@ -865,6 +895,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
             url: c.sourceUrl ?? undefined,
             ...datesOf(c),
             ...provenanceOf(c),
+            ...laterOf(c.id),
           })),
           conflicts: [],
           ...(retrieved.notes.length ? { notes: [...bannerFor(retrieved.agentApplied), ...retrieved.notes] } : {}),
@@ -917,7 +948,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
         const r = relationFieldsFor(id);
         return r.status === 'superseded' ? { status: r.status, successor: r.successor } : {};
       };
-      const relevant_decisions = typed.map(t => ({ id: t.id, title: t.title, summary: t.summary, similarity: t.similarity, url: t.url, found_by: t.found_by, ...t.dates, ...t.provenance, ...replacedBy(t.id) }));
+      const relevant_decisions = typed.map(t => ({ id: t.id, title: t.title, summary: t.summary, similarity: t.similarity, url: t.url, found_by: t.found_by, ...t.dates, ...t.provenance, ...replacedBy(t.id), ...laterOf(t.id) }));
       const rawConflicts = typed
         .filter(t => t.relationship === 'conflicts_with' || t.relationship === 'contradicts')
         .map(t => ({

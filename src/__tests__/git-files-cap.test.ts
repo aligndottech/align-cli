@@ -92,3 +92,17 @@ describe('unquoteGitPath', () => {
     expect(unquoteGitPath('"raw-\u{1F680}.ts"')).toBe('raw-\u{1F680}.ts');
   });
 });
+
+describe('ranking code ahead of binaries, test output and config', () => {
+  it('lists src/argus.qc ahead of ten run logs (d3d8417 shape)', async () => {
+    const logs = Array.from({ length: 10 }, (_, i) => `runs/typed-jump-${String(i).padStart(2, '0')}.log`);
+    const c = await filesOf([...logs, 'progs.dat', 'src/argus.qc']);
+    expect(c.filesChanged[0]).toBe('src/argus.qc');
+  });
+
+  it('lists the source file ahead of workflows, results and tapes (b767983 shape)', async () => {
+    const tapes = Array.from({ length: 6 }, (_, i) => `tapes/t${i}.tape`);
+    const c = await filesOf(['.gitattributes', '.github/workflows/a.yml', '.github/workflows/b.yml', 'runs/x.results.json', ...tapes, 'progs.dat', 'src/argus.qc']);
+    expect(c.filesChanged[0]).toBe('src/argus.qc');
+  });
+});

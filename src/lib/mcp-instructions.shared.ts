@@ -40,7 +40,7 @@ export const MCP_INSTRUCTIONS_SHARED = `Align is this team's decision graph - wh
 - Cite a decision by its cite value when present; link via decision_url if present, else source_url if present, else say no link - never present one as the other.
 - When the question was only a question, REPORT what the graph returned, and do not re-derive it from the code. Read the code to confirm only when you are about to change behaviour.
 - Search the graph BEFORE reading the code: it spans repositories, so grepping this checkout misses other repositories' decisions.
-- Read a {search} hit's later_on_topic before answering; answer from one that reversed it.`;
+- Read each {search} hit's later_on_topic before answering; answer from one that reversed it.`;
 
 /**
  * Render the shared text for one server: substitute each {token} with that server's name for

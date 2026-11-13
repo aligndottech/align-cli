@@ -78,7 +78,7 @@ export function registerDecisionsCommand(program: Command): void {
             // no date never reads "Invalid Date" and never borrows the ingest minute.
             { header: 'DECIDED', width: 14 },
           ],
-          decisions.map(d => [d.id, d.title, d.platform, d.status ?? '', formatWhen(d.decided_at)]),
+          decisions.map(d => [d.id, d.title, d.platform, d.status ?? 'active', formatWhen(d.decided_at)]),
         );
       } catch (err) {
         spinner.fail(chalk.red((err as Error).message));

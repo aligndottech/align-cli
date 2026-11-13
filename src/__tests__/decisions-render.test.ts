@@ -160,4 +160,12 @@ describe('decisions show prints the decider label', () => {
     const out = await run(['show', 'a1']);
     expect(out).not.toMatch(/agent-decided/);
   });
+
+  it('shows active for a row with no status, and passes --platform to the client', async () => {
+    listDecisions.mockResolvedValue([{ id: 'g1', title: 'Chose Postgres', platform: 'git' }]);
+    const out = await run(['list', '--platform', 'git']);
+    expect(out).toContain('g1');
+    expect(out).toContain('active');
+    expect(listDecisions).toHaveBeenCalledWith(expect.objectContaining({ platform: 'git' }));
+  });
 });

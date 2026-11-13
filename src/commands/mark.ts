@@ -53,7 +53,7 @@ function describe(r: JudgementRow, titles: Map<string, string>): string {
   return `${day}  ${LABEL[r.kind]}  ${what}  (${who})`;
 }
 
-const TTY_MESSAGE = 'This hides or replaces a decision, or takes a mark back, so it is a person\'s act and needs a terminal. Run it in your own terminal. (A terminal check is a speed bump, not proof: a program can open one. It keeps an agent\'s shell tool and a pipe from doing this by accident.)';
+const TTY_MESSAGE = 'This hides or replaces a decision, or takes a mark back, so it is a person\'s act and needs a terminal. Run it in your own terminal. If you are an agent, do not retry: give this command to the person to run in their own terminal. (A terminal check is a speed bump, not proof: a program can open one. It keeps an agent\'s shell tool and a pipe from doing this by accident.)';
 
 /** The marks that make the guardrail show LESS, or declare a decision replaced. */
 function needsTerminal(a: MarkAction): boolean {

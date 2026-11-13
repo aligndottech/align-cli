@@ -17,7 +17,7 @@ export interface LoadedLinks {
 
 export const LOCAL_EMPTY_NOTE =
   'The local graph has no supersedes links. A keyless git import records only "relates" links between commits, ' +
-  'so nothing says which decision replaced which. Record one with `align mark <new> replaces <old>`, or use a team graph (--env prod).';
+  'so nothing says which decision replaced which. Record one by running `align mark <new> replaces <old>` in your own terminal (an agent cannot: hand it to the person), or use a team graph (--env prod).';
 
 /** A person's `align mark ... replaces` writes its link under a `mark:` id; every other local edge is the classifier's. */
 export function loadLocalLinks(dbPath: string): LoadedLinks {

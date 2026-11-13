@@ -208,8 +208,11 @@ answers, that your token is accepted, and that one real question comes back thro
 It names the next step for each failure and exits non-zero if any check fails. It sends no
 telemetry.
 
-Inside your agent, the agent writes the answers, so you don't need an AI key. Only `align ask`
-in a terminal writes its own. Give it a key (Anthropic, OpenAI, OpenRouter, Gemini, Groq,
+Inside your agent, the agent writes the answers, so the search and listing tools
+(`align_search`, `align_get_topic_timeline`, `align_get_related_decisions`) need no AI key.
+`align_check_alignment` is different: its verdict comes from a model, so with no key it returns
+`unknown` (`no_llm_key`), which is not a pass. Set one with `align ai`. `align ask` in a terminal
+writes its own answer too. Give it a key (Anthropic, OpenAI, OpenRouter, Gemini, Groq,
 Mistral or xAI), a local Ollama, or any OpenAI-compatible endpoint. Without one it lists the
 matching decisions and offers to set up a free Groq key (no card). With several, `align ai`
 picks one. [Setting one up](docs/configuration.md#ai-provider).

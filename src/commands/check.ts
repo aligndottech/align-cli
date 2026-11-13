@@ -644,7 +644,7 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
 
     if (fresh.length || wrote.length) {
       markSurfaced(cwd, [...wrote, ...fresh].map((d) => d.id));
-      emit(buildRelatedOutput(fresh, renderOpts, wrote, false, verdict));
+      emit(buildRelatedOutput(fresh, renderOpts, wrote, false, verdict, text));
     }
     // Decisions found. Only a verdict that actually came back says aligned or conflicting; a failed
     // one is unknown, and "not asked" or "did not fit the window" is just related.
@@ -853,7 +853,7 @@ function dropLeadingTitle(text: string, title: string): string {
   return text.replace(new RegExp(`^\\s*${words.join('\\s+')}[^\\S\\n]*(\\n|$)`), '');
 }
 
-function excerptOf(d: RelatedDecision, room: number): string {
+function excerptOf(d: RelatedDecision, room: number, focus = ''): string {
   // Redact first, on the whole text: a secret cut in half by the budget would no longer match its pattern.
   const redacted = redactSecrets(d.summary ?? '').text;
   const own = dropLeadingTitle(isCommitSource(d.url) ? stripCommitMetadata(redacted) : redacted, d.title);
@@ -862,6 +862,8 @@ function excerptOf(d: RelatedDecision, room: number): string {
   const limit = Math.min(EXCERPT_BUDGET_CHARS, room);
   if (limit < MIN_EXCERPT_CHARS) return '';
   if (chars.length <= limit) return chars.join('');
+  const matched = focusedSentences(chars.join(''), focus, limit - 3);
+  if (matched) return `${matched}...`;
   // Keep WHOLE sentences from the front while they fit with the marker. The old cut was blind: it
   // stopped at a character count, often just before the sentence that carried the reason.
   const kept = wholeSentences(chars.join(''), limit - 3);
@@ -875,7 +877,32 @@ function excerptOf(d: RelatedDecision, room: number): string {
 
 // A sentence ends at . ! or ? followed by a space and the start of the next one, so a path
 // (src/store.ts), a version (v1.2.3) or "e.g." followed by lowercase does not split it.
-const SENTENCE_BREAK = /(?<=[.!?])\s+(?=[A-Z0-9"'`([])/;
+const SENTENCE_BREAK = /(?<=[.!?])\s+(?=(?:[-*]\s|[A-Z0-9"'`([]))/;
+
+const STOP = new Set(['this', 'that', 'with', 'from', 'have', 'will', 'into', 'there', 'their', 'which', 'when', 'must', 'never', 'would', 'about']);
+const termsOf = (t: string): Set<string> => new Set((t.toLowerCase().match(/[a-z0-9]{4,}/g) ?? []).filter((w) => !STOP.has(w)));
+
+/**
+ * The sentence that shares most terms with the edit (the lead sentence added in front of it when
+ * both fit), or '' when no focus was given, nothing overlaps, or the best sentence is the lead
+ * itself. The lead already wins by default, so only a LATER match is worth the detour.
+ */
+function focusedSentences(text: string, focus: string, max: number): string {
+  const want = termsOf(focus);
+  if (!want.size) return '';
+  const sentences = text.split(SENTENCE_BREAK);
+  let best = -1;
+  let bestScore = 0;
+  sentences.forEach((sentence, i) => {
+    const score = [...termsOf(sentence)].filter((w) => want.has(w)).length;
+    if (i > 0 && score > bestScore) { best = i; bestScore = score; }
+  });
+  if (best < 1) return '';
+  const hit = sentences[best] as string;
+  const both = `${sentences[0]} ${hit}`;
+  if (Array.from(both).length <= max) return both;
+  return Array.from(hit).length <= max ? hit : '';
+}
 
 /** The longest run of leading sentences that fits `max` code points, or '' when not even the first does. */
 function wholeSentences(text: string, max: number): string {
@@ -910,17 +937,23 @@ function replacedNote(d: RelatedDecision): string {
   return d.successor?.title ? ` (replaced by: ${safeTitle(d.successor.title)})` : ' (replaced)';
 }
 
+// A later decision on the same topic, said the way align_ask says it. Only the id is shown: the title is one lookup away.
+function laterNote(d: RelatedDecision): string {
+  const id = d.later_on_topic?.[0]?.id;
+  return id ? ` (later: ${safeTitle(id).slice(0, 7)})` : '';
+}
+
 // A title reaches the agent too, so it gets the excerpt's redaction and control stripping.
 function safeTitle(title: string): string {
   return flatten(redactSecrets(title).text).replace(CONTROLS, '');
 }
 
 // One writer of the bullet format. `budget.left` is shared by every list in one output.
-function decisionBullets(decisions: RelatedDecision[], budget: { left: number }): string[] {
+function decisionBullets(decisions: RelatedDecision[], budget: { left: number }, focus = ''): string[] {
   return newestFirst(decisions).flatMap((d) => {
-    const excerpt = excerptOf(d, budget.left);
+    const excerpt = excerptOf(d, budget.left, focus);
     budget.left -= excerpt.length;
-    const head = `- ${dateTag(d)}${safeTitle(d.title)}${replacedNote(d)}`;
+    const head = `- ${dateTag(d)}${safeTitle(d.title)}${replacedNote(d)}${laterNote(d)}`;
     return excerpt ? [head, `  ${excerpt}`] : [head];
   });
 }
@@ -934,6 +967,7 @@ export function buildRelatedOutput(
   wrote: RelatedDecision[] = [],
   retrievalFailed = false,
   verdict: VerdictOutcome = { kind: 'not_requested' },
+  focus = '',
 ): unknown | null {
   const budget = { left: EXCERPT_TOTAL_BUDGET_CHARS };
   // `git blame` names these deterministically: they are not a guess about the subject, they put these exact lines here.
@@ -959,7 +993,7 @@ export function buildRelatedOutput(
     : decisions.length
     ? [
         `${wrote.length ? 'Also, ' : 'Align decision graph: '}${decisions.length} prior decision${decisions.length > 1 ? 's relate' : ' relates'} to this change:`,
-        ...decisionBullets(decisions, budget),
+        ...decisionBullets(decisions, budget, focus),
         'These are related by content search and have NOT been adjudicated. Check whether any of them opposes this change before continuing.',
       ]
     : [];
