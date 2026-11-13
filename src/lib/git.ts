@@ -9,6 +9,26 @@ export interface GitCommit {
   author: string;
   date: string;
   filesChanged: string[];
+  /** How many touched files `filesChanged` leaves out. Absent when it lists them all. */
+  filesOmitted?: number;
+}
+
+/** The most files a stored commit text lists. A bound on size, not on meaning: see `capFiles`. */
+export const COMMIT_FILES_SHOWN = 10;
+
+// Paths that say little about what a decision was: prose, lockfiles, generated or vendored output.
+const LOW_SIGNAL_PATH = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|Cargo\.lock|poetry\.lock|uv\.lock|go\.sum|Gemfile\.lock|composer\.lock|CHANGELOG[^/]*)$|\.(md|mdx|markdown|txt|rst|adoc|lock|snap|map|min\.js|min\.css)$|(^|\/)(dist|build|out|coverage|node_modules|vendor|generated|__generated__|docs?)\//i;
+
+/**
+ * Keep at most COMMIT_FILES_SHOWN paths, source files first. The old cut took the first 10 in
+ * git's alphabetical order, so a commit of many docs plus one source file dropped the source
+ * file. Order inside each group is git's own, so the result is deterministic.
+ */
+function capFiles(files: string[]): { filesChanged: string[]; filesOmitted?: number } {
+  if (files.length <= COMMIT_FILES_SHOWN) return { filesChanged: files };
+  const source = files.filter((f) => !LOW_SIGNAL_PATH.test(f));
+  const rest = files.filter((f) => LOW_SIGNAL_PATH.test(f));
+  return { filesChanged: [...source, ...rest].slice(0, COMMIT_FILES_SHOWN), filesOmitted: files.length - COMMIT_FILES_SHOWN };
 }
 
 export interface CommitHistoryResult {
@@ -123,7 +143,7 @@ export async function getCommitHistoryDetailed(opts: {
       droppedByCap++;
       return;
     }
-    commits.push({ sha, subject: shaped.subject, body: shaped.body, author, date, filesChanged: files.slice(0, 10) });
+    commits.push({ sha, subject: shaped.subject, body: shaped.body, author, date, ...capFiles(files) });
   };
 
   // A header line must carry a full 40-hex sha in the second field. Without the check,
@@ -419,7 +439,8 @@ export function formatCommitAsText(commit: GitCommit, commitUrl?: string): strin
   parts.push(`Author: ${commit.author}`);
   parts.push(`Date: ${commit.date}`);
   if (commit.filesChanged.length) {
-    parts.push(`Files changed:\n${commit.filesChanged.join('\n')}`);
+    const more = commit.filesOmitted ? `\n+${commit.filesOmitted} more file${commit.filesOmitted === 1 ? '' : 's'}` : '';
+    parts.push(`Files changed:\n${commit.filesChanged.join('\n')}${more}`);
   }
   if (commitUrl) parts.push(`URL: ${commitUrl}`);
   return parts.join('\n\n');
