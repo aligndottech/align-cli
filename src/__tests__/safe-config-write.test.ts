@@ -241,6 +241,27 @@ describe('undoWrittenConfigs: the directories align made', () => {
     expect(existsSync(outer)).toBe(false);
   });
 
+  it('takes the parent too when a later record is what emptied it', () => {
+    // Record order a, b, c: a cannot prune `made` while b still sits in `made/nested`, b cannot
+    // prune `nested` while c sits there, and c made nothing. The final pass must not stop at the
+    // first `made` failure or leave it behind after `nested` goes.
+    const manifest = track();
+    const outer = path.join(dir, 'made');
+    const nested = path.join(outer, 'nested');
+    const a = path.join(outer, 'a.json');
+    const b = path.join(nested, 'b.json');
+    const c = path.join(nested, 'c.json');
+    safeWriteJson(a, () => ({ a: 1 }), { note });
+    safeWriteJson(b, () => ({ b: 1 }), { note });
+    safeWriteJson(c, () => ({ c: 1 }), { note });
+    expect(manifest[a]!.createdDirs).toEqual([outer]);
+    expect(manifest[b]!.createdDirs).toEqual([nested]);
+    undoWrittenConfigs(manifest);
+    expect(existsSync(a) || existsSync(b) || existsSync(c)).toBe(false);
+    expect(existsSync(nested)).toBe(false);
+    expect(existsSync(outer)).toBe(false);
+  });
+
   it('leaves a recorded parent that still holds another file', () => {
     const manifest = track();
     const outer = path.join(dir, 'made');

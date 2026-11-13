@@ -998,7 +998,13 @@ export function undoWrittenConfigs(manifest: Record<string, WrittenConfig>, fs: 
     report.done.push(file);
   }
   // One write can create a directory that only a later write empties: the .pi folder holds both
-  // .pi/mcp.json and .pi/extensions/align.ts, so its first holder cannot prune it. Prune again now.
-  for (const entry of Object.values(manifest)) pruneDirs(entry);
+  // .pi/mcp.json and .pi/extensions/align.ts, so its first holder cannot prune it. Prune again now,
+  // every recorded directory at once and deepest first: a parent whose child only emptied after an
+  // earlier record was pruned still goes, and record order cannot leave an empty directory behind.
+  const dirs = new Set(Object.values(manifest).flatMap((entry) => entry.createdDirs ?? []));
+  const depth = (d: string) => d.split(path.sep).length;
+  for (const d of [...dirs].sort((a, b) => depth(b) - depth(a))) {
+    try { fs.rmdirSync(d); } catch { /* not empty, or not ours to remove */ }
+  }
   return report;
 }
