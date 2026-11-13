@@ -68,12 +68,12 @@ export function alignServerEntry(
   env?: string,
   opts: { committed?: boolean; trustedBin?: string | null } = {},
 ): Record<string, unknown> {
-  // `committed` is for a file that TRAVELS between machines - today only the project-local
-  // `.mcp.json`, which agent-rules.ts writes once for the whole team. There is no string that
-  // spawns on both platforms, so the Windows wrapper below is correct for the machine that ran
-  // the command and wrong for everyone else's checkout. A per-machine config takes the
-  // wrapper; a committed one stays portable and its Windows readers use their user-level
-  // entry, which `align mcp --setup` writes with the wrapper.
+  // `committed` is for a file that TRAVELS between machines - today the project-local
+  // `.mcp.json` and pi's own `.pi/mcp.json`, which agent-rules.ts writes once for the whole
+  // team. There is no string that spawns on both platforms, so the Windows wrapper below is
+  // correct for the machine that ran the command and wrong for everyone else's checkout. A
+  // per-machine config takes the wrapper; a committed one stays portable and its Windows
+  // readers use their user-level entry, which `align mcp --setup` writes with the wrapper.
   const { command, args } = opts.committed ? { command: 'align', args: alignArgs(env) } : alignSpawn(env, opts.trustedBin);
   switch (format) {
     case 'vscode':
@@ -194,10 +194,10 @@ export function detectEditors(): EditorTarget[] {
     });
   }
 
-  // pi (pi.dev) - MCP comes from the `pi-mcp-adapter` package, which reads the Pi agent
-  // dir (~/.pi/agent by default, relocatable via $PI_CODING_AGENT_DIR). Write the Pi-owned
-  // override rather than a shared file: it is where pi-only settings like exposure
-  // belong, and it never rewrites another host's config.
+  // pi (pi.dev) - pi 0.99 and later read MCP servers themselves, from the Pi agent dir
+  // (~/.pi/agent by default, relocatable via $PI_CODING_AGENT_DIR) and from the project's
+  // `.pi/mcp.json`, which setup writes (agent-rules.ts). This user-level entry is the other
+  // half: it covers every project on the machine, and it never rewrites another host's config.
   const piAgentDir = process.env['PI_CODING_AGENT_DIR'];
   const piRoot = piAgentDir ?? path.join(home, '.pi');
   if (existsSync(piRoot)) {

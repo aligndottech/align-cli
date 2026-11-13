@@ -803,6 +803,12 @@ function removeOwned(cur: Json, owned: OwnedItem[], originalOf: (snapshot: numbe
  */
 export function undoWrittenConfigs(manifest: Record<string, WrittenConfig>, fs: SafeFs = realFs()): UndoReport {
   const report: UndoReport = { restored: [], removed: [], cleaned: [], skipped: [], done: [] };
+  /** Directories align made for one file, innermost first, each only while empty. */
+  const pruneDirs = (entry: WrittenConfig) => {
+    for (const d of [...(entry.createdDirs ?? [])].reverse()) {
+      try { fs.rmdirSync(d); } catch { break; /* not empty (or gone): the outer ones hold it too */ }
+    }
+  };
   for (const [file, entry] of Object.entries(manifest)) {
     const backupPath = entry.backupAt ?? `${file}${BACKUP_SUFFIX}`;
     const link = linkAt(fs, file);
@@ -837,12 +843,7 @@ export function undoWrittenConfigs(manifest: Record<string, WrittenConfig>, fs: 
       }
     };
     const backupTrusted = (): boolean => snapText(0) !== null;
-    /** Directories align made for this file, innermost first, each only while empty. */
-    const dropDirs = () => {
-      for (const d of [...(entry.createdDirs ?? [])].reverse()) {
-        try { fs.rmdirSync(d); } catch { break; /* not empty (or gone): the outer ones hold it too */ }
-      }
-    };
+    const dropDirs = () => pruneDirs(entry);
     /** Only after a fully clean undo, and only copies that are still align's own. */
     const dropBackup = () => {
       for (const n of [0, ...(entry.snapshots ?? []).map((x) => x.n)]) {
@@ -991,5 +992,8 @@ export function undoWrittenConfigs(manifest: Record<string, WrittenConfig>, fs: 
     report.cleaned.push(file);
     report.done.push(file);
   }
+  // One write can create a directory that only a later write empties: the .pi folder holds both
+  // .pi/mcp.json and .pi/extensions/align.ts, so its first holder cannot prune it. Prune again now.
+  for (const entry of Object.values(manifest)) pruneDirs(entry);
   return report;
 }
