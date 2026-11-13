@@ -50,21 +50,24 @@ export async function connectDetectedAgents(
     // the one place a user with no global agent config is told anything at all.
     const win = process.platform === 'win32';
     const covered = !win && opts.projectMcpWritten === true;
-    // On POSIX the project file connects Claude Code and pi, and "Your agent is connected" prints
+    // On POSIX the two project files connect Claude Code and pi, and "Your agent is connected" prints
     // right after this, so leading with "No agent found" contradicts it. The snippet is for the rest.
     const others = 'Other MCP-capable agents (Cursor, VS Code, Windsurf, Zed, Codex, Gemini CLI, ...) work too';
     // "written above" is only true when the caller wrote the file in this run (`align local start` often does not).
     const written = opts.projectMcpWritten === true;
     const projectNote = win
-      ? `A project .mcp.json${written ? ' (written above)' : ', if present,'} keeps the portable \`align\` command so it works for the whole ` +
-        'team, and Windows cannot spawn that one - so on this machine Claude Code and pi need the per-machine ' +
-        'entry below too. '
-      : opts.projectMcpWritten === true
-        ? 'Claude Code and pi already read the project\'s .mcp.json (written above), so those need nothing further. '
-        : 'No project .mcp.json was written in this run, so Claude Code and pi need the entry below too. ';
+      ? `The project's .mcp.json and .pi/mcp.json${written ? ' (written above)' : ', if present,'} keep the portable ` +
+        '`align` command so it works for the whole team, and Windows cannot spawn that one - so on this machine ' +
+        'Claude Code and pi need the per-machine entry below too. '
+      : written
+        ? 'Claude Code and pi already read the project files written above (.mcp.json for Claude Code, ' +
+          '.pi/mcp.json for pi), so those need nothing further. '
+        : 'No project .mcp.json or .pi/mcp.json was written in this run, so Claude Code and pi need the entry below too. ';
+    // pi reads its own project file, not the shared one: naming only .mcp.json told a pi user the wrong file.
     const lead = covered
-      ? 'Claude Code and pi are connected through the project\'s .mcp.json (written above), so they need nothing ' +
-        'further. The snippet below is only for other agents (Cursor, VS Code, Windsurf, Zed, Codex, Gemini CLI, ...)'
+      ? 'Claude Code and pi are connected through the project files written above (.mcp.json for Claude Code, ' +
+        '.pi/mcp.json for pi), so they need nothing further. The snippet below is only for other agents ' +
+        '(Cursor, VS Code, Windsurf, Zed, Codex, Gemini CLI, ...)'
       : `No agent found a GLOBAL config to connect to. ${projectNote}${others}`;
     p.log.info(
       `${lead} - add this to ` +

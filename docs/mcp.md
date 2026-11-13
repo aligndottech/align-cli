@@ -138,23 +138,40 @@ the CLI to write to. The model decides whether to look, on every edit.
 GitHub Copilot CLI is a different client with a different file, `~/.copilot/mcp-config.json`,
 and `align mcp --setup` offers that one too. It does get a pre-edit hook.
 
-**pi** - MCP isn't built in. Install the adapter first with `pi install npm:pi-mcp-adapter`,
-then restart pi. `align` writes `~/.pi/agent/mcp.json`, or `$PI_CODING_AGENT_DIR/mcp.json`:
+**pi** - pi 0.99 and later read MCP servers themselves, so nothing else is needed; older pi
+needs `pi install npm:pi-mcp-adapter`. `align mcp --setup` writes the user-level entry to
+`~/.pi/agent/mcp.json`, or `$PI_CODING_AGENT_DIR/mcp.json`:
 
 ```json
 {
   "mcpServers": {
-    "align": { "command": "align", "args": ["mcp"], "directTools": true }
+    "align": { "command": "align", "args": ["mcp"], "exposure": "direct" }
   }
 }
 ```
 
+The setup run also writes pi's own project file, `.pi/mcp.json`, with an `align` entry that asks
+for direct exposure. Built-in pi reads that file for the project rather than `.mcp.json`, and
+pi-mcp-adapter ranks it above `.mcp.json`, so with the project trusted both paths declare the
+align tools and hand them to the model directly instead of behind `codemode`. The command line
+it carries is the one setup wrote for the environment it ran with: a plain `align mcp` for the
+default environment, `align mcp --env local` for a local run. For a teammate who cloned the
+repository and never ran the per-user setup, that declaration is what the committed file fixes;
+an entry naming a team environment answers from that environment's graph once the teammate is
+signed in to it, and needs no local graph. Only a local entry does: a clone is not a graph, so a
+machine that has never run `align --local` has nothing to answer from and its first call comes
+back `Local mode is not set up here. Run 'align --local' ...`. That command is still the
+teammate's. When the shared `.mcp.json` already holds a team entry, setup leaves that file alone
+and gives pi's entry the same command, so both files name one destination rather than pi quietly
+reading its own. The shared `.mcp.json` stays host-neutral and carries no pi key.
+
 pi blocks a repo's MCP servers until you trust the project, and Align's entry counts as one.
 Accept pi's trust prompt or Align's tools won't load.
 
-`directTools` matters. The adapter is lazy by default and hides every server behind a single
-proxy tool the agent has to search first, which defeats the "check alignment *before* the edit"
-instruction.
+`exposure: "direct"` matters. pi defaults every server to `codemode`, where the tools are
+callable only from a codemode script and hidden from the model's tool list, which defeats the
+"check alignment *before* the edit" instruction. `directTools: true` is pi-mcp-adapter's own
+spelling of the same setting, for a user who writes the adapter's project file by hand.
 
 **Windsurf** - `~/.codeium/windsurf/mcp_config.json`, same format as Claude Code above.
 

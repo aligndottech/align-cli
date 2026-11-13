@@ -225,6 +225,56 @@ describe('undoWrittenConfigs: untouched files go back whole', () => {
   });
 });
 
+describe('undoWrittenConfigs: the directories align made', () => {
+  // The ledger outlives the checkout: a directory align made can be gone by undo time (a git
+  // checkout drops empty directories), so one recorded directory missing must not stop the rest.
+  it('keeps pruning the empty parents of a recorded directory that is already gone', () => {
+    const manifest = track();
+    const outer = path.join(dir, 'made');
+    const f = path.join(outer, 'mcp.json');
+    safeWriteJson(f, () => ({ a: 1 }), { note });
+    expect(manifest[f]!.createdDirs).toEqual([outer]); // positive control: the writer recorded it
+    manifest[f] = { ...manifest[f]!, createdDirs: [outer, path.join(outer, 'gone')] };
+    const report = undoWrittenConfigs(manifest);
+    expect(report.removed).toEqual([f]);
+    expect(existsSync(f)).toBe(false);
+    expect(existsSync(outer)).toBe(false);
+  });
+
+  it('takes the parent too when a later record is what emptied it', () => {
+    // Record order a, b, c: a cannot prune `made` while b still sits in `made/nested`, b cannot
+    // prune `nested` while c sits there, and c made nothing. The final pass must not stop at the
+    // first `made` failure or leave it behind after `nested` goes.
+    const manifest = track();
+    const outer = path.join(dir, 'made');
+    const nested = path.join(outer, 'nested');
+    const a = path.join(outer, 'a.json');
+    const b = path.join(nested, 'b.json');
+    const c = path.join(nested, 'c.json');
+    safeWriteJson(a, () => ({ a: 1 }), { note });
+    safeWriteJson(b, () => ({ b: 1 }), { note });
+    safeWriteJson(c, () => ({ c: 1 }), { note });
+    expect(manifest[a]!.createdDirs).toEqual([outer]);
+    expect(manifest[b]!.createdDirs).toEqual([nested]);
+    undoWrittenConfigs(manifest);
+    expect(existsSync(a) || existsSync(b) || existsSync(c)).toBe(false);
+    expect(existsSync(nested)).toBe(false);
+    expect(existsSync(outer)).toBe(false);
+  });
+
+  it('leaves a recorded parent that still holds another file', () => {
+    const manifest = track();
+    const outer = path.join(dir, 'made');
+    const f = path.join(outer, 'mcp.json');
+    safeWriteJson(f, () => ({ a: 1 }), { note });
+    manifest[f] = { ...manifest[f]!, createdDirs: [outer, path.join(outer, 'gone')] };
+    const kept = path.join(outer, 'kept.txt');
+    writeFileSync(kept, 'mine');
+    undoWrittenConfigs(manifest);
+    expect(readFileSync(kept, 'utf8')).toBe('mine');
+  });
+});
+
 describe('undoWrittenConfigs: a file the user touched since keeps their work (HIGH 1, 2)', () => {
   it('align adds align-local, the user adds github: undo keeps github and removes only align-local', () => {
     const manifest = track();
