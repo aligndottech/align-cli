@@ -52,6 +52,9 @@ export function laterOnTopic(opts: {
     const d = row ? dateOf(row) : null;
     // Strictly later, on the date each row carries. Equal or earlier is not "later on the topic".
     if (!row || !d || d.ms <= hitDate.ms) return;
+    // An ingest minute is not comparable to a source date: an undated row imported today is "later"
+    // than every commit, which says nothing about the topic. Compare like with like.
+    if (hitDate.basis === 'decided' && d.basis === 'recorded') return;
     const prior = out.get(id);
     out.set(id, {
       id, title: row.title,

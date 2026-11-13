@@ -31,6 +31,7 @@ vi.mock('../lib/local-relationship-classifier.js', () => ({
 }));
 
 import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
+import { createLocalDb } from '../lib/local-db.js';
 import { cosineSimilarity, getEmbedding } from '../lib/local-embeddings.js';
 
 beforeEach(() => { vi.stubEnv('ALIGN_DETECTOR', 'v0'); });
@@ -38,16 +39,18 @@ afterEach(() => { vi.unstubAllEnvs(); });
 
 // Slot 1 = old rule, 2 = correction, 3 = noise, 4 = a second same-topic note that corrects nothing.
 // Query-to-row scores are chosen: the old rule repeats the question's words, so it scores highest.
-const DENSE: Record<number, number> = { 1: 0.72, 2: 0.6, 3: 0.12, 4: 0.58, 5: 0.4 };
+const DENSE: Record<number, number> = { 1: 0.72, 2: 0.6, 3: 0.12, 4: 0.58, 5: 0.4, 6: 0.65 };
 // Row-to-row similarity, used when a row is the "query" (later_on_topic looks for its neighbours).
-const PAIR: Record<string, number> = { '1-2': 0.7, '1-4': 0.7, '1-3': 0.1, '2-3': 0.1, '2-4': 0.7, '3-4': 0.1 };
-const slotOf = (t: string) => (/\(old\)/.test(t) ? 1 : /\(fix\)/.test(t) ? 2 : /\(noise\)/.test(t) ? 3 : /\(also\)/.test(t) ? 4 : /\(pre\)/.test(t) ? 5 : 9);
+const PAIR: Record<string, number> = { '1-6': 0.7, '1-2': 0.7, '1-4': 0.7, '1-3': 0.1, '2-3': 0.1, '2-4': 0.7, '3-4': 0.1 };
+const slotOf = (t: string) => (/\(old\)/.test(t) ? 1 : /\(fix\)/.test(t) ? 2 : /\(noise\)/.test(t) ? 3 : /\(also\)/.test(t) ? 4 : /\(pre\)/.test(t) ? 5 : /\(undated\)/.test(t) ? 6 : 9);
 
 const OLD = { title: 'Frametime is 0.1s, a 10 Hz tick rate, measured not assumed (old)', raw_text: 'Frametime is 0.1s, a 10 Hz tick rate, measured not assumed (old)', created_at: '2026-09-01T10:00:00Z' };
 const FIX = { title: 'Frametime correction: the engine frame counter says 19 Hz, about 0.05s (fix)', raw_text: 'Frametime correction: the engine frame counter says 19 Hz, about 0.05s (fix)', created_at: '2026-10-15T10:00:00Z' };
 const NOISE = { title: 'Add a pause menu to the HUD (noise)', raw_text: 'Add a pause menu to the HUD (noise)', created_at: '2026-10-20T10:00:00Z' };
 // Older than the rule and the weakest match, so search order and date order disagree about it.
 const PRE = { title: 'Tick rate starts at 5 Hz for the prototype (pre)', raw_text: 'Tick rate starts at 5 Hz for the prototype (pre)', created_at: '2026-08-01T10:00:00Z' };
+// No source date at all, so its only clock is the ingest minute: today, i.e. after everything.
+const UNDATED = { title: 'Tick rate notes (undated)', raw_text: 'Tick rate notes (undated)' } as unknown as typeof OLD;
 const ALSO = { title: 'Log the tick rate on startup (also)', raw_text: 'Log the tick rate on startup (also)', created_at: '2026-10-16T10:00:00Z' };
 
 describe('local search: an older refuted rule and its correction', () => {
@@ -106,4 +109,37 @@ describe('local search: an older refuted rule and its correction', () => {
     expect(t.decisions?.[0]).toMatchObject({ decided_at: expect.stringContaining('2026-08-01'), date_basis: 'decided' });
     expect(t).toMatchObject({ topic: 'what is the tick rate', count: 3 });
   });
+
+  it('does not call an undated row (ingest minute only) "later" than a row with a source date', async () => {
+    await seed(OLD, FIX, UNDATED);
+    const { results } = await client.searchDecisions('what is the tick rate', 5, undefined, { all: true });
+    const old = results.find(r => /\(old\)/.test(r.title)) as unknown as { later_on_topic?: Array<Record<string, unknown>> };
+    expect(old.later_on_topic?.map(e => /\((\w+)\)$/.exec(String(e['title']))?.[1])).toEqual(['fix']);
+  });
+
+  it('puts an undated row LAST in the topic timeline, not first', async () => {
+    await seed(OLD, FIX, UNDATED);
+    const t = await client.getTopicTimeline('what is the tick rate', 50, undefined, { all: true });
+    expect(byTag(t.decisions ?? [])).toEqual(['old', 'fix', 'undated']);
+  });
+
+  it('a typed edge to a decision in ANOTHER repo is not listed when the search is scoped to this repo', async () => {
+    await seed(OLD, FIX);
+    await client.ingestBatch([{ ...ALSO, platform: 'git', source_url: 'https://github.com/other/secret-repo/commit/4' }], { classify: false });
+    const db = createLocalDb(dbPath);
+    const rows = db.listDecisions({});
+    const oldRow = rows.find(r => /\(old\)/.test(r.title))!;
+    const foreign = rows.find(r => /\(also\)/.test(r.title))!;
+    expect(foreign.repo).not.toBe(oldRow.repo);
+    db.insertLink({ sourceId: foreign.id, targetId: oldRow.id, relation: 'supersedes', confidence: 1 });
+    db.close();
+    const scoped = await client.searchDecisions('what is the tick rate', 5, undefined, { repo: oldRow.repo! });
+    const old = scoped.results.find(r => /\(old\)/.test(r.title)) as unknown as { later_on_topic?: Array<Record<string, unknown>> };
+    expect(old.later_on_topic?.map(e => String(e['title']))).not.toContain(foreign.title);
+    // positive control: unscoped, the same edge IS listed
+    const all = await client.searchDecisions('what is the tick rate', 5, undefined, { all: true });
+    const oldAll = all.results.find(r => /\(old\)/.test(r.title)) as unknown as { later_on_topic?: Array<Record<string, unknown>> };
+    expect(oldAll.later_on_topic?.map(e => String(e['title']))).toContain(foreign.title);
+  });
 });
+

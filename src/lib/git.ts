@@ -17,7 +17,8 @@ export interface GitCommit {
 export const COMMIT_FILES_SHOWN = 10;
 
 // Paths that say little about what a decision was: prose, lockfiles, generated or vendored output.
-const LOW_SIGNAL_PATH = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|Cargo\.lock|poetry\.lock|uv\.lock|go\.sum|Gemfile\.lock|composer\.lock|CHANGELOG[^/]*)$|\.(md|mdx|markdown|txt|rst|adoc|lock|snap|map|min\.js|min\.css)$|(^|\/)(dist|build|out|coverage|node_modules|vendor|generated|__generated__|docs?)\//i;
+// Build output dirs count only at the repo root: `src/build/compile.ts` is source. `doc/` is not `docs/`.
+const LOW_SIGNAL_PATH = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|Cargo\.lock|poetry\.lock|uv\.lock|go\.sum|Gemfile\.lock|composer\.lock|CHANGELOG[^/]*)$|\.(md|mdx|markdown|txt|rst|adoc|lock|snap|map|min\.js|min\.css)$|^(dist|build|out|coverage|node_modules)\/|(^|\/)(vendor|generated|__generated__|docs)\//i;
 
 /**
  * Keep at most COMMIT_FILES_SHOWN paths, source files first. The old cut took the first 10 in

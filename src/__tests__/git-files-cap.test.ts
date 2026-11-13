@@ -65,4 +65,12 @@ describe('commit file list under the cap', () => {
     expect(formatCommitAsText(c)).toContain('+1 more file');
     expect(formatCommitAsText(c)).not.toContain('+1 more files');
   });
+
+  it('treats source under a nested build/, doc/ or out/ directory as source, and a root dist/ as generated', async () => {
+    const nested = ['src/build/compile.ts', 'tools/build/x.ts', 'src/doc/parser.ts', 'src/out/emit.ts'];
+    const c = await filesOf([...docs(20), 'dist/bundle.js', ...nested]);
+    expect(c.filesChanged.slice(0, 4)).toEqual(nested);
+    expect(c.filesChanged).not.toContain('dist/bundle.js');
+  });
 });
+

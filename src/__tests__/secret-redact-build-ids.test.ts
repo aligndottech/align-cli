@@ -116,3 +116,22 @@ describe('real credential shapes are unchanged', () => {
     });
   }
 });
+
+describe('an identifier word at the END of the label does not launder a credential word before it', () => {
+  const MD5 = SHA64.slice(0, 32);
+  it('password_hash / token-hash / api_key_commit / secret.sha / auth_digest are still redacted', () => {
+    redacted(fx('pass', 'word_hash:', MD5), MD5);
+    redacted(`token-hash:${SHA40}`, SHA40);
+    redacted(`api_key_commit:${SHA40}`, SHA40);
+    redacted(`secret.sha:${SHA40}`, SHA40);
+    redacted(`auth_digest:${SHA64}`, SHA64);
+    redacted(`private_key_rev:${SHA40}`, SHA40);
+    redacted(`credential_checksum:${SHA40}`, SHA40);
+  });
+  it('identifier prefixes with no credential word are still kept', () => {
+    kept(`git_sha:${SHA40}`);
+    kept(`image_digest:${SHA64}`);
+    kept(`release.build_id:${SHA40}`);
+  });
+});
+

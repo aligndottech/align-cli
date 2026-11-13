@@ -121,13 +121,19 @@ const DIGEST = /^(?:sha(?:1|224|256|384|512)|md5|blake2[bs]?):[0-9a-f]+$/i;
  * the value is a pure hex identifier (a git SHA of 7-40 characters or a 64-character sha256), and the label's last word
  * names an identifier (build, build_id, fingerprint, hash, sha, commit, checksum, digest, rev, revision). Everything
  * else with that shape is still a credential: the same hex under `admin:` or `password:`, a non-hex value under
- * `build:`, a hex run of any other length, and a label such as `buildtoken` whose last word is not on the list.
+ * `build:`, a hex run of any other length, a label such as `buildtoken` whose last word is not on the list, and any
+ * label carrying a credential word before the identifier word (`password_hash`, `api_key_commit`).
  */
 const HEX_ID = /^(?:[0-9a-f]{7,40}|[0-9a-f]{64})$/i;
 const ID_LABEL = /^(?:[a-z0-9]+[_.-])*(?:build[_.-]?id|build|fingerprint|hash|sha\d{0,3}|commit|checksum|digest|rev|revision)$/i;
+// Any credential word ANYWHERE in the label disqualifies it: `password_hash:<md5>` ends in an identifier word and
+// is still a stored password hash. Matching more than needed only redacts more, which is the safe direction.
+const CREDENTIAL_WORD = /pass|secret|token|key|auth|cred|private|api|session|cookie|bearer/i;
 const isBuildIdentifier = (match: string): boolean => {
   const i = match.indexOf(':');
-  return i > 0 && ID_LABEL.test(match.slice(0, i)) && HEX_ID.test(match.slice(i + 1));
+  if (i <= 0) return false;
+  const label = match.slice(0, i);
+  return ID_LABEL.test(label) && !CREDENTIAL_WORD.test(label) && HEX_ID.test(match.slice(i + 1));
 };
 
 export function redactSecrets(text: string): Redaction {
