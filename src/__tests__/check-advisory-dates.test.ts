@@ -51,6 +51,14 @@ describe('newer items are told apart from older ones', () => {
     expect(out.indexOf('New rule')).toBeLessThan(out.indexOf('Old rule'));
   });
 
+  it('orders two decisions from the same day by time, not just by day', () => {
+    const out = show([
+      { id: 'morning', title: 'Morning rule', decided_at: '2026-11-13T08:00:00Z' },
+      { id: 'evening', title: 'Evening correction', decided_at: '2026-11-13T16:00:00Z' },
+    ]);
+    expect(out.indexOf('Evening correction')).toBeLessThan(out.indexOf('Morning rule'));
+  });
+
   it('keeps retrieval order between undated items and puts them after dated ones', () => {
     const out = show([
       { id: 'u1', title: 'Undated one' },

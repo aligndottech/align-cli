@@ -112,7 +112,8 @@ const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\
 // without shifting it - deterministic regardless of the machine. Force the same "naive =
 // UTC" reading here by appending `Z` before parsing, or the two languages can render a
 // DIFFERENT date for the identical input depending on where each one runs.
-const HAS_TIME = /T\d{2}:\d{2}/;
+// SQLite's own `created_at` is "YYYY-MM-DD HH:MM:SS" (UTC, space, no zone), so a space counts as the separator.
+const HAS_TIME = /[T ]\d{2}:\d{2}/;
 const HAS_ZONE_DESIGNATOR = /(Z|[+-]\d{2}:?\d{2})$/;
 
 /** Mirrors app/relationship_type_rules.parse_decided_at's ISO-string branch: an
@@ -120,11 +121,17 @@ const HAS_ZONE_DESIGNATOR = /(Z|[+-]\d{2}:?\d{2})$/;
  * (e.g. `-05:00`) is normalized to UTC on both sides identically, via `_as_utc`'s
  * `.astimezone(UTC)` here and `.toISOString()`'s implicit UTC output there. */
 export function isoDay(decidedAt: string | null | undefined): string | null {
-  if (!decidedAt || !ISO_DATE_RE.test(decidedAt)) return null;
-  const naive = HAS_TIME.test(decidedAt) && !HAS_ZONE_DESIGNATOR.test(decidedAt);
-  const parsed = new Date(naive ? `${decidedAt}Z` : decidedAt);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return parsed.toISOString().slice(0, 10);
+  const ms = isoInstant(decidedAt);
+  return ms === null ? null : new Date(ms).toISOString().slice(0, 10);
+}
+
+/** The same reading as {@link isoDay}, as epoch milliseconds, for ordering two dates within one day. */
+export function isoInstant(value: string | null | undefined): number | null {
+  if (!value || !ISO_DATE_RE.test(value)) return null;
+  const iso = value.replace(' ', 'T');
+  const naive = HAS_TIME.test(iso) && !HAS_ZONE_DESIGNATOR.test(iso);
+  const ms = Date.parse(naive ? `${iso}Z` : iso);
+  return Number.isNaN(ms) ? null : ms;
 }
 
 function decidedLabel(decidedAt: string | null | undefined): string | null {

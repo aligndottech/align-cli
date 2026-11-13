@@ -86,10 +86,7 @@ describe('the CLI mirror of the gateway telemetry contract (pinned)', () => {
     expect(sorted(AGENT_USE_VIA)).toEqual(sorted(SERVER_AGENT_USE_VIA));
     expect(sorted(AGENT_USE_TOOLS)).toEqual(sorted(SERVER_AGENT_USE_TOOLS));
     expect(sorted(AGENT_USE_VERDICTS)).toEqual(sorted(SERVER_AGENT_USE_VERDICTS));
-    // align_backlog (#578) is not on the merged gateway list yet, so recordAgentUse drops it rather than send a 400.
-    // Remove this exemption in the same PR that adds it to the gateway's AGENT_USE_TOOLS and to AGENT_USE_TOOLS here.
-    const NOT_YET_ON_GATEWAY = new Set(['align_backlog']);
-    const served = TOOL_SCHEMAS.map((t) => t.name).filter((n) => !NOT_YET_ON_GATEWAY.has(n));
+    const served = TOOL_SCHEMAS.map((t) => t.name);
     expect(served.length).toBeGreaterThan(5); // positive control: the schemas were actually read
     for (const name of served) expect(SERVER_AGENT_USE_TOOLS, `${name} would be dropped from agent_use`).toContain(name);
   });

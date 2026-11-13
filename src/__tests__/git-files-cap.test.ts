@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('execa', () => ({ execa: vi.fn() }));
 
 import { execa } from 'execa';
-import { formatCommitAsText, getCommitHistory } from '../lib/git.js';
+import { formatCommitAsText, getCommitHistory, unquoteGitPath } from '../lib/git.js';
 
 /**
  * The stored commit text lists the files a commit touched, bounded so one huge commit
@@ -53,6 +53,14 @@ describe('commit file list under the cap', () => {
     expect(c.filesChanged.slice(0, 2)).toEqual(['src/b.ts', 'src/a.ts']);
   });
 
+  it('reads paths git C-quotes (non-ASCII names) as the real path', async () => {
+    // core.quotePath (on by default) writes docs/page-é-0.md as "docs/page-\303\251-0.md".
+    const quoted = Array.from({ length: 12 }, (_, i) => `"docs/page-\\303\\251-${i}.md"`);
+    const c = await filesOf([...quoted, 'src/auth.ts']);
+    expect(c.filesChanged).toContain('src/auth.ts');
+    expect(c.filesChanged).toContain('docs/page-\u00e9-0.md');
+  });
+
   it('says how many were left out, in the data and in the stored text', async () => {
     const c = await filesOf([...docs(25), 'src/auth.ts']);
     expect(c.filesOmitted).toBe(26 - FILES_SHOWN);
@@ -74,3 +82,13 @@ describe('commit file list under the cap', () => {
   });
 });
 
+
+describe('unquoteGitPath', () => {
+  it('decodes the escapes git writes and leaves an unquoted path alone', () => {
+    expect(unquoteGitPath('"docs/caf\\303\\251.md"')).toBe('docs/caf\u00e9.md');
+    expect(unquoteGitPath('"a\\"b\\\\c\\td.ts"')).toBe('a"b\\c\td.ts');
+    expect(unquoteGitPath('"emoji-\\360\\237\\232\\200.ts"')).toBe('emoji-\u{1F680}.ts');
+    expect(unquoteGitPath('src/plain.ts')).toBe('src/plain.ts');
+    expect(unquoteGitPath('"raw-\u{1F680}.ts"')).toBe('raw-\u{1F680}.ts');
+  });
+});

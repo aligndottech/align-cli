@@ -31,7 +31,7 @@ import { detectDeterministicHits, ratifiedDeterministicRules, ruleDenyReason } f
 import { dependencyIntentQuery } from '../lib/agent/dependency-intent.js';
 import { redactSecrets } from '../lib/share/secret-scan.js';
 import { decisionLinkFor } from '../lib/decision-links.js';
-import { isoDay } from '../lib/decision-render.js';
+import { isoDay, isoInstant } from '../lib/decision-render.js';
 import type { ChangeSource } from '../lib/co-change-check.js';
 import type { CoChangeViolation } from '../lib/co-change.js';
 
@@ -891,8 +891,8 @@ function wholeSentences(text: string, max: number): string {
 // Newest decision first, so a later correction is read before the rule it replaced. Stable: items
 // with no usable date keep retrieval order and follow the dated ones.
 function newestFirst(decisions: RelatedDecision[]): RelatedDecision[] {
-  const day = (d: RelatedDecision): string => isoDay(d.decided_at) ?? '';
-  return [...decisions].sort((a, b) => (day(a) < day(b) ? 1 : day(a) > day(b) ? -1 : 0));
+  const at = (d: RelatedDecision): number => isoInstant(d.decided_at) ?? -Infinity;
+  return [...decisions].sort((a, b) => (at(a) < at(b) ? 1 : at(a) > at(b) ? -1 : 0));
 }
 
 // "[2026-09-14]" is when it was decided. Without decided_at the import day stands in and says so.
