@@ -39,7 +39,15 @@ const AWS_CONTEXT = patterns.aws_context_chars;
 /** Placeholder names found in `text`, each once, in pattern order. */
 export function secretsIn(text: string): string[] {
   const found: string[] = [];
-  for (const c of COMPILED) if (c.re.test(text) && !found.includes(c.placeholder)) found.push(c.placeholder);
+  for (const c of COMPILED) {
+    if (found.includes(c.placeholder)) continue;
+    if (c.placeholder !== '<CREDENTIALS>') { if (c.re.test(text)) found.push(c.placeholder); continue; }
+    // A build fingerprint or digest is not a credential (see isBuildIdentifier), so judge every match, not the first.
+    const all = new RegExp(c.re.source, 'gi');
+    for (let m = all.exec(text); m; m = all.exec(text)) {
+      if (!DIGEST.test(m[0]) && !isBuildIdentifier(m[0])) { found.push(c.placeholder); break; }
+    }
+  }
   // The bare AWS secret shape is only a secret near the word "aws", exactly as the server decides.
   AWS_BARE.lastIndex = 0;
   for (let m = AWS_BARE.exec(text); m; m = AWS_BARE.exec(text)) {
@@ -108,12 +116,26 @@ const REWRITES: Rewrite[] = [
  */
 const DIGEST = /^(?:sha(?:1|224|256|384|512)|md5|blake2[bs]?):[0-9a-f]+$/i;
 
+/**
+ * A build fingerprint written `build:3f9c...` has the `label:value` shape too. Kept as written when BOTH hold:
+ * the value is a pure hex identifier (a git SHA of 7-40 characters or a 64-character sha256), and the label's last word
+ * names an identifier (build, build_id, fingerprint, hash, sha, commit, checksum, digest, rev, revision). Everything
+ * else with that shape is still a credential: the same hex under `admin:` or `password:`, a non-hex value under
+ * `build:`, a hex run of any other length, and a label such as `buildtoken` whose last word is not on the list.
+ */
+const HEX_ID = /^(?:[0-9a-f]{7,40}|[0-9a-f]{64})$/i;
+const ID_LABEL = /^(?:[a-z0-9]+[_.-])*(?:build[_.-]?id|build|fingerprint|hash|sha\d{0,3}|commit|checksum|digest|rev|revision)$/i;
+const isBuildIdentifier = (match: string): boolean => {
+  const i = match.indexOf(':');
+  return i > 0 && ID_LABEL.test(match.slice(0, i)) && HEX_ID.test(match.slice(i + 1));
+};
+
 export function redactSecrets(text: string): Redaction {
   let count = 0;
   let out = text;
   for (const w of REWRITES) {
     out = out.replace(w.re, (...args: unknown[]) => {
-      if (w.replacement === '<CREDENTIALS>' && DIGEST.test(args[0] as string)) return args[0] as string;
+      if (w.replacement === '<CREDENTIALS>' && (DIGEST.test(args[0] as string) || isBuildIdentifier(args[0] as string))) return args[0] as string;
       count += 1;
       // replace() passes the match, then each capture group, then the offset (the first number).
       const groups = args.slice(1, args.findIndex((a, i) => i > 0 && typeof a === 'number'));
