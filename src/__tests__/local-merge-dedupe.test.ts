@@ -15,8 +15,8 @@ describe('dropMergeCarriers never loses the decision a merge row carries', () =>
     expect(dropMergeCarriers(['commit', 'other', 'merge'], rowOf)).toEqual(['commit', 'other']);
   });
 
-  it('keeps the merge when the twin ranks below it, so a limit cut cannot drop both', () => {
-    expect(dropMergeCarriers(['merge', 'other', 'commit'], rowOf)).toEqual(['merge', 'other', 'commit']);
+  it('puts the twin in the merge row\'s better slot when the merge ranks first, so a limit cut cannot drop it', () => {
+    expect(dropMergeCarriers(['merge', 'other', 'commit'], rowOf)).toEqual(['commit', 'other']);
   });
 
   it('keeps the merge when the twin is hidden (marked not-a-decision)', () => {
