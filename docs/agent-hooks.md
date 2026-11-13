@@ -55,8 +55,9 @@ payload has been captured, so they are here to stop the next reader re-deriving 
 
 - *The tools are declared only if the entry asks.* pi defaults every MCP server to `codemode`
   exposure, which makes the tools callable from a codemode script and hides them from the
-  model's tool list. `align mcp --setup` therefore writes `"exposure": "direct"` in the
-  pi-owned entry; without it the setup reports pi connected and the model has nothing to call.
+  model's tool list. Setup therefore asks for `"exposure": "direct"` in both pi-owned entries,
+  the user-level one and the project's `.pi/mcp.json`; without it the setup reports pi connected
+  and the model has no align tool it can call by name.
 - *The nudge names the tool in both forms.* pi registers every server tool as
   `mcp__<server>__<tool>`, so a pi session has `mcp__align__align_check_alignment` and not the
   bare name. The shared `AGENTS.md` block gives both, which is also what a host that prefixes

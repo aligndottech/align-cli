@@ -138,23 +138,35 @@ the CLI to write to. The model decides whether to look, on every edit.
 GitHub Copilot CLI is a different client with a different file, `~/.copilot/mcp-config.json`,
 and `align mcp --setup` offers that one too. It does get a pre-edit hook.
 
-**pi** - MCP isn't built in. Install the adapter first with `pi install npm:pi-mcp-adapter`,
-then restart pi. `align` writes `~/.pi/agent/mcp.json`, or `$PI_CODING_AGENT_DIR/mcp.json`:
+**pi** - pi 0.99 and later read MCP servers themselves, so nothing else is needed; older pi
+needs `pi install npm:pi-mcp-adapter`. `align mcp --setup` writes the user-level entry to
+`~/.pi/agent/mcp.json`, or `$PI_CODING_AGENT_DIR/mcp.json`:
 
 ```json
 {
   "mcpServers": {
-    "align": { "command": "align", "args": ["mcp"], "directTools": true }
+    "align": { "command": "align", "args": ["mcp"], "exposure": "direct" }
   }
 }
 ```
 
+The setup run also writes pi's own project file, `.pi/mcp.json`, with the same entry. That is the
+file that declares the tools for a teammate who cloned the repository and never ran the per-user
+setup: pi reads it for that project, and pi-mcp-adapter ranks it above `.mcp.json`, so on both
+paths the model gets the tools directly instead of behind `codemode`. On a machine that has a
+local graph they answer straight away. A clone is not a graph, though: the committed entry runs
+the local server (`align mcp --env local`), and a machine that has never run `align --local` has
+nothing to answer from, so its first call comes back `Local mode is not set up here. Run
+'align --local' ...`. That command is still the teammate's. The shared `.mcp.json` stays
+host-neutral and carries no pi key.
+
 pi blocks a repo's MCP servers until you trust the project, and Align's entry counts as one.
 Accept pi's trust prompt or Align's tools won't load.
 
-`directTools` matters. The adapter is lazy by default and hides every server behind a single
-proxy tool the agent has to search first, which defeats the "check alignment *before* the edit"
-instruction.
+`exposure: "direct"` matters. pi defaults every server to `codemode`, where the tools are
+callable only from a codemode script and hidden from the model's tool list, which defeats the
+"check alignment *before* the edit" instruction. `directTools: true` is pi-mcp-adapter's own
+spelling of the same setting, for a user who writes the adapter's project file by hand.
 
 **Windsurf** - `~/.codeium/windsurf/mcp_config.json`, same format as Claude Code above.
 

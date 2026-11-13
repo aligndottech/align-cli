@@ -157,7 +157,8 @@ Hook limits worth knowing:
   from the vendors' docs or source, and Codex, Cursor and Copilot CLI have not been checked
   against a real payload. The last three read hooks from a user-level file (`~/.codex/hooks.json`,
   `~/.cursor/hooks.json`, `~/.copilot/hooks/align.json`).
-- pi's MCP entry needs the third-party `pi-mcp-adapter` package installed in pi. pi also blocks a
+- pi reads MCP servers itself from 0.99 and later, and an older pi needs the third-party
+  `pi-mcp-adapter` package installed in it. pi also blocks a
   repo's MCP servers until you trust the project, and Align's entry counts as one, so accept pi's
   trust prompt or Align's tools won't load. `pi -p` skips the prompt and runs without them.
 - Claude Code asks you to approve a committed hook the first time. Accept, or it won't run.
