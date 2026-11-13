@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { buildRelatedOutput, EXCERPT_BUDGET_CHARS, EXCERPT_TOTAL_BUDGET_CHARS } from '../commands/check.js';
 
 /**
- * ALI-2100 (a user report): "the edit hook's context has no dates, and trims each item just
+ * A user report: "the edit hook's context has no dates, and trims each item just
  * before the sentence that matters." Each item now says when it was decided, and a cut keeps
  * whole sentences.
  */

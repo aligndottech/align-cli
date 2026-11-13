@@ -6,7 +6,7 @@ import { execa } from 'execa';
 import { formatCommitAsText, getCommitHistory } from '../lib/git.js';
 
 /**
- * ALI-2100: the stored commit text lists the files a commit touched, bounded so one huge commit
+ * the stored commit text lists the files a commit touched, bounded so one huge commit
  * cannot bloat a decision. The bound used to be the FIRST 10 paths in git's alphabetical order, so
  * a commit of many docs plus one source file lost the source file - the one path that says what
  * the decision was about.
