@@ -376,7 +376,9 @@ describe("connectDetectedAgents - the zero-editors message", () => {
     connectDetectedAgents("local", { approved: true, projectMcpWritten: true });
     const all = logged.join("\n");
     expect(all).not.toMatch(/no agent found/i);
-    expect(all).toMatch(/^Claude Code and pi are connected through the project's \.mcp\.json/);
+    // pi loads .pi/mcp.json, not the shared .mcp.json: the line has to name the file each one reads.
+    expect(all).toMatch(/^Claude Code and pi are connected through the project files written above \(\.mcp\.json for Claude Code, \.pi\/mcp\.json for pi\)/);
+    expect(all).not.toMatch(/connected through the project's \.mcp\.json/);
     expect(all).toContain("only for other agents");
   });
 
