@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.77.1](https://github.com/aligndottech/align-cli/compare/cli-v0.77.0...cli-v0.77.1) (2026-11-13)
+
+
+### Bug Fixes
+
+* give pi direct exposure in its own project file ([#579](https://github.com/aligndottech/align-cli/issues/579)) ([49b0075](https://github.com/aligndottech/align-cli/commit/49b007515f3c2696f066ddf96d7a8b8acaa2c815))
+* keep fnv/blake3/crc digests, search status, false '(written above)' ([#585](https://github.com/aligndottech/align-cli/issues/585)) ([b81bff9](https://github.com/aligndottech/align-cli/commit/b81bff9bf460e50db88b6a6c94f4943be0ab5b97))
+* **local:** four bugs from a local-mode trial: later_on_topic, hook dates, build-hash redaction, file cap ([#580](https://github.com/aligndottech/align-cli/issues/580)) ([92043cc](https://github.com/aligndottech/align-cli/commit/92043cc59b4e1646fd8c4ab4dd8e38aaae78768f))
+
 ## [0.77.0](https://github.com/aligndottech/align-cli/compare/cli-v0.76.1...cli-v0.77.0) (2026-11-12)
 
 
