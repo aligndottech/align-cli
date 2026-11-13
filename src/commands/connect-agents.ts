@@ -53,12 +53,16 @@ export async function connectDetectedAgents(
     // On POSIX the two project files connect Claude Code and pi, and "Your agent is connected" prints
     // right after this, so leading with "No agent found" contradicts it. The snippet is for the rest.
     const others = 'Other MCP-capable agents (Cursor, VS Code, Windsurf, Zed, Codex, Gemini CLI, ...) work too';
+    // "written above" is only true when the caller wrote the file in this run (`align local start` often does not).
+    const written = opts.projectMcpWritten === true;
     const projectNote = win
-      ? 'The project\'s .mcp.json and .pi/mcp.json (written above) keep the portable `align` command so it works ' +
-        'for the whole team, and Windows cannot spawn that one - so on this machine Claude Code and pi need the ' +
-        'per-machine entry below too. '
-      : 'Claude Code and pi already read the project files written above (.mcp.json for Claude Code, ' +
-        '.pi/mcp.json for pi), so those need nothing further. ';
+      ? `The project's .mcp.json and .pi/mcp.json${written ? ' (written above)' : ', if present,'} keep the portable ` +
+        '`align` command so it works for the whole team, and Windows cannot spawn that one - so on this machine ' +
+        'Claude Code and pi need the per-machine entry below too. '
+      : written
+        ? 'Claude Code and pi already read the project files written above (.mcp.json for Claude Code, ' +
+          '.pi/mcp.json for pi), so those need nothing further. '
+        : 'No project .mcp.json or .pi/mcp.json was written in this run, so Claude Code and pi need the entry below too. ';
     // pi reads its own project file, not the shared one: naming only .mcp.json told a pi user the wrong file.
     const lead = covered
       ? 'Claude Code and pi are connected through the project files written above (.mcp.json for Claude Code, ' +

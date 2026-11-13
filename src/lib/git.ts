@@ -9,6 +9,50 @@ export interface GitCommit {
   author: string;
   date: string;
   filesChanged: string[];
+  /** How many touched files `filesChanged` leaves out. Absent when it lists them all. */
+  filesOmitted?: number;
+}
+
+/** The most files a stored commit text lists. A bound on size, not on meaning: see `capFiles`. */
+export const COMMIT_FILES_SHOWN = 10;
+
+// Paths that say little about what a decision was: prose, lockfiles, generated or vendored output.
+// Build output dirs count only at the repo root: `src/build/compile.ts` is source. `doc/` is not `docs/`.
+const LOW_SIGNAL_PATH = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|Cargo\.lock|poetry\.lock|uv\.lock|go\.sum|Gemfile\.lock|composer\.lock|CHANGELOG[^/]*)$|\.(md|mdx|markdown|txt|rst|adoc|lock|snap|map|min\.js|min\.css)$|^(dist|build|out|coverage|node_modules)\/|(^|\/)(vendor|generated|__generated__|docs)\//i;
+
+const C_ESCAPES: Record<string, number> = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13, '"': 34, '\\': 92 };
+
+/**
+ * git C-quotes a path holding non-ASCII bytes, a quote or a backslash (core.quotePath, on by
+ * default): docs/page-é.md arrives as "docs/page-\303\251.md". Undo it so the path is classified
+ * and stored as the real name. An unquoted path is returned unchanged.
+ */
+export function unquoteGitPath(path: string): string {
+  if (path.length < 2 || !path.startsWith('"') || !path.endsWith('"')) return path;
+  const bytes: number[] = [];
+  const body = path.slice(1, -1);
+  for (let i = 0; i < body.length; i++) {
+    const cp = body.codePointAt(i)!;
+    if (cp !== 92) { bytes.push(...Buffer.from(String.fromCodePoint(cp), 'utf8')); if (cp > 0xffff) i++; continue; }
+    const octal = /^[0-3][0-7]{2}/.exec(body.slice(i + 1));
+    if (octal) { bytes.push(parseInt(octal[0], 8)); i += 3; continue; }
+    const esc = C_ESCAPES[body[i + 1] ?? ''];
+    if (esc === undefined) return path; // not a form git writes: keep what git gave
+    bytes.push(esc); i += 1;
+  }
+  return Buffer.from(bytes).toString('utf8');
+}
+
+/**
+ * Keep at most COMMIT_FILES_SHOWN paths, source files first. The old cut took the first 10 in
+ * git's alphabetical order, so a commit of many docs plus one source file dropped the source
+ * file. Order inside each group is git's own, so the result is deterministic.
+ */
+function capFiles(files: string[]): { filesChanged: string[]; filesOmitted?: number } {
+  if (files.length <= COMMIT_FILES_SHOWN) return { filesChanged: files };
+  const source = files.filter((f) => !LOW_SIGNAL_PATH.test(f));
+  const rest = files.filter((f) => LOW_SIGNAL_PATH.test(f));
+  return { filesChanged: [...source, ...rest].slice(0, COMMIT_FILES_SHOWN), filesOmitted: files.length - COMMIT_FILES_SHOWN };
 }
 
 export interface CommitHistoryResult {
@@ -123,7 +167,7 @@ export async function getCommitHistoryDetailed(opts: {
       droppedByCap++;
       return;
     }
-    commits.push({ sha, subject: shaped.subject, body: shaped.body, author, date, filesChanged: files.slice(0, 10) });
+    commits.push({ sha, subject: shaped.subject, body: shaped.body, author, date, ...capFiles(files) });
   };
 
   // A header line must carry a full 40-hex sha in the second field. Without the check,
@@ -169,7 +213,7 @@ export async function getCommitHistoryDetailed(opts: {
         bodyLines.push(line);
       }
     } else if (mode === 'files' && line.trim()) {
-      files.push(line.trim());
+      files.push(unquoteGitPath(line.trim()));
     }
   }
   flush();
@@ -419,7 +463,8 @@ export function formatCommitAsText(commit: GitCommit, commitUrl?: string): strin
   parts.push(`Author: ${commit.author}`);
   parts.push(`Date: ${commit.date}`);
   if (commit.filesChanged.length) {
-    parts.push(`Files changed:\n${commit.filesChanged.join('\n')}`);
+    const more = commit.filesOmitted ? `\n+${commit.filesOmitted} more file${commit.filesOmitted === 1 ? '' : 's'}` : '';
+    parts.push(`Files changed:\n${commit.filesChanged.join('\n')}${more}`);
   }
   if (commitUrl) parts.push(`URL: ${commitUrl}`);
   return parts.join('\n\n');

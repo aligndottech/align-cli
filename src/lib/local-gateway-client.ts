@@ -1,7 +1,7 @@
 import { blameCandidates, type BlameVia } from './blame-candidates.js';
 import { createLocalDb, identifyingSourceUrl, type LinkRow, normaliseDecidedAt } from './local-db.js';
 import { deriveDeciderKind } from './decider-kind.js';
-import { provenanceOf } from './local-provenance.js';
+import { datesOf, provenanceOf } from './local-provenance.js';
 import { currentRepoIdentity, repoFromSourceUrl } from './repo-identity.js';
 import { cosineSimilarity, EMBEDDING_MODEL_ID, getEmbedding } from './local-embeddings.js';
 import { classifyCandidates } from './local-candidate-classify.js';
@@ -14,6 +14,8 @@ import { rerankByTitle } from './search-rerank.js';
 import { reciprocalRankFusion } from './hybrid-rank.js';
 import { expandedTerms } from './query-expand.js';
 import { linkPass } from './local-link-pass.js';
+import { dateOf, laterOnTopic } from './local-later-on-topic.js';
+import type { TimelineRow, TopicTimelineResult } from './mcp-timeline-tools.js';
 import { redactSecrets } from './share/secret-scan.js';
 import { noteRedacted } from './redaction-notice.js';
 import { LOCAL_CONFLICTS_NOTE } from './local-conflicts-note.js';
@@ -229,6 +231,121 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       }
     }
     return {};
+  }
+
+  /**
+   * The search behind searchDecisions and getTopicTimeline. `withLater` computes later_on_topic,
+   * which costs one cosine per stored decision per hit; the timeline drops the field, so it skips it.
+   */
+  async function searchLocal(
+    query: string,
+    limit = 10,
+    createdBefore: string | undefined,
+    scope: { repo?: string; all?: boolean } | undefined,
+    withLater: boolean,
+  ): Promise<SearchResults> {
+
+    const { dbFilter, effectiveRepo } = await resolveScope(scope);
+    const boundedFilter = { ...dbFilter, createdBefore };
+    const embedding = await getEmbedding(query);
+    // LM: decisions this person marked not-a-decision are skipped, so ask for that many extra.
+    const judge = await activeJudge();
+    const hidden = judge ? notADecisionMarks(dbPath, judge) : new Map();
+    const dropNotes: string[] = [];
+    // The dense order alone buried the commit that answers "why was X removed"
+    // under commits that merely repeat X, so retrieve a wider pool and let titles reorder it
+    // BEFORE the cut. The score each row reports stays its dense similarity.
+    const poolSize = Math.max(limit * RERANK_POOL_FACTOR, RERANK_POOL_MIN) + hidden.size;
+    // The dense ranking and a lexical (BM25) ranking of git commits, fused by rank. The dense
+    // order alone lost a commit that names a rare identifier ("find-my-way") or states its reason in
+    // words the title lacks to commits that merely sound like the question. A graph with no git rows,
+    // or a query with no lexical hit, fuses an empty list, which leaves the dense-plus-title order as it was.
+    const hybrid = async (text: string, vec: Float32Array) => {
+      const all = await findSimilar(vec, Number.MAX_SAFE_INTEGER, 0, undefined, boundedFilter);
+      const denseScore = new Map(all.map(r => [r.decisionId, r.score]));
+      const dense = all.filter(r => r.score >= SEARCH_THRESHOLD).slice(0, poolSize);
+      const denseOrder = rerankByTitle(text, dense, r => r.score, r => db.getDecisionById(r.decisionId)?.title ?? '');
+      // Scope and date bounds come from the dense pass (`all` is already filtered), so a lexical id
+      // outside them has no dense score and is dropped. If the index cannot be read or written the
+      // search degrades to the dense order rather than failing.
+      // A lexical row is admitted only beside a real dense hit. With no row over the search floor the
+      // answer is empty, as it always was, and the reduced-query retry below still gets its turn.
+      let lexical: string[] = [];
+      if (dense.length) try {
+        lexical = db.lexicalStore().search(expandedTerms(text), poolSize * 4)
+          .filter(r => (denseScore.get(r.id) ?? -1) >= LEXICAL_MIN_DENSE).slice(0, poolSize).map(r => r.id);
+      } catch { /* dense only */ }
+      const fused = reciprocalRankFusion([{ ids: denseOrder.map(r => r.decisionId), weight: 1 }, { ids: lexical, weight: 1 }]);
+      const split = splitRetrieved(fused.map(id => ({ decisionId: id, score: denseScore.get(id)! })), hidden, limit, (id) => db.getDecisionById(id)?.title, 'answer');
+      dropNotes.splice(0, dropNotes.length, ...split.notes);
+      return split.kept;
+    };
+    let similar = await hybrid(query, embedding);
+    // A natural-language question embeds less densely than its subject does, so on a
+    // small graph it can miss a decision that its own content words hit. Retry once,
+    // only on an empty result, mirroring the gateway's own keyword-to-semantic
+    // fallback (align-stack#1706). The raw query still goes first, so that guarantee holds
+    // and a query that already matched costs exactly one embedding.
+    if (!similar.length) {
+      const reduced = contentWordQuery(query);
+      if (reduced) {
+        similar = await hybrid(reduced, await getEmbedding(reduced));
+      }
+    }
+    // later_on_topic, the local half of the cloud field: for each hit, the LATER decisions on its
+    // topic. Without it an old rule a newer commit refuted came back first with nothing saying a newer
+    // one exists. Neighbours share the search's scope and as-of bound, and skip rows this
+    // person marked not-a-decision.
+    const vectors = withLater && similar.length ? new Map(db.getAllEmbeddings({ ...boundedFilter, model: EMBEDDING_MODEL_ID })
+      .filter(e => !hidden.has(e.decisionId)).map(e => [e.decisionId, e.embedding])) : new Map<string, Float32Array>();
+    const laterFor = (row: NonNullable<ReturnType<typeof db.getDecisionById>>) => {
+      const own = vectors.get(row.id);
+      const neighbours = own ? [...vectors].filter(([id]) => id !== row.id).map(([id, v]) => ({ decisionId: id, score: cosineSimilarity(own, v) })) : [];
+      return laterOnTopic({
+        hit: row, neighbours, threshold: RELATES_THRESHOLD,
+        linksOfHit: db.listLinks({ decisionId: row.id, createdBefore }),
+        rowById: (id) => {
+          const r = hidden.has(id) ? null : db.getDecisionById(id);
+          if (!r || (createdBefore !== undefined && !isBeforeCutoff(r.createdAt, createdBefore))) return null;
+          // A typed edge can cross repos; the search's scope still holds for what it reveals.
+          if (dbFilter.repo !== undefined && r.repo !== dbFilter.repo && !(r.repo === null && dbFilter.includeUnattributed)) return null;
+          return r;
+        },
+      });
+    };
+    const results = similar
+      .map(s => {
+        const row = db.getDecisionById(s.decisionId);
+        if (!row) return null;
+        const later = withLater ? laterFor(row) : [];
+        // source_url and platform were read from SQLite here and then discarded, so
+        // nothing downstream could say which repository a decision came from. The
+        // hosted connector has derived both since #1441; this is that parity.
+        const repository = repositoryOf(row.sourceUrl);
+        const cite = localCitationFor(row.sourceUrl);
+        return {
+          id: row.id,
+          title: row.title,
+          summary: row.summary,
+          ...relationFieldsFor(row.id, createdBefore),
+          similarity: s.score,
+          created_at: row.createdAt,
+          ...(later.length ? { later_on_topic: later } : {}),
+          ...(row.decidedAt ? { decided_at: row.decidedAt } : {}),
+          platform: row.platform,
+          ...(row.sourceUrl ? { source_url: row.sourceUrl } : {}),
+          ...(repository ? { repository } : {}),
+          ...(cite ? { cite } : {}),
+          // No decision_url: a local-embedded decision lives only in this machine's
+          // SQLite file, so any Align URL built for it would 404 wherever it pointed.
+          // Absent beats fabricated - a wrong link looks clickable.
+          // What this decision cites, so `align ask` can name a gap.
+          external_references: db.getRefs(row.id),
+          ...provenanceOf(row),
+        };
+      })
+      .filter((d): d is NonNullable<typeof d> => d !== null);
+    return { results, count: results.length, strategy: 'semantic', scope: effectiveRepo, ...(dropNotes.length ? { notes: dropNotes } : {}) };
   }
 
   /** What ranks a new item against the graph. Normally the in-memory matrix of every stored
@@ -637,92 +754,46 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       createdBefore?: string,
       scope?: { repo?: string; all?: boolean },
     ): Promise<SearchResults> {
-      const { dbFilter, effectiveRepo } = await resolveScope(scope);
-      const boundedFilter = { ...dbFilter, createdBefore };
-      const embedding = await getEmbedding(query);
-      // LM: decisions this person marked not-a-decision are skipped, so ask for that many extra.
-      const judge = await activeJudge();
-      const hidden = judge ? notADecisionMarks(dbPath, judge) : new Map();
-      const dropNotes: string[] = [];
-      // The dense order alone buried the commit that answers "why was X removed"
-      // under commits that merely repeat X, so retrieve a wider pool and let titles reorder it
-      // BEFORE the cut. The score each row reports stays its dense similarity.
-      const poolSize = Math.max(limit * RERANK_POOL_FACTOR, RERANK_POOL_MIN) + hidden.size;
-      // The dense ranking and a lexical (BM25) ranking of git commits, fused by rank. The dense
-      // order alone lost a commit that names a rare identifier ("find-my-way") or states its reason in
-      // words the title lacks to commits that merely sound like the question. A graph with no git rows,
-      // or a query with no lexical hit, fuses an empty list, which leaves the dense-plus-title order as it was.
-      const hybrid = async (text: string, vec: Float32Array) => {
-        const all = await findSimilar(vec, Number.MAX_SAFE_INTEGER, 0, undefined, boundedFilter);
-        const denseScore = new Map(all.map(r => [r.decisionId, r.score]));
-        const dense = all.filter(r => r.score >= SEARCH_THRESHOLD).slice(0, poolSize);
-        const denseOrder = rerankByTitle(text, dense, r => r.score, r => db.getDecisionById(r.decisionId)?.title ?? '');
-        // Scope and date bounds come from the dense pass (`all` is already filtered), so a lexical id
-        // outside them has no dense score and is dropped. If the index cannot be read or written the
-        // search degrades to the dense order rather than failing.
-        // A lexical row is admitted only beside a real dense hit. With no row over the search floor the
-        // answer is empty, as it always was, and the reduced-query retry below still gets its turn.
-        let lexical: string[] = [];
-        if (dense.length) try {
-          lexical = db.lexicalStore().search(expandedTerms(text), poolSize * 4)
-            .filter(r => (denseScore.get(r.id) ?? -1) >= LEXICAL_MIN_DENSE).slice(0, poolSize).map(r => r.id);
-        } catch { /* dense only */ }
-        const fused = reciprocalRankFusion([{ ids: denseOrder.map(r => r.decisionId), weight: 1 }, { ids: lexical, weight: 1 }]);
-        const split = splitRetrieved(fused.map(id => ({ decisionId: id, score: denseScore.get(id)! })), hidden, limit, (id) => db.getDecisionById(id)?.title, 'answer');
-        dropNotes.splice(0, dropNotes.length, ...split.notes);
-        return split.kept;
+      return searchLocal(query, limit, createdBefore, scope, true);
+    },
+
+    /**
+     * The topic timeline, served from the local graph: the same retrieval as search,
+     * re-ordered oldest first by each row's own date, so a rule and the commit that later corrected
+     * it read in the order they happened. The cloud's story fields (why, still_open, disagreements)
+     * are left ABSENT, not empty: the local graph does not hold them, and the renderer treats absent
+     * as "could not look" rather than "looked and found none".
+     */
+    async getTopicTimeline(topic: string, limit = 50, createdBefore?: string, scope?: { repo?: string; all?: boolean }): Promise<TopicTimelineResult> {
+      // Scoped exactly as align_ask is (the current repo by default), so the two tools agree.
+      const { results } = await searchLocal(topic, limit, createdBefore, scope, false);
+      const dated = results.map(r => {
+        const row = db.getDecisionById(r.id)!;
+        return { r, row, d: dateOf(row) };
+      });
+      dated.sort((a, b) => (a.d?.ms ?? 0) - (b.d?.ms ?? 0) || (a.r.id < b.r.id ? -1 : a.r.id > b.r.id ? 1 : 0));
+      const decisions: TimelineRow[] = dated.map(({ r, row, d }) => ({
+        id: r.id, title: r.title, summary: r.summary, platform: row.platform,
+        ...(r.status ? { status: r.status } : {}),
+        created_at: row.createdAt,
+        ...(r.decided_at ? { decided_at: r.decided_at } : {}),
+        ...(d ? { date_basis: d.basis } : {}),
+        ...(r.source_url ? { source_url: r.source_url } : {}),
+      }));
+      const platforms = [...new Set(decisions.map(d => d.platform).filter((p): p is string => !!p))];
+      return {
+        topic, count: decisions.length, decisions, platforms, spans_platforms: platforms.length > 1,
+        superseded_count: decisions.filter(d => d.status === 'superseded').length,
+        retrieval: { semantic: true, lexical: true },
       };
-      let similar = await hybrid(query, embedding);
-      // A natural-language question embeds less densely than its subject does, so on a
-      // small graph it can miss a decision that its own content words hit. Retry once,
-      // only on an empty result, mirroring the gateway's own keyword-to-semantic
-      // fallback (align-stack#1706). The raw query still goes first, so that guarantee holds
-      // and a query that already matched costs exactly one embedding.
-      if (!similar.length) {
-        const reduced = contentWordQuery(query);
-        if (reduced) {
-          similar = await hybrid(reduced, await getEmbedding(reduced));
-        }
-      }
-      const results = similar
-        .map(s => {
-          const row = db.getDecisionById(s.decisionId);
-          if (!row) return null;
-          // source_url and platform were read from SQLite here and then discarded, so
-          // nothing downstream could say which repository a decision came from. The
-          // hosted connector has derived both since #1441; this is that parity.
-          const repository = repositoryOf(row.sourceUrl);
-          const cite = localCitationFor(row.sourceUrl);
-          return {
-            id: row.id,
-            title: row.title,
-            summary: row.summary,
-            ...relationFieldsFor(row.id, createdBefore),
-            similarity: s.score,
-            created_at: row.createdAt,
-            ...(row.decidedAt ? { decided_at: row.decidedAt } : {}),
-            platform: row.platform,
-            ...(row.sourceUrl ? { source_url: row.sourceUrl } : {}),
-            ...(repository ? { repository } : {}),
-            ...(cite ? { cite } : {}),
-            // No decision_url: a local-embedded decision lives only in this machine's
-            // SQLite file, so any Align URL built for it would 404 wherever it pointed.
-            // Absent beats fabricated - a wrong link looks clickable.
-            // What this decision cites, so `align ask` can name a gap.
-            external_references: db.getRefs(row.id),
-            ...provenanceOf(row),
-          };
-        })
-        .filter((d): d is NonNullable<typeof d> => d !== null);
-      return { results, count: results.length, strategy: 'semantic', scope: effectiveRepo, ...(dropNotes.length ? { notes: dropNotes } : {}) };
     },
 
     /**
      * Decisions whose source is a commit or PR that `git blame` named as the writer of the lines an
      * edit changes (blame-attribution.ts). A keyed lookup on `source_url`: no embedding, no model.
      */
-    decisionsBySourceRefs(commitShas: string[], prUrls: string[]): Array<{ id: string; title: string; summary: string; url?: string }> {
-      return db.findBySourceRefs(commitShas, prUrls).map((r) => ({ id: r.id, title: r.title, summary: r.summary, ...(r.sourceUrl ? { url: r.sourceUrl } : {}) }));
+    decisionsBySourceRefs(commitShas: string[], prUrls: string[]): Array<{ id: string; title: string; summary: string; url?: string; decided_at?: string; created_at?: string }> {
+      return db.findBySourceRefs(commitShas, prUrls).map((r) => ({ id: r.id, title: r.title, summary: r.summary, ...(r.sourceUrl ? { url: r.sourceUrl } : {}), ...datesOf(r) }));
     },
 
     async checkAlignment(
@@ -792,6 +863,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
             summary: c.summary,
             similarity: c.score,
             url: c.sourceUrl ?? undefined,
+            ...datesOf(c),
             ...provenanceOf(c),
           })),
           conflicts: [],
@@ -825,6 +897,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
           summary: c.summary,
           url: c.sourceUrl ?? undefined,
           provenance: provenanceOf(c),
+          dates: datesOf(c),
           relationship: rel?.type ?? 'relates', // canonical (was 'relates_to')
           confidence: rel?.confidence ?? c.score,
           typed: rel !== null,
@@ -844,7 +917,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
         const r = relationFieldsFor(id);
         return r.status === 'superseded' ? { status: r.status, successor: r.successor } : {};
       };
-      const relevant_decisions = typed.map(t => ({ id: t.id, title: t.title, summary: t.summary, similarity: t.similarity, url: t.url, found_by: t.found_by, ...t.provenance, ...replacedBy(t.id) }));
+      const relevant_decisions = typed.map(t => ({ id: t.id, title: t.title, summary: t.summary, similarity: t.similarity, url: t.url, found_by: t.found_by, ...t.dates, ...t.provenance, ...replacedBy(t.id) }));
       const rawConflicts = typed
         .filter(t => t.relationship === 'conflicts_with' || t.relationship === 'contradicts')
         .map(t => ({

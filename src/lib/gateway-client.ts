@@ -200,8 +200,9 @@ export interface SearchResults {
     // serializeMcpResult happening to be a denylist. See lib/decision-relations.ts.
     successor?: DecisionRelation;
     conflicts_with?: DecisionRelation;
-    // Up to 3 LATER decisions on this row's topic, cloud only, on any status. An entry
-    // with no `relation` was never linked - "newer and similar", not "replaced this".
+    // Up to 3 LATER decisions on this row's topic, on any status. Cloud and local both send it
+    // (local: local-later-on-topic.ts, dated by decided_at). An entry with no `relation` was
+    // never linked - "newer and similar", not "replaced this".
     later_on_topic?: DecisionRelation[];
   }>;
   count: number;
@@ -289,6 +290,8 @@ export interface AlignmentResult {
     id: string; title: string; summary: string; similarity: number; url?: string;
     /** The link that opens this decision in Align; the gateway sends it when it knows its app URL. */
     decision_url?: string;
+    /** When the source says it was decided (ISO-8601), and the minute it was imported. Local mode today. */
+    decided_at?: string; created_at?: string;
     // Local mode always; cloud once it labels check output.
     decider_kind?: 'human' | 'agent' | 'unknown'; ratified?: boolean; ratified_at?: string | null; ratified_by?: string | null;
     /** LM, local only: a decision a person marked as replaced, with the one that replaces it. */

@@ -13,3 +13,15 @@ export function provenanceOf(row: Pick<DecisionRow, 'deciderKind' | 'ratifiedBy'
     ...(row.ratifiedAt ? { ratified_at: row.ratifiedAt, ratified_by: row.ratifiedBy } : {}),
   };
 }
+
+/**
+ * Both dates, in wire spelling. `decided_at` is the source's own timestamp and is omitted when the
+ * source did not say; `created_at` is the import minute. They are separate fields because the
+ * second is not a stand-in for the first (a consumer that shows a date must say which it has).
+ */
+export function datesOf(row: Pick<DecisionRow, 'decidedAt' | 'createdAt'>) {
+  return {
+    ...(row.decidedAt ? { decided_at: row.decidedAt } : {}),
+    created_at: row.createdAt,
+  };
+}

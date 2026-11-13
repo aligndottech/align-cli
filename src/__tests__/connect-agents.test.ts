@@ -307,6 +307,20 @@ describe('connectDetectedAgents', () => {
     expect(logged.join('\n')).toMatch(/mcpServers/);
   });
 
+  // Shane Wall's trial: `align local start` wrote no .mcp.json (no terminal, no --approve) and still printed
+  // "(written above)". Only the caller that wrote the file may say so.
+  it('does not say the project .mcp.json was written above when the caller wrote nothing', async () => {
+    detectEditors.mockReturnValue([]);
+    await connectDetectedAgents('local', { approved: true });
+    expect(logged.join('\n')).not.toContain('written above');
+  });
+
+  it('still says "written above" when the caller did write the project .mcp.json', async () => {
+    detectEditors.mockReturnValue([]);
+    await connectDetectedAgents('local', { approved: true, projectMcpWritten: true });
+    expect(logged.join('\n')).toContain('written above');
+  });
+
   // Bare `align mcp --setup` resolves to the cloud default, so telling a local user to run it
   // would wire their agent to prod - the graph they did not just build.
   it('qualifies the manual command with the env', async () => {
@@ -524,7 +538,7 @@ describe('connectDetectedAgents - what it claims .mcp.json covers', () => {
 
   it('still says the project file covers them on macOS and Linux, where it does', async () => {
     setPlatform('darwin');
-    await connectDetectedAgents('local', { approved: true });
+    await connectDetectedAgents('local', { approved: true, projectMcpWritten: true });
     expect(logged.join('\n')).toContain('need nothing further');
   });
 });
