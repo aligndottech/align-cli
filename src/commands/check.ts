@@ -943,13 +943,17 @@ function laterNote(d: RelatedDecision): string {
   return id ? ` (later: ${safeTitle(id).slice(0, 7)})` : '';
 }
 
-// Who made a commit decision. formatCommitAsText writes `Author: <name> <email>` right before `Date:`;
-// only that shape counts, and only for a commit source. No such line means no name: never inferred.
+// Who made a commit decision. formatCommitAsText appends `Author: <name>` (git %aN) right before `Date:`,
+// after the body, so only the LAST such line counts: an empty real author must not fall back to one a
+// commit body planted. Only for a commit source; no name means none shown, never inferred. Capped,
+// because a git author name is free text that reaches the agent.
+const AUTHOR_MAX_CHARS = 60;
 function authorNote(d: RelatedDecision): string {
   if (!isCommitSource(d.url)) return '';
-  const found = [...(d.summary ?? '').matchAll(/^Author: (.+)\n\nDate: /gm)].pop();
-  const name = found ? safeTitle(found[1] as string).replace(/\s*<[^>]*>\s*/g, ' ').trim() : '';
-  return name ? ` by ${name}` : '';
+  const last = [...(d.summary ?? '').matchAll(/^Author: (.*)\n\nDate: /gm)].pop();
+  const chars = Array.from(last ? safeTitle(last[1] as string).trim() : '');
+  if (!chars.length) return '';
+  return ` by ${chars.length > AUTHOR_MAX_CHARS ? `${chars.slice(0, AUTHOR_MAX_CHARS).join('')}\u2026` : chars.join('')}`;
 }
 
 // Whole calendar months from `from` to `now` (UTC), 0 when `now` is earlier.

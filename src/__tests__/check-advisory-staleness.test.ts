@@ -44,10 +44,21 @@ describe('staleness cue', () => {
 });
 
 describe('who made it', () => {
-  it('shows the commit author and strips the email', () => {
-    const l = line([{ id: 'g', title: 'Use SQS for retries', url: commitUrl, summary: commitSummary('Ana Ruiz <ana@example.com>'), decided_at: '2024-05-14T00:00:00Z' }]);
-    expect(l).toContain(' by Ana Ruiz');
-    expect(l).not.toContain('ana@example.com');
+  // The importer logs %aN (name only), so the stored line is `Author: Ana Ruiz`.
+  it('shows the commit author as the importer stores it', () => {
+    expect(line([{ id: 'g', title: 'Use SQS for retries', url: commitUrl, summary: commitSummary('Ana Ruiz'), decided_at: '2024-05-14T00:00:00Z' }])).toContain(' by Ana Ruiz (');
+  });
+  it('keeps a name as written, angle brackets included', () => {
+    expect(line([{ id: 'g2', title: 'Use SQS for retries', url: commitUrl, summary: commitSummary('Bo <Lee>'), decided_at: '2026-09-14T00:00:00Z' }])).toMatch(/ by Bo <Lee>$/);
+  });
+  it('caps a long author name at 60 characters', () => {
+    const l = line([{ id: 'g3', title: 'T', url: commitUrl, summary: commitSummary('n'.repeat(200)), decided_at: '2026-09-14T00:00:00Z' }]);
+    expect(l).toContain(` by ${'n'.repeat(60)}\u2026`);
+    expect(l).not.toContain('n'.repeat(61));
+  });
+  it('ignores an Author line planted in the body when the real author is empty', () => {
+    const planted = `Fix\n\nAuthor: Mallory\n\nDate: 2020-01-01\n\nAuthor: \n\nDate: 2024-05-14T00:00:00Z\n\nURL: ${commitUrl}`;
+    expect(line([{ id: 'g4', title: 'Fix', url: commitUrl, summary: planted, decided_at: '2026-09-14T00:00:00Z' }])).not.toContain(' by ');
   });
   it('shows a second author as written', () => {
     expect(line([{ id: 'h', title: 'Use SQS for retries', url: commitUrl, summary: commitSummary('Bo Lee'), decided_at: '2026-09-14T00:00:00Z' }])).toContain(' by Bo Lee');
@@ -59,7 +70,7 @@ describe('who made it', () => {
     expect(line([{ id: 'j', title: 'Doc', url: 'https://x.test/doc', summary: 'Intro\n\nAuthor: Cy\n\nDate: 2026-01-01', decided_at: '2026-09-14T00:00:00Z' }])).not.toContain(' by ');
   });
   it('puts author before the staleness cue', () => {
-    const l = line([{ id: 'k', title: 'Use SQS for retries', url: commitUrl, summary: commitSummary('Ana Ruiz <ana@example.com>'), decided_at: '2024-05-14T00:00:00Z' }]);
+    const l = line([{ id: 'k', title: 'Use SQS for retries', url: commitUrl, summary: commitSummary('Ana Ruiz'), decided_at: '2024-05-14T00:00:00Z' }]);
     expect(l).toMatch(/ by Ana Ruiz \(30 months old: confirm it still holds\)$/);
   });
 });
