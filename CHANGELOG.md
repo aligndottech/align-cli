@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.78.0](https://github.com/aligndottech/align-cli/compare/cli-v0.77.2...cli-v0.78.0) (2026-11-14)
+
+
+### Features
+
+* show who made a decision and flag old or undated ones in the edit check ([#588](https://github.com/aligndottech/align-cli/issues/588)) ([e14929b](https://github.com/aligndottech/align-cli/commit/e14929b2dc143e8fa96faf87a577321a58c80df6))
+
 ## [0.77.2](https://github.com/aligndottech/align-cli/compare/cli-v0.77.1...cli-v0.77.2) (2026-11-14)
 
 
