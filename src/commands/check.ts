@@ -943,17 +943,48 @@ function laterNote(d: RelatedDecision): string {
   return id ? ` (later: ${safeTitle(id).slice(0, 7)})` : '';
 }
 
+// Who made a commit decision. formatCommitAsText appends `Author: <name>` (git %aN) right before `Date:`,
+// after the body, so only the LAST such line counts: an empty real author must not fall back to one a
+// commit body planted. Only for a commit source; no name means none shown, never inferred. Capped,
+// because a git author name is free text that reaches the agent.
+const AUTHOR_MAX_CHARS = 60;
+function authorNote(d: RelatedDecision): string {
+  if (!isCommitSource(d.url)) return '';
+  const last = [...(d.summary ?? '').matchAll(/^Author: (.*)\n\nDate: /gm)].pop();
+  const chars = Array.from(last ? safeTitle(last[1] as string).trim() : '');
+  if (!chars.length) return '';
+  return ` by ${chars.length > AUTHOR_MAX_CHARS ? `${chars.slice(0, AUTHOR_MAX_CHARS).join('')}\u2026` : chars.join('')}`;
+}
+
+// Whole calendar months from `from` to `now` (UTC), 0 when `now` is earlier.
+function monthsBetween(from: number, now: number): number {
+  const a = new Date(from);
+  const b = new Date(now);
+  const months = (b.getUTCFullYear() - a.getUTCFullYear()) * 12 + b.getUTCMonth() - a.getUTCMonth();
+  const dayReached = b.getUTCDate() > a.getUTCDate() || (b.getUTCDate() === a.getUTCDate() && now % 86_400_000 >= from % 86_400_000);
+  return Math.max(0, dayReached ? months : months - 1);
+}
+
+// Pure: `now` is passed in. Only decided_at counts as a decision date; the import day does not.
+function stalenessNote(d: RelatedDecision, now: number): string {
+  const decided = isoInstant(d.decided_at);
+  if (decided === null) return ' (no decision date: confirm it still holds)';
+  const limit = new Date(decided);
+  limit.setUTCFullYear(limit.getUTCFullYear() + 1);
+  return now > limit.getTime() ? ` (${monthsBetween(decided, now)} months old: confirm it still holds)` : '';
+}
+
 // A title reaches the agent too, so it gets the excerpt's redaction and control stripping.
 function safeTitle(title: string): string {
   return flatten(redactSecrets(title).text).replace(CONTROLS, '');
 }
 
 // One writer of the bullet format. `budget.left` is shared by every list in one output.
-function decisionBullets(decisions: RelatedDecision[], budget: { left: number }, focus = ''): string[] {
+function decisionBullets(decisions: RelatedDecision[], budget: { left: number }, now: number, focus = ''): string[] {
   return newestFirst(decisions).flatMap((d) => {
     const excerpt = excerptOf(d, budget.left, focus);
     budget.left -= excerpt.length;
-    const head = `- ${dateTag(d)}${safeTitle(d.title)}${replacedNote(d)}${laterNote(d)}`;
+    const head = `- ${dateTag(d)}${safeTitle(d.title)}${replacedNote(d)}${laterNote(d)}${authorNote(d)}${stalenessNote(d, now)}`;
     return excerpt ? [head, `  ${excerpt}`] : [head];
   });
 }
@@ -970,11 +1001,12 @@ export function buildRelatedOutput(
   focus = '',
 ): unknown | null {
   const budget = { left: EXCERPT_TOTAL_BUDGET_CHARS };
+  const now = opts.now ?? Date.now();
   // `git blame` names these deterministically: they are not a guess about the subject, they put these exact lines here.
   const writerBlock = wrote.length
     ? [
         `Align decision graph: the lines this edit changes were written by ${wrote.length > 1 ? `${wrote.length} prior decisions` : 'a prior decision'} (found with git blame, not content search):`,
-        ...decisionBullets(wrote, budget),
+        ...decisionBullets(wrote, budget, now),
         'Check that this change still honours what they decided before continuing.',
       ]
     : [];
@@ -993,7 +1025,7 @@ export function buildRelatedOutput(
     : decisions.length
     ? [
         `${wrote.length ? 'Also, ' : 'Align decision graph: '}${decisions.length} prior decision${decisions.length > 1 ? 's relate' : ' relates'} to this change:`,
-        ...decisionBullets(decisions, budget, focus),
+        ...decisionBullets(decisions, budget, now, focus),
         'These are related by content search and have NOT been adjudicated. Check whether any of them opposes this change before continuing.',
       ]
     : [];
@@ -1083,6 +1115,8 @@ export interface AdvisoryRenderOpts {
   pre: boolean;
   format: AdvisoryFormat;
   blockOnCritical: boolean;
+  /** Epoch ms for the staleness cue; tests inject it. Defaults to the clock at the render edge. */
+  now?: number;
 }
 
 // Called from runAdvisory's deferred-verdict short-circuit: the hook itself is

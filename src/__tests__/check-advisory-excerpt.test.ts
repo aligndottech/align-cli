@@ -13,17 +13,17 @@ const words = (n: number): string => Array.from({ length: n }, (_, i) => `word${
 describe('advisory output carries what each decision says', () => {
   it('a CLAUDE.md section shows its rule text under the heading title', () => {
     const out = ctx(buildRelatedOutput([{ id: 'c1', title: 'Architecture', summary: 'Keep all app state in src/store.ts. Never use module-level singletons.' }], claude));
-    expect(out).toContain('- Architecture\n  Keep all app state in src/store.ts. Never use module-level singletons.');
+    expect(out).toContain('- Architecture (no decision date: confirm it still holds)\n  Keep all app state in src/store.ts. Never use module-level singletons.');
   });
 
   it('a second CLAUDE.md section shows its own text', () => {
     const out = ctx(buildRelatedOutput([{ id: 'c2', title: 'Testing', summary: 'Write the test first.' }], claude));
-    expect(out).toContain('- Testing\n  Write the test first.');
+    expect(out).toContain('- Testing (no decision date: confirm it still holds)\n  Write the test first.');
   });
 
   it('a git-blame decision shows its text', () => {
     const out = ctx(buildRelatedOutput([], claude, [{ id: 'w1', title: 'Cache sessions in Redis', summary: 'Sessions move to Redis so pods stay stateless.' }]));
-    expect(out).toContain('- Cache sessions in Redis\n  Sessions move to Redis so pods stay stateless.');
+    expect(out).toContain('- Cache sessions in Redis (no decision date: confirm it still holds)\n  Sessions move to Redis so pods stay stateless.');
   });
 
   it('truncates a long summary to the budget at a word boundary with an ellipsis', () => {
@@ -47,13 +47,13 @@ describe('advisory output carries what each decision says', () => {
   it('a decision with no text keeps the title alone', () => {
     const none = ctx(buildRelatedOutput([{ id: 'n1', title: 'Bare title' }], claude));
     const blank = ctx(buildRelatedOutput([{ id: 'n2', title: 'Blank title', summary: '   \n ' }], claude));
-    expect(none).toContain('- Bare title\nThese are related');
-    expect(blank).toContain('- Blank title\nThese are related');
+    expect(none).toContain('- Bare title (no decision date: confirm it still holds)\nThese are related');
+    expect(blank).toContain('- Blank title (no decision date: confirm it still holds)\nThese are related');
   });
 
   it('collapses newlines in a multi-line summary onto one indented line', () => {
     const out = ctx(buildRelatedOutput([{ id: 'm1', title: 'Multi', summary: 'line one\n\nline two' }], claude));
-    expect(out).toContain('- Multi\n  line one line two\n');
+    expect(out).toContain('- Multi (no decision date: confirm it still holds)\n  line one line two\n');
   });
 
   it('caps the total excerpt text: later decisions fall back to the title alone', () => {
@@ -61,8 +61,8 @@ describe('advisory output carries what each decision says', () => {
     const out = ctx(buildRelatedOutput(many, claude));
     const excerptChars = out.split('\n').filter((l) => l.startsWith('  word')).reduce((n, l) => n + l.trim().length, 0);
     expect(excerptChars).toBeLessThanOrEqual(EXCERPT_TOTAL_BUDGET_CHARS);
-    expect(out).toContain('- Decision 0\n  word0');
-    expect(out).toContain('- Decision 11\nThese are related');
+    expect(out).toContain('- Decision 0 (no decision date: confirm it still holds)\n  word0');
+    expect(out).toContain('- Decision 11 (no decision date: confirm it still holds)\nThese are related');
   });
 
   it('the cap is shared between blame and content decisions', () => {
@@ -74,12 +74,12 @@ describe('advisory output carries what each decision says', () => {
 
   it('a non-claude host (codex) carries the excerpt too', () => {
     const out = ctx(buildRelatedOutput([{ id: 'c1', title: 'Architecture', summary: 'Keep all app state in src/store.ts.' }], { pre: true, format: 'codex', blockOnCritical: false }));
-    expect(out).toContain('- Architecture\n  Keep all app state in src/store.ts.');
+    expect(out).toContain('- Architecture (no decision date: confirm it still holds)\n  Keep all app state in src/store.ts.');
   });
 
   it('cursor post carries the excerpt in additional_context', () => {
     const out = buildRelatedOutput([{ id: 'c1', title: 'Architecture', summary: 'Keep all app state in src/store.ts.' }], { pre: false, format: 'cursor', blockOnCritical: false }) as { additional_context: string };
-    expect(out.additional_context).toContain('- Architecture\n  Keep all app state in src/store.ts.');
+    expect(out.additional_context).toContain('- Architecture (no decision date: confirm it still holds)\n  Keep all app state in src/store.ts.');
   });
 
   describe('a commit-shaped summary', () => {
@@ -90,30 +90,30 @@ describe('advisory output carries what each decision says', () => {
 
     it('drops the copy of the title at the start and the commit metadata after the body', () => {
       const out = ctx(buildRelatedOutput([], claude, [{ id: 'w', title: subject, url, summary: commit() }]));
-      expect(out).toContain(`- ${subject}\n  ${body}\n`);
+      expect(out).toContain(`- ${subject} by Dev (no decision date: confirm it still holds)\n  ${body}\n`);
       expect(out).not.toContain('Author:');
       expect(out).not.toContain('Date:');
     });
 
     it('matches the title after whitespace normalisation', () => {
       const out = ctx(buildRelatedOutput([], claude, [{ id: 'w', title: subject, url, summary: `Keep  all app\nstate in src/store.ts\n\n${body}` }]));
-      expect(out).toContain(`- ${subject}\n  ${body}\n`);
+      expect(out).toContain(`- ${subject} (no decision date: confirm it still holds)\n  ${body}\n`);
     });
 
     it('strips Co-Authored-By and Signed-off-by trailers and the files list', () => {
       const out = ctx(buildRelatedOutput([], claude, [{ id: 'w', title: subject, url, summary: `${subject}\n\n${body}\n\nSigned-off-by: A <a@x>\nCo-Authored-By: B <b@x>\n\nAuthor: Dev\n\nDate: d\n\nFiles changed:\nsrc/store.ts` }]));
-      expect(out).toContain(`- ${subject}\n  ${body}\n`);
+      expect(out).toContain(`- ${subject} by Dev (no decision date: confirm it still holds)\n  ${body}\n`);
       expect(out).not.toMatch(/Signed-off-by|Co-Authored-By|Files changed|Author:/);
     });
 
     it('keeps the title alone when only the title and metadata are left', () => {
       const out = ctx(buildRelatedOutput([], claude, [{ id: 'w', title: subject, url, summary: `${subject}\n\nAuthor: Dev\n\nDate: d` }]));
-      expect(out).toContain(`- ${subject}\nCheck that`);
+      expect(out).toContain(`- ${subject} by Dev (no decision date: confirm it still holds)\nCheck that`);
     });
 
     it('keeps a summary that merely starts with the title words but goes on', () => {
       const out = ctx(buildRelatedOutput([{ id: 'a', title: 'Architecture', summary: 'Architecture of the store: one module owns state.' }], claude));
-      expect(out).toContain('- Architecture\n  Architecture of the store: one module owns state.');
+      expect(out).toContain('- Architecture (no decision date: confirm it still holds)\n  Architecture of the store: one module owns state.');
     });
   });
 
@@ -179,12 +179,12 @@ describe('advisory output carries what each decision says', () => {
   describe('a replaced decision says so', () => {
     it('shows the marker and the successor on the title line', () => {
       const out = ctx(buildRelatedOutput([{ id: 'o', title: 'Use Redux', summary: 'State lives in Redux.', status: 'superseded', successor: { id: 'n', title: 'Use the store module' } }], claude));
-      expect(out).toContain('- Use Redux (replaced by: Use the store module)\n  State lives in Redux.');
+      expect(out).toContain('- Use Redux (replaced by: Use the store module) (no decision date: confirm it still holds)\n  State lives in Redux.');
     });
 
     it('says only "replaced" when the successor is unknown', () => {
       const out = ctx(buildRelatedOutput([{ id: 'o', title: 'Use Redux', status: 'superseded' }], claude));
-      expect(out).toContain('- Use Redux (replaced)\n');
+      expect(out).toContain('- Use Redux (replaced) (no decision date: confirm it still holds)\n');
     });
 
     it('an active decision carries no marker', () => {
