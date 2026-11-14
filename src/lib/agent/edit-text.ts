@@ -6,7 +6,7 @@ import { findLineWriters, isWriterTitle } from '../blame-attribution.js';
  * the minute this CLI imported it. The hook shows `decided_at`, and falls back to `created_at`
  * only as a marked "imported" date, because an ingest minute is not a decision date.
  */
-export type RelatedDecision = { id: string; title: string; summary?: string; url?: string; decided_at?: string; created_at?: string; status?: 'superseded'; successor?: { id: string; title: string } };
+export type RelatedDecision = { id: string; title: string; summary?: string; url?: string; decided_at?: string; created_at?: string; status?: 'superseded'; successor?: { id: string; title: string }; later_on_topic?: Array<{ id: string }> };
 
 type DecisionLookup = { decisionsBySourceRefs?: (shas: string[], prUrls: string[]) => RelatedDecision[] };
 

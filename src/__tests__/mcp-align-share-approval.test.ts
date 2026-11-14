@@ -213,8 +213,8 @@ describe('what the tools are, and what an agent can reach', () => {
     expect(status).not.toMatch(/cannot approve/i);
     expect(share.length).toBeLessThan(2048); expect(status.length).toBeLessThan(2048);
   });
-  it('the server instructions stay inside the budget: 1960 of 2048 bytes in local mode (was 1968 before the ownerVerdict sentence)', () => {
-    expect(Buffer.byteLength(instructionsFor(env), 'utf8')).toBe(1960);
+  it('the server instructions stay inside the budget: 1963 of 2048 bytes in local mode (1960 before "Read a" became "Read each")', () => {
+    expect(Buffer.byteLength(instructionsFor(env), 'utf8')).toBe(1963);
   });
   it('no sequence of tool calls completes a share nobody approved, and the positive control does once it is approved', async () => {
     const s = await staged();

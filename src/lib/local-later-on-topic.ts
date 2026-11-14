@@ -11,6 +11,14 @@ import type { DecisionRow, LinkRow } from './local-db.js';
  * imported at once shares one, so ordering by it makes every commit "equally old" and nothing is later.
  */
 export const LATER_ON_TOPIC_MAX = 3;
+/**
+ * A later decision counts as "on the topic" only if it and the hit are MUTUAL nearest neighbours:
+ * the later one is within the hit's closest K, and the hit is within the later one's closest K.
+ * An absolute floor cannot do this (measured on a real graph: on-topic links scored 0.55-0.77,
+ * off-topic 0.51-0.68), but rank is relative. An off-topic row at 0.6 has closer neighbours of its
+ * own, so it fails the second half, and the newest decision, with nothing later near it, gets none.
+ */
+export const LATER_MUTUAL_RANK = 5;
 
 export interface LaterOnTopicEntry {
   /** Assignable to the wire's DecisionRelation, which is an open record. */
@@ -42,6 +50,8 @@ export function laterOnTopic(opts: {
   linksOfHit: readonly LinkRow[];
   rowById: (id: string) => DecisionRow | null;
   threshold: number;
+  /** 1-based rank of `hitId` among `id`'s own neighbours by cosine. Absent: no reverse check. */
+  rankOfHitIn?: (id: string) => number;
 }): LaterOnTopicEntry[] {
   const hitDate = dateOf(opts.hit);
   if (!hitDate) return [];
@@ -69,7 +79,13 @@ export function laterOnTopic(opts: {
     if (l.relation === 'relates' || l.relation === 'relates_to') continue; // an untyped similarity link, re-found below on its score
     consider(l.sourceId === opts.hit.id ? l.targetId : l.sourceId, undefined, l.relation);
   }
-  for (const n of opts.neighbours) if (n.score >= opts.threshold) consider(n.decisionId, n.score, undefined);
+  const byScore = [...opts.neighbours].sort((a, b) => b.score - a.score);
+  const closest = new Set(byScore.slice(0, LATER_MUTUAL_RANK).map(n => n.decisionId));
+  for (const n of opts.neighbours) {
+    if (n.score < opts.threshold || !closest.has(n.decisionId)) continue;
+    if (opts.rankOfHitIn && opts.rankOfHitIn(n.decisionId) > LATER_MUTUAL_RANK) continue;
+    consider(n.decisionId, n.score, undefined);
+  }
   const typed = (e: LaterOnTopicEntry) => (e.relation ? 0 : 1);
   return [...out.values()]
     // Typed first, then the most similar, then the earliest date; id last so the cut is deterministic.

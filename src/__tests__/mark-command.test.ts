@@ -212,3 +212,16 @@ describe('align mark --undo', () => {
     expect(out.join('\n')).toMatch(/no verdict/i);
   });
 });
+
+describe('the no-terminal refusal hands the mark to the person', () => {
+  it('says to give the command to the person to run in their own terminal', async () => {
+    const err: string[] = [];
+    const { runMarkCommand } = await import('../commands/mark.js');
+    const code = await runMarkCommand(['a', 'not-a-decision'], {}, {
+      out: () => {}, err: (l) => err.push(l), graphPath: () => '/tmp/none.db', judge: async () => ({ judgeId: 'j' }) as never,
+      lastCheck: () => null, isTty: () => false, head: async () => null,
+    });
+    expect(code).toBe(1);
+    expect(err.join(' ')).toContain('If you are an agent, do not retry: give this command to the person to run in their own terminal.');
+  });
+});

@@ -18,7 +18,7 @@ export function registerStaleCommand(program: Command): void {
     .option('--json', 'Print the result as JSON')
     .action(async (opts: { env?: EnvName; includeAi?: boolean; maxFiles?: string; budgetSeconds?: string; json?: boolean }) => {
       try {
-        const env = createConfigStore().getEnvironment(resolveEnv(opts.env));
+        const env = createConfigStore().getEnvironment(resolveEnv(opts.env, { preferLocalEmbedded: true }));
         const client = env.mode === 'local-embedded' ? null : createGatewayClient(env);
         const { report, loadNotes, result } = await runStale(env, client, {
           cwd: process.cwd(),
