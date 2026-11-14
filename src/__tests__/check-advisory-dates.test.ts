@@ -29,7 +29,7 @@ describe('each item carries its date', () => {
 
   it('shows no bracket when neither date is usable', () => {
     const out = show([{ id: 'd', title: 'Bare', decided_at: 'soon', created_at: 'later' }]);
-    expect(out).toContain('- Bare\n');
+    expect(out).toContain('- Bare (no decision date: confirm it still holds)\n');
   });
 
   it('dates the blame decisions too', () => {
@@ -76,7 +76,7 @@ describe('a cut keeps whole sentences', () => {
 
   it('text within the budget is untouched, byte for byte', () => {
     const text = 'Short first sentence. Short second sentence!';
-    expect(show([{ id: 's', title: 'Short', summary: text }])).toContain(`- Short\n  ${text}\n`);
+    expect(show([{ id: 's', title: 'Short', summary: text }])).toContain(`- Short (no decision date: confirm it still holds)\n  ${text}\n`);
   });
 
   it('drops trailing sentences whole and marks the cut', () => {
