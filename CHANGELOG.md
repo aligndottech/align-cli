@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.77.2](https://github.com/aligndottech/align-cli/compare/cli-v0.77.1...cli-v0.77.2) (2026-11-14)
+
+
+### Bug Fixes
+
+* **local:** Shane's 0.77.1 rerun - later_on_topic, merge dedupe, hook excerpt, file ranking, list filters ([#586](https://github.com/aligndottech/align-cli/issues/586)) ([cd63b68](https://github.com/aligndottech/align-cli/commit/cd63b68949b918d4551d1937202dbd180f8b2c5e))
+
 ## [0.77.1](https://github.com/aligndottech/align-cli/compare/cli-v0.77.0...cli-v0.77.1) (2026-11-13)
 
 
