@@ -94,6 +94,34 @@ describe('fetchDocsItems - ADR directories', () => {
     expect(items.map((i) => i.title).sort()).toEqual(['Decisions dir ADR', 'Root adr dir ADR']);
   });
 
+  it.each([
+    ['docs/adrs'], ['src/docs/adrs'], ['src/docs/adr'], ['docs/architecture/adr'], ['docs/architecture/decisions'],
+  ])('reads ADRs from %s', async (dir) => {
+    repo = mkdtempSync(join(tmpdir(), 'align-2109-'));
+    mkdirSync(join(repo, ...dir.split('/')), { recursive: true });
+    writeFileSync(join(repo, ...dir.split('/'), '0001-x.md'), `# Decision in ${dir}\n\nLong enough body text here.`);
+    mockGit(null);
+
+    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
+
+    expect(items.map((i) => i.title)).toEqual([`Decision in ${dir}`]);
+  });
+
+  it('reads AsciiDoc ADRs, titled from the first "= " heading and not a "== " section', async () => {
+    repo = mkdtempSync(join(tmpdir(), 'align-2109-'));
+    mkdirSync(join(repo, 'docs', 'architecture', 'adr'), { recursive: true });
+    writeFileSync(join(repo, 'docs', 'architecture', 'adr', '0002-queue.adoc'),
+      '== Not the title\n= Use a queue\n\n== Status\nAccepted\n\n== Decision\nWe use a queue between services.');
+    writeFileSync(join(repo, 'docs', 'architecture', 'adr', '0003-cache.asciidoc'),
+      '= Cache reads\n\nLong enough body text for a decision here.');
+    writeFileSync(join(repo, 'docs', 'architecture', 'adr', '0004-no-heading.adoc'), 'Body text only, long enough to keep.');
+    mockGit(null);
+
+    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
+
+    expect(items.map((i) => i.title).sort()).toEqual(['Cache reads', 'No Heading', 'Use a queue']);
+  });
+
   it('returns no ADR items, without throwing, when the repo has no ADR directory', async () => {
     repo = mkdtempSync(join(tmpdir(), 'align-793-'));
     mockGit(null);

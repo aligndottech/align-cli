@@ -713,7 +713,7 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
       // history had decisions and every batch failed, so the graph is empty. Say why
       // and exit non-zero; one source failing beside another that landed stays a warning.
       if ((items.length || prs.items.length) && (gitCs.stored ?? 0) + prStored === 0 && (gitCs.failedBatches ?? 0) + prFailed > 0) {
-        p.log.error('Nothing was imported: every batch failed. If the on-device embedding model could not download (a proxy or firewall blocking huggingface.co is the usual cause), run: align doctor');
+        p.log.error('Nothing was imported: every batch failed. See the align doctor hint above.');
         process.exitCode = 1;
       }
       if (prs.note) p.log.info(chalk.dim(prs.note));

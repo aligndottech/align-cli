@@ -22,6 +22,15 @@ function failureLines(failures: Array<{ batch: number; message: string }>): stri
   return [...byMessage].map(([message, batches]) =>
     batches.length === 1 ? `Batch ${batches[0]}: ${message}` : `${batches.length} batches failed: ${message}`);
 }
+
+/** One line, per mode: a local import embeds on-device (a blocked model download is the usual
+ *  cause); a cloud import does not, so it gets the neutral pointer. Setup's every-source-failed
+ *  error points back at this line instead of repeating it. */
+function doctorHint(local: boolean | undefined): string {
+  return local
+    ? 'If the on-device embedding model could not download (a proxy or firewall blocking huggingface.co is the usual cause), run: align doctor'
+    : 'To see why, run: align doctor';
+}
 const BATCH_CONCURRENCY = 3;
 
 // Cap TOTAL concurrent /ingest/batch calls across all imports running in
@@ -220,6 +229,7 @@ export async function runPersonalImport(
       : '';
     console.log(`  ${chalk.green('✓')} ${opts.label}: ${total} decision${total === 1 ? '' : 's'}${conn}${failNote}`);
     for (const line of failureLines(failures)) p.log.warn(line);
+    if (failures.length) p.log.info(doctorHint(opts.local));
     return total;
   }
 
@@ -235,6 +245,7 @@ export async function runPersonalImport(
   } else {
     spinner!.warn(`Imported ${total} decisions (${failures.length} batch${failures.length > 1 ? 'es' : ''} failed)`);
     for (const line of failureLines(failures)) p.log.warn(line);
+    p.log.info(doctorHint(opts.local));
   }
 
   if (relatedCount > 0) {

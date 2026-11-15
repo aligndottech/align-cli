@@ -37,7 +37,10 @@ import {
 /** ADR directory conventions, checked in this order; EVERY one that exists is scanned -
  *  a repo can legitimately carry more than one (a migration between conventions, or
  *  doc/adr and docs/decisions covering different eras of the same project). */
-const ADR_DIR_CANDIDATES = ['docs/adr', 'doc/adr', 'docs/decisions', 'doc/decisions', 'adr'];
+const ADR_DIR_CANDIDATES = [
+  'docs/adr', 'doc/adr', 'docs/decisions', 'doc/decisions', 'adr',
+  'docs/adrs', 'src/docs/adrs', 'src/docs/adr', 'docs/architecture/adr', 'docs/architecture/decisions',
+];
 
 /** Root-level only, matching the two write-only surfaces it names. Nested
  *  per-package CLAUDE.md/AGENTS.md files are a real convention in this repo's own
@@ -59,7 +62,8 @@ function humanizeFilename(file: string): string {
 }
 
 function firstHeading(content: string): string | null {
-  const m = content.match(/^#\s+(.+)$/m);
+  // `# Title` (Markdown) or `= Title` (AsciiDoc: a single `=`, never a `==` section).
+  const m = content.match(/^(?:#|=)\s+(.+)$/m);
   return m ? m[1].trim() : null;
 }
 
@@ -81,7 +85,7 @@ async function readAdrFiles(repoRoot: string): Promise<Array<{ relPath: string; 
       continue; // convention not used in this repo - not an error
     }
     for (const entry of entries) {
-      if (!entry.isFile() || !/\.mdx?$/i.test(entry.name)) continue;
+      if (!entry.isFile() || !/\.(mdx?|adoc|asciidoc)$/i.test(entry.name)) continue;
       const relPath = `${dir}/${entry.name}`;
       const content = await readFile(path.join(repoRoot, dir, entry.name), 'utf8');
       out.push({ relPath, content });
