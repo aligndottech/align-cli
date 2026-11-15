@@ -9,7 +9,7 @@ import { clearScreenForPicker, CLI_TOKEN_SOURCES, cliTokenDecision, detectVerifi
 import { createConfigStore, type EnvName } from '../lib/config.js';
 import { dropRejectedToken } from '../lib/rejected-token.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
-import { type PersonalImportItem, runPersonalImport, runWithConcurrency } from '../lib/personal-import.js';
+import { doctorHint, type PersonalImportItem, runPersonalImport, runWithConcurrency } from '../lib/personal-import.js';
 import { detectEditors, type EditorTarget } from '../lib/mcp-setup.js';
 import { confirmWrites, planSetupWrites } from '../lib/write-confirm.js';
 import { connectDetectedAgents } from './connect-agents.js';
@@ -688,6 +688,7 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
           appUrl: resolveAppUrl(localEnv),
           local: true,
           quiet: true,
+          noDoctorHint: true,
           funnel: { env: localEnv, source: 'git' },
         });
       } else {
@@ -704,12 +705,14 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
           ] },
         }));
         await runPersonalImport(prs.items, localClient, { exitOnTotalFailure: false,
-          result: prCs, label: 'GitHub PR descriptions', approve: true, appUrl: resolveAppUrl(localEnv), local: true, quiet: true,
+          result: prCs, label: 'GitHub PR descriptions', approve: true, appUrl: resolveAppUrl(localEnv), local: true, quiet: true, noDoctorHint: true,
           funnel: { env: localEnv, source: 'github' },
         });
         prStored = prCs.stored ?? prs.items.length;
         prFailed = prCs.failedBatches ?? 0;
       }
+      // One hint for the git and PR imports together, not one per import.
+      if ((gitCs.failedBatches ?? 0) + prFailed > 0) p.log.info(doctorHint(true));
       // history had decisions and every batch failed, so the graph is empty. Say why
       // and exit non-zero; one source failing beside another that landed stays a warning.
       if ((items.length || prs.items.length) && (gitCs.stored ?? 0) + prStored === 0 && (gitCs.failedBatches ?? 0) + prFailed > 0) {

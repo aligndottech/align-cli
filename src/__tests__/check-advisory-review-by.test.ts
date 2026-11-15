@@ -13,8 +13,20 @@ const line = (summary: string, decided_at = '2026-10-01T00:00:00Z'): string =>
 const FLAG = 'review-by date 2026-06-01 has passed';
 
 describe('review-by flag', () => {
+  it('does not treat "Review date:" as a deadline (it records when a review happened)', () => {
+    expect(line('Review date: 2026-06-01\nBody text.')).not.toContain('review-by');
+  });
+  it('uses the latest of several review-by dates: past then future is not flagged', () => {
+    expect(line('Review-by: 2026-06-01\nReview-by: 2027-06-01\nBody.')).not.toContain('review-by');
+  });
+  it('uses the latest of several review-by dates: future then past is not flagged either', () => {
+    expect(line('Review-by: 2027-06-01\nReview-by: 2026-06-01\nBody.')).not.toContain('review-by');
+  });
+  it('flags when the latest of several dates has passed', () => {
+    expect(line('Review-by: 2026-01-01\nReview-by: 2026-06-01\nBody.')).toContain(FLAG);
+  });
   it.each([
-    ['Review-by: 2026-06-01'], ['Review by: 2026-06-01'], ['Review date: 2026-06-01'],
+    ['Review-by: 2026-06-01'], ['Review by: 2026-06-01'],
     ['---\nreview_by: 2026-06-01\n---'], ['---\nreview-by: "2026-06-01"\n---'],
   ])('flags a passed date written as %j', (stated) => {
     expect(line(`# Use SQS\n\n${stated}\n\nWe use SQS because Redis lost jobs.`)).toContain(FLAG);

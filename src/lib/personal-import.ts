@@ -24,9 +24,9 @@ function failureLines(failures: Array<{ batch: number; message: string }>): stri
 }
 
 /** One line, per mode: a local import embeds on-device (a blocked model download is the usual
- *  cause); a cloud import does not, so it gets the neutral pointer. Setup's every-source-failed
- *  error points back at this line instead of repeating it. */
-function doctorHint(local: boolean | undefined): string {
+ *  cause); a cloud import does not, so it gets the neutral pointer. Setup prints it once for its
+ *  git + PR imports (noDoctorHint) and its every-source-failed error points back at it. */
+export function doctorHint(local: boolean | undefined): string {
   return local
     ? 'If the on-device embedding model could not download (a proxy or firewall blocking huggingface.co is the usual cause), run: align doctor'
     : 'To see why, run: align doctor';
@@ -108,6 +108,8 @@ export async function runPersonalImport(
      *  true, for the one-source import commands. A multi-source run (setup) passes false and decides
      *  over all its sources, so one failing connector does not fail a run where git imported fine. */
     exitOnTotalFailure?: boolean;
+    /** The caller prints the align doctor hint itself, once, over several imports (setup's git + PR). */
+    noDoctorHint?: boolean;
     /** Inside the setup wizard: the outro owns the next step, so the footer's own is left out. */
     noFooter?: boolean;
     /** When present, emit the import_completed funnel stage after ingest.
@@ -229,7 +231,7 @@ export async function runPersonalImport(
       : '';
     console.log(`  ${chalk.green('✓')} ${opts.label}: ${total} decision${total === 1 ? '' : 's'}${conn}${failNote}`);
     for (const line of failureLines(failures)) p.log.warn(line);
-    if (failures.length) p.log.info(doctorHint(opts.local));
+    if (failures.length && !opts.noDoctorHint) p.log.info(doctorHint(opts.local));
     return total;
   }
 
@@ -245,7 +247,7 @@ export async function runPersonalImport(
   } else {
     spinner!.warn(`Imported ${total} decisions (${failures.length} batch${failures.length > 1 ? 'es' : ''} failed)`);
     for (const line of failureLines(failures)) p.log.warn(line);
-    p.log.info(doctorHint(opts.local));
+    if (!opts.noDoctorHint) p.log.info(doctorHint(opts.local));
   }
 
   if (relatedCount > 0) {

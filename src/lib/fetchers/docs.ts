@@ -1,4 +1,4 @@
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { buildBlobUrl, getCurrentBranch, getRemoteUrl } from '../git.js';
 import { ALIGN_NUDGE_END, ALIGN_NUDGE_START } from '../agent-rules.js';
@@ -77,9 +77,13 @@ function slugify(heading: string): string {
 
 async function readAdrFiles(repoRoot: string): Promise<Array<{ relPath: string; content: string }>> {
   const out: Array<{ relPath: string; content: string }> = [];
+  const seen = new Set<string>(); // real paths already scanned: a symlinked dir must not import twice
   for (const dir of ADR_DIR_CANDIDATES) {
     let entries;
     try {
+      const real = await realpath(path.join(repoRoot, dir));
+      if (seen.has(real)) continue;
+      seen.add(real);
       entries = await readdir(path.join(repoRoot, dir), { withFileTypes: true });
     } catch {
       continue; // convention not used in this repo - not an error

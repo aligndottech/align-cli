@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import type { Dirent } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -120,6 +120,23 @@ describe('fetchDocsItems - ADR directories', () => {
     const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
 
     expect(items.map((i) => i.title).sort()).toEqual(['Cache reads', 'No Heading', 'Use a queue']);
+  });
+
+  it('does not import a file twice when one ADR dir is a symlink to another', async (ctx) => {
+    repo = mkdtempSync(join(tmpdir(), 'align-2109-'));
+    mkdirSync(join(repo, 'docs', 'adr'), { recursive: true });
+    mkdirSync(join(repo, 'src', 'docs'), { recursive: true });
+    writeFileSync(join(repo, 'docs', 'adr', '0001-a.md'), '# Decision A\n\nLong enough body text here.');
+    try {
+      symlinkSync(join(repo, 'docs', 'adr'), join(repo, 'src', 'docs', 'adr'), 'junction');
+    } catch {
+      ctx.skip(); // symlink creation needs elevation here
+    }
+    mockGit(null);
+
+    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
+
+    expect(items.map((i) => i.title)).toEqual(['Decision A']);
   });
 
   it('returns no ADR items, without throwing, when the repo has no ADR directory', async () => {
