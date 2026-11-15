@@ -1382,6 +1382,16 @@ describe('align setup', () => {
       const outcome = (over: Record<string, unknown> = {}) => ({ items: [prItem(7)], scanned: 40, housekeeping: 0, imported: 1, numbers: new Set([7]), shas: new Set(['a'.repeat(40)]), ...over });
       const ingested = () => mockIngestBatch.mock.calls.flatMap((c) => c[0] as Array<{ title: string; source_url: string; platform: string }>);
 
+      it('prints the align doctor hint once when the git import and the PR import both lose a batch', async () => {
+        mockIngestBatch.mockRejectedValue(new Error('boom'));
+        mockFetchFirstRunPrs.mockResolvedValue(outcome());
+        const { log } = await import('@clack/prompts');
+        await makeProgram().parseAsync(['node', 'align', '--local']);
+        const hints = (log.info as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0])).filter((l) => l.includes('align doctor'));
+        expect(mockIngestBatch.mock.calls.length).toBeGreaterThanOrEqual(2); // positive control: both imports ran and failed
+        expect(hints).toHaveLength(1);
+      });
+
       it('imports the PR row and not the squash commit that carries the same change', async () => {
         const { getCommitHistoryDetailed } = await import('../lib/git.js');
         (getCommitHistoryDetailed as ReturnType<typeof vi.fn>).mockResolvedValueOnce({

@@ -974,6 +974,22 @@ function stalenessNote(d: RelatedDecision, now: number): string {
   return now > limit.getTime() ? ` (${monthsBetween(decided, now)} months old: confirm it still holds)` : '';
 }
 
+// A review-by date someone wrote in the ADR or doc ("Review-by: 2026-06-01", "Review by: ...", or
+// YAML `review_by:` / `review-by:`; not "Review date:", which records when a review happened), read from the stored summary at check time so no schema column is
+// needed. One line per date, line-anchored, ISO day only. The day itself is still in date; the flag
+// starts the day after. A passed date is a better signal than age, so it is its own cue.
+const REVIEW_BY_RE = /^[ \t>*_-]*(?:review[-_ ]by)[*_]*[ \t]*:[*_ \t]*["']?(\d{4}-\d{2}-\d{2})\b/gim;
+function reviewByNote(d: RelatedDecision, now: number): string {
+  // Several review-by lines: the latest one is the live deadline, so only it can be overdue.
+  let day: string | undefined;
+  let ms: number | null = null;
+  for (const m of (d.summary ?? '').matchAll(REVIEW_BY_RE)) {
+    const t = isoInstant(m[1]);
+    if (t !== null && (ms === null || t > ms)) { ms = t; day = m[1]; }
+  }
+  return day && ms !== null && now >= ms + 86_400_000 ? ` (review-by date ${day} has passed)` : '';
+}
+
 // A title reaches the agent too, so it gets the excerpt's redaction and control stripping.
 function safeTitle(title: string): string {
   return flatten(redactSecrets(title).text).replace(CONTROLS, '');
@@ -984,7 +1000,7 @@ function decisionBullets(decisions: RelatedDecision[], budget: { left: number },
   return newestFirst(decisions).flatMap((d) => {
     const excerpt = excerptOf(d, budget.left, focus);
     budget.left -= excerpt.length;
-    const head = `- ${dateTag(d)}${safeTitle(d.title)}${replacedNote(d)}${laterNote(d)}${authorNote(d)}${stalenessNote(d, now)}`;
+    const head = `- ${dateTag(d)}${safeTitle(d.title)}${replacedNote(d)}${laterNote(d)}${authorNote(d)}${stalenessNote(d, now)}${reviewByNote(d, now)}`;
     return excerpt ? [head, `  ${excerpt}`] : [head];
   });
 }

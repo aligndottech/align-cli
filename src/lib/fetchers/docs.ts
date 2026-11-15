@@ -1,4 +1,4 @@
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { buildBlobUrl, getCurrentBranch, getRemoteUrl } from '../git.js';
 import { ALIGN_NUDGE_END, ALIGN_NUDGE_START } from '../agent-rules.js';
@@ -37,7 +37,10 @@ import {
 /** ADR directory conventions, checked in this order; EVERY one that exists is scanned -
  *  a repo can legitimately carry more than one (a migration between conventions, or
  *  doc/adr and docs/decisions covering different eras of the same project). */
-const ADR_DIR_CANDIDATES = ['docs/adr', 'doc/adr', 'docs/decisions', 'doc/decisions', 'adr'];
+const ADR_DIR_CANDIDATES = [
+  'docs/adr', 'doc/adr', 'docs/decisions', 'doc/decisions', 'adr',
+  'docs/adrs', 'src/docs/adrs', 'src/docs/adr', 'docs/architecture/adr', 'docs/architecture/decisions',
+];
 
 /** Root-level only, matching the two write-only surfaces it names. Nested
  *  per-package CLAUDE.md/AGENTS.md files are a real convention in this repo's own
@@ -59,7 +62,8 @@ function humanizeFilename(file: string): string {
 }
 
 function firstHeading(content: string): string | null {
-  const m = content.match(/^#\s+(.+)$/m);
+  // `# Title` (Markdown) or `= Title` (AsciiDoc: a single `=`, never a `==` section).
+  const m = content.match(/^(?:#|=)\s+(.+)$/m);
   return m ? m[1].trim() : null;
 }
 
@@ -73,15 +77,19 @@ function slugify(heading: string): string {
 
 async function readAdrFiles(repoRoot: string): Promise<Array<{ relPath: string; content: string }>> {
   const out: Array<{ relPath: string; content: string }> = [];
+  const seen = new Set<string>(); // real paths already scanned: a symlinked dir must not import twice
   for (const dir of ADR_DIR_CANDIDATES) {
     let entries;
     try {
+      const real = await realpath(path.join(repoRoot, dir));
+      if (seen.has(real)) continue;
+      seen.add(real);
       entries = await readdir(path.join(repoRoot, dir), { withFileTypes: true });
     } catch {
       continue; // convention not used in this repo - not an error
     }
     for (const entry of entries) {
-      if (!entry.isFile() || !/\.mdx?$/i.test(entry.name)) continue;
+      if (!entry.isFile() || !/\.(mdx?|adoc|asciidoc)$/i.test(entry.name)) continue;
       const relPath = `${dir}/${entry.name}`;
       const content = await readFile(path.join(repoRoot, dir, entry.name), 'utf8');
       out.push({ relPath, content });
