@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.79.0](https://github.com/aligndottech/align-cli/compare/cli-v0.78.0...cli-v0.79.0) (2026-11-15)
+
+
+### Features
+
+* more ADR folders and AsciiDoc, doctor hint on failed batches, review-by flag (ALI-2109) ([#590](https://github.com/aligndottech/align-cli/issues/590)) ([ff90213](https://github.com/aligndottech/align-cli/commit/ff90213b1fe5f0825a35a5d93e48acd84b917182))
+
 ## [0.78.0](https://github.com/aligndottech/align-cli/compare/cli-v0.77.2...cli-v0.78.0) (2026-11-14)
 
 
