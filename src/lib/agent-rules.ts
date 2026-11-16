@@ -30,6 +30,10 @@ export const HOOK_TIMEOUT_SECONDS = 10;
 // (.claude-plugin, hooks/hooks.json), whose test pins it to this constant.
 export const EDIT_HOOK_MATCHER = 'Write|Edit';
 
+// The package spec the Claude Code plugin runs through npx. `latest`, not a pinned range: a 0.x
+// caret never crosses a minor and cannot be auto-bumped inside a string. The hook is fail-open.
+export const PLUGIN_PACKAGE_SPEC = '@aligndottech/cli@latest';
+
 // The command a SessionStart hook shells out to. No --env flag: unlike the
 // advisory check, this reads a local file (.align/decisions.md) and never touches the
 // gateway, so there is no environment to encode.

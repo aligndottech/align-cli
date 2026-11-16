@@ -1,12 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { alignClaudeHooks, EDIT_HOOK_MATCHER, HOOK_TIMEOUT_SECONDS } from '../lib/agent-rules.js';
+import { alignClaudeHooks, EDIT_HOOK_MATCHER, HOOK_TIMEOUT_SECONDS, PLUGIN_PACKAGE_SPEC } from '../lib/agent-rules.js';
 import { alignServerEntry } from '../lib/mcp-setup.js';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const read = (rel: string) => JSON.parse(readFileSync(root + rel, 'utf8')) as Record<string, any>;
-const NPX = 'npx -y @aligndottech/cli@^0.79';
+const NPX = `npx -y ${PLUGIN_PACKAGE_SPEC}`;
 
 describe('Claude Code plugin manifests', () => {
   it('plugin.json carries the documented fields', () => {
@@ -55,11 +55,24 @@ describe('plugin hooks match what `align setup` writes', () => {
   });
 });
 
+describe('release-please keeps the plugin version in step', () => {
+  it('lists the plugin manifest version as an extra file', () => {
+    const extra = read('release-please-config.json')['packages']['.']['extra-files'] as Array<{ path: string; jsonpath: string }>;
+    expect(extra.some((e) => e.path === '.claude-plugin/plugin.json' && e.jsonpath === '$.version')).toBe(true);
+  });
+});
+
+describe('plugin package spec', () => {
+  it('is latest, not a pinned range', () => {
+    expect(PLUGIN_PACKAGE_SPEC).toBe('@aligndottech/cli@latest');
+  });
+});
+
 describe('plugin MCP server', () => {
   it('runs the same `mcp` args as the committed .mcp.json entry, through npx', () => {
     const entry = alignServerEntry('mcpServers', undefined, { committed: true }) as { args: string[] };
     const decl = read('.claude-plugin/plugin.json')['mcpServers'].align;
     expect(decl.command).toBe('npx');
-    expect(decl.args).toEqual(['-y', '@aligndottech/cli@^0.79', ...entry.args]);
+    expect(decl.args).toEqual(['-y', PLUGIN_PACKAGE_SPEC, ...entry.args]);
   });
 });
