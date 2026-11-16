@@ -68,6 +68,13 @@ describe('mergeAddsNothing matches the title the way it matches sentences', () =
   it('drops a title that ends in a full stop, so a boilerplate-only merge adds nothing', () => {
     expect(mergeAddsNothing('Use SQLite.', 'Merge pull request #1 from x/db\n\nUse SQLite.', '')).toBe(true);
   });
+  it('matches a title of several sentences against the same sentences', () => {
+    expect(mergeAddsNothing('Fix a crash. Add tests.', 'Merge pull request #2 from x/fix\n\nFix a crash. Add tests.', '')).toBe(true);
+  });
+  it('does not remove the title from inside a longer sentence', () => {
+    // "Use SQLite in production." is a different decision from "Use SQLite.", even if the plain commit says "in production.".
+    expect(mergeAddsNothing('Use SQLite.', 'Merge pull request #3 from x/db\n\nUse SQLite in production.', 'In production.')).toBe(false);
+  });
   it('still sees text beyond such a title (pair)', () => {
     expect(mergeAddsNothing('Use SQLite.', 'Merge pull request #1 from x/db\n\nUse SQLite. Not Postgres.', '')).toBe(false);
   });
