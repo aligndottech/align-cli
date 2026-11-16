@@ -10,10 +10,34 @@ import { normaliseDecidedAt } from '../local-db.js';
  */
 const DATE_LINE = /^[ \t*_-]*(?:date[*_]*[ \t]*:|:revdate:)[*_ \t]*["']?([^\r\n"']*)/im;
 const FRONT_MATTER = /^---\r?\n([\s\S]*?)\r?\n---/;
-// `(?![\s\S])` is true end of input: with the m flag a bare `$` would stop at the end of the
-// fence's FIRST line, leaving later lines (and any Date on them) in the header.
-const FENCE = /^[ \t]*(```|~~~)[^\n]*\n[\s\S]*?(?:\n[ \t]*\1[^\n]*(?=\n|$)|(?![\s\S]))/gm;
 const FM_DATE = /^date[ \t]*:[ \t]*["']?([^\r\n"']*)/im;
+
+/**
+ * Drop fenced code blocks line by line (CommonMark): the opener records its character and
+ * length; only a line of the SAME character, at least that long, with nothing after it but
+ * whitespace closes it; an unclosed fence runs to the end of input.
+ */
+function stripFences(text: string): string {
+  const out: string[] = [];
+  let open: { ch: string; len: number } | null = null;
+  for (const line of text.split('\n')) {
+    if (open === null) {
+      const m = line.match(/^[ \t]*(`{3,}|~{3,})/);
+      if (m) open = { ch: m[1][0], len: m[1].length };
+      else out.push(line);
+    } else {
+      const m = line.match(/^[ \t]*(`{3,}|~{3,})[ \t]*\r?$/);
+      if (m && m[1][0] === open.ch && m[1].length >= open.len) open = null;
+    }
+  }
+  return out.join('\n');
+}
+
+/** A blank value or an unfilled template placeholder ("{YYYY-MM-DD ...}") is not a declaration. */
+function isUnfilled(value: string): boolean {
+  const v = value.trim();
+  return v === '' || /^\{.*\}?$|YYYY/.test(v);
+}
 
 /** Only an ISO day (or instant) counts: '12' or 'March' must not become a date. */
 function isoOrNull(raw: string): string | null {
@@ -32,15 +56,13 @@ export function declaredAdrDate(content: string, adoc = false): string | null | 
   const body = fm ? content.slice(fm[0].length) : content;
   // Only the header declares the date: a Date line in a code fence, a quote, a revision log
   // or any later section is content about something else. Header = before the first section.
-  const noFences = body.replace(FENCE, '');
+  const noFences = stripFences(body);
   const header = noFences.split(adoc ? /^==[ \t]/m : /^##[ \t]/m)[0];
   const line = header.match(DATE_LINE);
-  // A blank value or an unfilled template placeholder ("{YYYY-MM-DD ...}") is not a declaration.
-  // A value a person wrote ("TBD") still is, and drops the field (D4b).
-  const unfilled = line && (line[1].trim() === '' || /^\{.*\}?$|YYYY/.test(line[1].trim()));
-  if (line && !unfilled) return isoOrNull(line[1]);
+  // An unfilled value is not a declaration; a value a person wrote ("TBD") is, and drops the field (D4b).
+  if (line && !isUnfilled(line[1])) return isoOrNull(line[1]);
   const fmDate = fm?.[1].match(FM_DATE);
-  if (fmDate) return isoOrNull(fmDate[1]);
+  if (fmDate && !isUnfilled(fmDate[1])) return isoOrNull(fmDate[1]);
   return undefined;
 }
 

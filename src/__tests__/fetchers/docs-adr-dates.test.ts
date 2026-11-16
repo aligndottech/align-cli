@@ -372,3 +372,53 @@ describe('D13 bounded git use', () => {
     expect(peak).toBe(3);
   });
 });
+
+describe('D14 fence scanner follows CommonMark closing rules', () => {
+  const committed = async (name: string, text: string): Promise<string | undefined> => {
+    await git(['init', '-q', '-b', 'main']);
+    adr(name, text);
+    await git(['add', '.']);
+    await git(['commit', '-q', '-m', 'x'], '2022-09-09T00:00:00+00:00');
+    return dateOf(name);
+  };
+  const GIT = '2022-09-09T00:00:00.000Z';
+  it('a 4-backtick block is not closed by a 3-backtick line', async () => {
+    const t = `# F\n\n\`\`\`\`\n\`\`\`\nDate: 1999-01-01\n\`\`\`\`\n\n## Context\n\n${  BODY}`;
+    expect(await committed('0040-a.md', t)).toBe(GIT);
+  });
+  it('a closing marker with trailing text does not close', async () => {
+    const t = `# F\n\n\`\`\`\n\`\`\` not a close\nDate: 1999-01-01\n\`\`\`\n\n## Context\n\n${  BODY}`;
+    expect(await committed('0041-b.md', t)).toBe(GIT);
+  });
+  it('an empty fence does not swallow the header Date after it', async () => {
+    adr('0042-c.md', `# F\n\n\`\`\`\n\`\`\`\n\nDate: 2021-05-05\n\n## Context\n\n${  BODY}`);
+    expect(await dateOf('0042-c.md')).toBe('2021-05-05');
+  });
+  it('~~~ variant: a ``` line inside does not close, and an empty ~~~ fence is harmless', async () => {
+    adr('0043-d.md', `# F\n\n~~~\n\`\`\`\nDate: 1999-01-01\n~~~\n\n~~~\n~~~\n\nDate: 2020-02-02\n\n## Context\n\n${  BODY}`);
+    expect(await dateOf('0043-d.md')).toBe('2020-02-02');
+  });
+  it('an unclosed fence runs to the end of input', async () => {
+    const t = '# F\n\n```\nDate: 1999-01-01\n';
+    expect(await committed('0044-e.md', t)).toBe(GIT);
+  });
+});
+
+describe('D15 unfilled front matter date falls through', () => {
+  const committed = async (name: string, fmDate: string): Promise<string | undefined> => {
+    await git(['init', '-q', '-b', 'main']);
+    adr(name, `---\ndate: ${fmDate}\n---\n# F\n\n## Context\n\n${BODY}`);
+    await git(['add', '.']);
+    await git(['commit', '-q', '-m', 'x'], '2022-09-09T00:00:00+00:00');
+    return dateOf(name);
+  };
+  it('date: "" uses the git date', async () => {
+    expect(await committed('0045-f.md', '""')).toBe('2022-09-09T00:00:00.000Z');
+  });
+  it('date: "{YYYY-MM-DD}" uses the git date', async () => {
+    expect(await committed('0046-g.md', '"{YYYY-MM-DD}"')).toBe('2022-09-09T00:00:00.000Z');
+  });
+  it('date: TBD still drops the field', async () => {
+    expect(await committed('0047-h.md', 'TBD')).toBeUndefined();
+  });
+});
