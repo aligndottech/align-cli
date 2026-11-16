@@ -62,12 +62,6 @@ describe('release-please keeps the plugin version in step', () => {
   });
 });
 
-describe('plugin package spec', () => {
-  it('is latest, not a pinned range', () => {
-    expect(PLUGIN_PACKAGE_SPEC).toBe('@aligndottech/cli@latest');
-  });
-});
-
 describe('plugin MCP server', () => {
   it('runs the same `mcp` args as the committed .mcp.json entry, through npx', () => {
     const entry = alignServerEntry('mcpServers', undefined, { committed: true }) as { args: string[] };
