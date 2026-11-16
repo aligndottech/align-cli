@@ -1,0 +1,222 @@
+/**
+ * ALI-2114: an ADR carries a decision date. Test List (two examples per rule):
+ *  D1  a `Date:` line in the body (Nygard; `* Date:` and `**Date:**` too)      -> created_at
+ *  D2  YAML front matter `date:` (MADR; bare and quoted)                        -> created_at
+ *  D3  neither: the date of the file's FIRST commit (real git, never mocked)    -> created_at
+ *  D4  an unparseable date drops the field, never guesses                       (no git: no field)
+ *  D5  no git repo at all: the import still succeeds, with no date
+ *  D6  AsciiDoc: `:revdate:` / `Date:` line, else the git date
+ *  D7  non-ADR kinds (README/CONTRIBUTING rules, agent rules) are unchanged
+ *  D8  the stored decided_at is the declared date
+ *  D9  the edit check no longer says "no decision date" for a dated ADR
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { execa } from 'execa';
+
+vi.mock('../../lib/similarity/embedding-matrix.js', async () =>
+  (await import('../helpers/mocked-cosine-matrix.js')).mockedCosineMatrixModule());
+vi.mock('../../lib/local-embeddings.js', () => ({
+  getEmbedding: vi.fn().mockResolvedValue(new Float32Array(384).fill(0.1)),
+  cosineSimilarity: vi.fn().mockReturnValue(0.0),
+  EMBEDDING_MODEL_ID: 'Xenova/all-MiniLM-L6-v2',
+}));
+vi.mock('../../lib/local-relationship-classifier.js', () => ({
+  classifyRelationship: vi.fn().mockResolvedValue({ ok: false, reason: 'no_llm_key' }),
+  RELATIONSHIP_TYPES: ['relates_to'],
+}));
+vi.setConfig({ testTimeout: 30_000 });
+
+import { fetchDocsItems } from '../../lib/fetchers/docs.js';
+import { createLocalGatewayClient } from '../../lib/local-gateway-client.js';
+import { createLocalDb } from '../../lib/local-db.js';
+import { buildRelatedOutput } from '../../commands/check.js';
+
+let repo: string;
+beforeEach(() => { repo = mkdtempSync(join(tmpdir(), 'align-2114-')); });
+afterEach(() => { vi.unstubAllEnvs(); rmSync(repo, { recursive: true, force: true }); });
+
+const BODY = 'We need a relational store with strong consistency across services.';
+function adr(name: string, text: string, dir = 'docs/adr'): void {
+  mkdirSync(join(repo, dir), { recursive: true });
+  writeFileSync(join(repo, dir, name), text);
+}
+async function dateOf(name: string): Promise<string | undefined> {
+  const { items } = await fetchDocsItems({ limit: 50, cwd: repo });
+  const hit = items.find((i) => i.source_url.endsWith(name)) as { created_at?: string } | undefined;
+  expect(hit, `item ${name} was not imported`).toBeDefined();
+  return hit?.created_at;
+}
+async function git(args: string[], date?: string): Promise<void> {
+  await execa('git', args, {
+    cwd: repo,
+    env: { GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t',
+      ...(date ? { GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date } : {}) },
+  });
+}
+
+describe('D1 a Date line in the body', () => {
+  it('reads the Nygard line', async () => {
+    adr('0001-a.md', `# 1. Use Postgres\n\nDate: 2024-03-01\n\nStatus: Accepted\n\n${BODY}`);
+    expect(await dateOf('0001-a.md')).toBe('2024-03-01');
+  });
+  it('tolerates `* Date:` and `**Date:**`', async () => {
+    adr('0002-b.md', `# 2. B\n\n* Date: 2023-11-05\n\n${BODY}`);
+    adr('0003-c.md', `# 3. C\n\n**Date:** 2022-01-02\n\n${BODY}`);
+    expect(await dateOf('0002-b.md')).toBe('2023-11-05');
+    expect(await dateOf('0003-c.md')).toBe('2022-01-02');
+  });
+  it('wins over front matter when both are present', async () => {
+    adr('0004-d.md', `---\ndate: 2020-01-01\n---\n# 4. D\n\nDate: 2024-04-04\n\n${BODY}`);
+    expect(await dateOf('0004-d.md')).toBe('2024-04-04');
+  });
+});
+
+describe('D2 YAML front matter', () => {
+  it('reads a bare date', async () => {
+    adr('0005-e.md', `---\nstatus: accepted\ndate: 2021-06-07\n---\n# E\n\n${BODY}`);
+    expect(await dateOf('0005-e.md')).toBe('2021-06-07');
+  });
+  it('reads a quoted date', async () => {
+    adr('0006-f.md', `---\ndate: "2021-06-08"\n---\n# F\n\n${BODY}`);
+    expect(await dateOf('0006-f.md')).toBe('2021-06-08');
+  });
+});
+
+describe('D3 first commit date (real git)', () => {
+  it('uses the date the file was first added, not the later edit', async () => {
+    await git(['init', '-q', '-b', 'main']);
+    adr('0007-g.md', `# G\n\n${BODY}`);
+    await git(['add', '.']);
+    await git(['commit', '-q', '-m', 'add'], '2022-05-06T10:00:00+00:00');
+    adr('0007-g.md', `# G\n\n${BODY}\n\nEdited later.`);
+    await git(['commit', '-q', '-am', 'edit'], '2025-01-01T10:00:00+00:00');
+    expect(await dateOf('0007-g.md')).toBe('2022-05-06T10:00:00+00:00');
+  });
+  it('dates each file by its own first commit', async () => {
+    await git(['init', '-q', '-b', 'main']);
+    adr('0008-h.md', '# H\n\nQueues: SQS beats Redis because Redis lost jobs during failover last spring.');
+    await git(['add', '.']);
+    await git(['commit', '-q', '-m', 'h'], '2021-02-03T00:00:00+00:00');
+    adr('0009-i.md', '# I\n\nAuth: sessions live in signed cookies since the gateway must stay stateless.');
+    await git(['add', '.']);
+    await git(['commit', '-q', '-m', 'i'], '2023-09-10T00:00:00+00:00');
+    expect(await dateOf('0008-h.md')).toBe('2021-02-03T00:00:00+00:00');
+    expect(await dateOf('0009-i.md')).toBe('2023-09-10T00:00:00+00:00');
+  });
+  it('gives an untracked file no date, rather than failing', async () => {
+    await git(['init', '-q', '-b', 'main']);
+    adr('0010-j.md', `# J\n\n${BODY}`);
+    expect(await dateOf('0010-j.md')).toBeUndefined();
+  });
+});
+
+describe('D4 unparseable dates', () => {
+  it('drops the field for a Date line that is not a date', async () => {
+    adr('0011-k.md', `# K\n\nDate: someday soon\n\n${BODY}`);
+    expect(await dateOf('0011-k.md')).toBeUndefined();
+  });
+  it('drops the field for a front matter date that is not a date', async () => {
+    adr('0012-l.md', `---\ndate: 2024-13-45\n---\n# L\n\n${BODY}`);
+    expect(await dateOf('0012-l.md')).toBeUndefined();
+  });
+});
+
+describe('D4c a day that does not exist', () => {
+  it('drops 2024-02-30 instead of rolling it to March', async () => {
+    adr('0020-t.md', `# T\n\nDate: 2024-02-30\n\n${BODY}`);
+    expect(await dateOf('0020-t.md')).toBeUndefined();
+  });
+  it('drops 2023-02-29', async () => {
+    adr('0021-u.md', `# U\n\nDate: 2023-02-29\n\n${BODY}`);
+    expect(await dateOf('0021-u.md')).toBeUndefined();
+  });
+});
+
+describe('D3b a moved ADR keeps its original date', () => {
+  it('follows a rename between ADR directories', async () => {
+    await git(['init', '-q', '-b', 'main']);
+    adr('0022-v.md', '# V\n\nCaching: we cache at the edge because origin latency dominated p95 in March.', 'doc/adr');
+    await git(['add', '.']);
+    await git(['commit', '-q', '-m', 'v'], '2020-03-04T00:00:00+00:00');
+    mkdirSync(join(repo, 'docs'), { recursive: true });
+    await git(['mv', 'doc/adr', 'docs/adr']);
+    await git(['commit', '-q', '-m', 'move'], '2024-04-04T00:00:00+00:00');
+    expect(await dateOf('0022-v.md')).toBe('2020-03-04T00:00:00+00:00');
+  });
+});
+
+describe('D4b a bad declared date is not replaced by the git date', () => {
+  it('stays undated in a repo with history', async () => {
+    await git(['init', '-q', '-b', 'main']);
+    adr('0019-s.md', `# S\n\nDate: TBD\n\n${BODY}`);
+    await git(['add', '.']);
+    await git(['commit', '-q', '-m', 's'], '2022-02-02T00:00:00+00:00');
+    expect(await dateOf('0019-s.md')).toBeUndefined();
+  });
+});
+
+describe('D5 no git', () => {
+  it('imports an undated ADR in a directory that is not a repo', async () => {
+    adr('0013-m.md', `# M\n\n${BODY}`);
+    expect(await dateOf('0013-m.md')).toBeUndefined();
+  });
+  it('still reads a declared date in a directory that is not a repo', async () => {
+    adr('0014-n.md', `# N\n\nDate: 2019-07-08\n\n${BODY}`);
+    expect(await dateOf('0014-n.md')).toBe('2019-07-08');
+  });
+});
+
+describe('D6 AsciiDoc', () => {
+  it('reads :revdate:', async () => {
+    adr('0015-o.adoc', `= O\n:revdate: 2024-02-03\n\n${BODY}`);
+    expect(await dateOf('0015-o.adoc')).toBe('2024-02-03');
+  });
+  it('reads a Date: line, and falls back to git otherwise', async () => {
+    adr('0016-p.adoc', `= P\n\nDate: 2020-10-11\n\n${BODY}`);
+    adr('0017-q.adoc', `= Q\n\n${BODY}`);
+    await git(['init', '-q', '-b', 'main']);
+    await git(['add', '0017-q.adoc'].map((f) => (f.endsWith('adoc') ? `docs/adr/${f}` : f)));
+    await git(['commit', '-q', '-m', 'q'], '2018-03-04T00:00:00+00:00');
+    expect(await dateOf('0016-p.adoc')).toBe('2020-10-11');
+    expect(await dateOf('0017-q.adoc')).toBe('2018-03-04T00:00:00+00:00');
+  });
+});
+
+describe('D7 non-ADR kinds are unchanged', () => {
+  it('gives README and CLAUDE.md sections no created_at, even with a Date line and git history', async () => {
+    writeFileSync(join(repo, 'CLAUDE.md'), `# T\n\n## Rules\n\nDate: 2024-01-01\nAlways run the tests before pushing code.\n`);
+    writeFileSync(join(repo, 'README.md'), `# R\n\n## Conventions\n\nAlways use pnpm, never npm, in this repository.\n`);
+    await git(['init', '-q', '-b', 'main']);
+    await git(['add', '.']);
+    await git(['commit', '-q', '-m', 'x'], '2020-01-01T00:00:00+00:00');
+    const { items } = await fetchDocsItems({ limit: 50, cwd: repo });
+    expect(items.length).toBeGreaterThanOrEqual(2);
+    for (const i of items) expect(i).not.toHaveProperty('created_at');
+  });
+});
+
+describe('D8 / D9 stored decided_at and the edit check', () => {
+  it('stores the declared date as decided_at, and the check stops saying "no decision date"', async () => {
+    adr('0018-r.md', `# 18. Use Postgres\n\nDate: 2025-09-01\n\n${BODY}`);
+    const { items } = await fetchDocsItems({ limit: 50, cwd: repo });
+    const dbPath = join(repo, 'graph.db');
+    const client = createLocalGatewayClient(dbPath);
+    const { snapshots } = await client.ingestBatch(items);
+    client.close?.();
+    const db = createLocalDb(dbPath);
+    const row = db.getDecisionById(snapshots[0].id);
+    db.close();
+    expect(row?.decidedAt).toBe('2025-09-01T00:00:00.000Z');
+
+    const now = Date.UTC(2026, 10, 14);
+    const out = buildRelatedOutput(
+      [{ id: 'x', title: 'Use Postgres', decided_at: row?.decidedAt ?? undefined }],
+      { pre: true, format: 'claude', blockOnCritical: false, now },
+    ) as { hookSpecificOutput: { additionalContext: string } };
+    expect(out.hookSpecificOutput.additionalContext).toContain('Use Postgres');
+    expect(out.hookSpecificOutput.additionalContext).not.toContain('no decision date');
+  });
+});
