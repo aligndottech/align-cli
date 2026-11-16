@@ -18,7 +18,7 @@ import { entryDate, findDecisionLogFiles, readLogFile, splitDecisionLog } from '
  *  - ADR directories, the common naming conventions. ADRs are decision-shaped by
  *    construction (title, status, context, decision) - highest precision, lowest
  *    ambiguity, so this is the source worth building the reader for first.
- *  - CLAUDE.md / AGENTS.md content the user wrote themselves, minus the block and
+ *  - CLAUDE.md / AGENTS.md / tenets / architecture doc content the user wrote themselves, minus the block and
  *    import line Align itself put there (align-cli#116: Align owns `.align/`
  *    outright and must never re-ingest its own output - that is a feedback loop).
  *  - Decision log files (DECISIONS.md, a ledger), one item per entry (docs-decision-log.ts).
@@ -43,13 +43,20 @@ import { entryDate, findDecisionLogFiles, readLogFile, splitDecisionLog } from '
 const ADR_DIR_CANDIDATES = [
   'docs/adr', 'doc/adr', 'docs/decisions', 'doc/decisions', 'adr',
   'docs/adrs', 'src/docs/adrs', 'src/docs/adr', 'docs/architecture/adr', 'docs/architecture/decisions',
+  // RFC folders: one decision per file, dated like an ADR.
+  'docs/rfcs', 'docs/rfc', 'rfcs', 'rfc',
 ];
 
 /** Root-level only, matching the two write-only surfaces it names. Nested
  *  per-package CLAUDE.md/AGENTS.md files are a real convention in this repo's own
  *  monorepo, but scoping to root for the first cut keeps the read side of the two
  *  files the CLI already knows how to write. */
-const AGENT_RULES_FILES = ['CLAUDE.md', 'AGENTS.md'];
+const AGENT_RULES_FILES = [
+  'CLAUDE.md', 'AGENTS.md',
+  // Rule documents, read per `##` section like CLAUDE.md (they state rules to follow, not one decision).
+  'tenets.md', 'TENETS.md', 'docs/tenets.md', 'docs/TENETS.md',
+  'architecture.md', 'ARCHITECTURE.md', 'docs/architecture.md', 'docs/ARCHITECTURE.md',
+];
 
 /** Below this many characters a chunk is a bare heading or a one-line pointer, not a
  *  decision - the prose equivalent of git.ts's isDecisionCommit length filter. */
@@ -162,9 +169,13 @@ async function readAgentRulesItems(
   // them. The headingless preamble (an H1 line, an intro sentence) is not counted when it
   // is dropped: nobody wrote it as a section, so nobody will look for it in the graph.
   let droppedShort = 0;
+  const seenReal = new Set<string>(); // a case-insensitive filesystem answers tenets.md and TENETS.md with one file
   for (const file of AGENT_RULES_FILES) {
     let raw: string;
     try {
+      const real = await realpath(path.join(repoRoot, file));
+      if (seenReal.has(real)) continue;
+      seenReal.add(real);
       raw = await readFile(path.join(repoRoot, file), 'utf8');
     } catch {
       continue; // file not present in this repo - not an error
