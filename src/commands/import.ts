@@ -266,8 +266,12 @@ export function registerImportCommand(program: Command): void {
     .option('--from <date>', 'Start date ISO e.g. 2025-01-01')
     .option('--to <date>', 'End date ISO')
     .option('--approve', 'Auto-approve all suggestions when scan completes')
-    .hook('preSubcommand', (thisCommand, subcommand) => {
+    // preAction, not preSubcommand: Commander handles a child's --help before preAction runs, so
+    // `align connect docs --help` works before setup. It also runs before connect's own action.
+    .hook('preAction', (thisCommand) => {
       refuseUnlessSetUp(thisCommand.opts<ConnectGroupOpts>().env);
+    })
+    .hook('preSubcommand', (thisCommand, subcommand) => {
       // `--json` is honoured by the picker path only; a subcommand would parse it (Commander
       // awards a parent flag to the parent) and then print its human report regardless.
       if (thisCommand.opts()['json']) {
@@ -284,7 +288,6 @@ export function registerImportCommand(program: Command): void {
       }
     })
     .action(async (connectors: string[], opts: ConnectGroupOpts) => {
-      refuseUnlessSetUp(opts.env);
       if (!opts.all && !connectors.length) {
         // The local picker (or its --source bypass). False means a cloud env: fall through
         // to the connector scan bare `import` always ran there.

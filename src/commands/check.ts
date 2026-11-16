@@ -1019,7 +1019,7 @@ function reviewByNote(d: RelatedDecision, now: number): string {
     const t = isoInstant(iso);
     if (t !== null && (ms === null || t > ms)) { ms = t; day = iso; }
   };
-  for (const text of (d.summary ?? '').split('\n')) {
+  for (const text of (d.summary ?? '').split(/\r?\n/)) {
     if (/[\u00b7|]/.test(text) && RETIRED_FIELD_RE.test(text)) continue;
     const start = REVIEW_BY_RE.exec(text);
     if (start) take(start[1]);

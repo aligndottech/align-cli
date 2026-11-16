@@ -83,6 +83,12 @@ describe('review-by flag', () => {
       expect(line(COLLIN.replace('status: test', 'status: retired'))).not.toContain('review-by');
       expect(line('Control: id: D-004 | status: RETIRED | review_by: 2026-06-01')).not.toContain('review-by');
     });
+    it('a retired entry is not overdue when the line ends in CRLF', () => {
+      expect(line('id: D-1 | review_by: 2026-06-01 | status: retired\r\nBody.')).not.toContain('review-by');
+    });
+    it('a CRLF line that is not retired is still flagged (pair)', () => {
+      expect(line('id: D-1 | review_by: 2026-06-01 | status: test\r\nBody.')).toContain(FLAG);
+    });
     it('retired only counts within the same line: another line stays flagged', () => {
       expect(line(`${COLLIN.replace('status: test', 'status: retired')}\n${COLLIN.replace('D-001', 'D-005')}`)).toContain(FLAG);
     });
