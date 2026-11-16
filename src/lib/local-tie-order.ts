@@ -27,7 +27,7 @@ export function orderTiesNewestFirst<T extends { decisionId: string; score: numb
         return db - da || (a.decisionId < b.decisionId ? -1 : a.decisionId > b.decisionId ? 1 : 0);
       });
     }
-    out.push(...run);
+    for (const r of run) out.push(r); // not push(...run): a huge tie run overflows the argument limit
     i = j;
   }
   return out;

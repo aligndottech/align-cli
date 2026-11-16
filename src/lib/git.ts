@@ -1,6 +1,7 @@
 import { execa } from 'execa';
 import os from 'node:os';
 import { CONVENTIONAL_PREFIX, isOneOffChangeTitle, isReleaseOrBumpSubject, MECHANICAL_SUBJECT_PREFIXES, mechanicalSubjectRegex, MIN_DECISION_SUBJECT_CHARS, STATED_WHY, statesNumericBound } from './commit-shape.js';
+import { mergeAddsNothing } from './local-merge-dedupe.js';
 
 export interface GitCommit {
   sha: string;
@@ -154,7 +155,7 @@ export async function getCommitHistoryDetailed(opts: {
   let scanned = 0;
   let rejectedByRationale = 0;
   let droppedByCap = 0;
-  // For each promoted merge kept in `commits`: what it says beyond the boilerplate line.
+  // For each promoted merge kept in `commits`: its full body, judged later by mergeAddsNothing.
   const mergeOwnText = new Map<GitCommit, string>();
   let sha = '', subject = '', author = '', date = '';
   let bodyLines: string[] = [];
@@ -184,7 +185,7 @@ export async function getCommitHistoryDetailed(opts: {
     }
     const kept: GitCommit = { sha, subject: shaped.subject, body: shaped.body, author, date, ...capFiles(files) };
     commits.push(kept);
-    if (wasPromotedMerge) mergeOwnText.set(kept, bodyForRationale);
+    if (wasPromotedMerge) mergeOwnText.set(kept, shaped.body);
   };
 
   // A header line must carry a full 40-hex sha in the second field. Without the check,
@@ -249,12 +250,13 @@ const normText = (t: string) => t.trim().replace(/\s+/g, ' ').toLowerCase();
  * twin in the read (an older twin cut by the scan or the cap), is the only carrier and stays.
  */
 function dropMergeDuplicates(commits: GitCommit[], ownText: ReadonlyMap<GitCommit, string>): { commits: GitCommit[]; dropped: number } {
-  const plain = new Set(commits.filter(c => !ownText.has(c)).map(c => normText(c.subject)));
+  const plain = new Map<string, string>();
+  for (const c of commits) if (!ownText.has(c)) plain.set(normText(c.subject), `${plain.get(normText(c.subject)) ?? ''}\n${c.body}`);
   const kept = commits.filter(c => {
     const own = ownText.get(c);
     if (own === undefined) return true;
-    const extra = normText(own).replace(normText(c.subject), '').trim();
-    return extra !== '' || !plain.has(normText(c.subject));
+    const twin = plain.get(normText(c.subject));
+    return twin === undefined || !mergeAddsNothing(c.subject, own, twin);
   });
   return { commits: kept, dropped: commits.length - kept.length };
 }

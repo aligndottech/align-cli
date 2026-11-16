@@ -68,6 +68,14 @@ describe('getCommitHistoryDetailed: merge commits that only carry another commit
     expect(r.mergeDuplicates).toBe(0);
   });
 
+  it('keeps a merge whose own decision line itself starts with "Merge branch"', async () => {
+    await branchAndMerge('tick', reasoned('Run the lab at 10 Hz'), 'Run the lab at 10 Hz',
+      'Merge branch hotfix into the lab only after the clamp is lifted, because 0.1 broke aim in the audit.');
+    const r = await history();
+    expect(r.commits.filter(c => c.subject === 'Run the lab at 10 Hz')).toHaveLength(2);
+    expect(r.mergeDuplicates).toBe(0);
+  });
+
   it('keeps a merge whose title matches no commit in the scan', async () => {
     await branchAndMerge('tick', reasoned('Fix the lab tick to a constant'), 'Adopt a fixed tick for every rig');
     const subjects = (await history()).commits.map(c => c.subject);

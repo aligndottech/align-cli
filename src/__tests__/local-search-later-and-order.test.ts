@@ -112,7 +112,7 @@ describe('local search: later_on_topic, order and merge duplicates', () => {
     // The slot tag sits in the text, not the title, so one title can embed at two places.
     const title = 'The lab runs at ten hertz';
     const plain = row(1, '01', { title, text: 'Measured frametime. Set the tick (s2)', url: 'https://github.com/acme/argus/commit/1' });
-    const merge = row(1, '02', { title, text: `Measured frametime. Set the tick (s1)\n\nMerge pull request #7 from acme/tick`, url: 'https://github.com/acme/argus/commit/99' });
+    const merge = row(1, '02', { title, text: `Merge pull request #7 from acme/tick (s1)\n\nMeasured frametime. Set the tick (s2)`, url: 'https://github.com/acme/argus/commit/99' });
     await client.ingestBatch([plain, merge], { classify: false });
     const results = await search();
     expect(results).toHaveLength(1);
