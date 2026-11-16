@@ -301,6 +301,14 @@ of 145, and with no tools 34 of 145. Where the decision was never written in the
 of 30 against 5 of 30. It's dogfood, not customer data, and the product was tuned on these
 tasks. [Method and raw results](https://align.tech/benchmark).
 
+From someone using it:
+
+> Align caught a gap in my own pull request to Align. It flagged that my change went against a
+> decision the team had already recorded, and it was right. With pi, the finding reaches the
+> model before the edit lands, which is exactly where you want it.
+>
+> Ryan Joshua Gapac ([#569](https://github.com/aligndottech/align-cli/pull/569))
+
 Wiring context into an agent is the easy part, and that's what this repo is. The hard part is
 keeping an accurate record of what your team actually decided, across every tool.
 
