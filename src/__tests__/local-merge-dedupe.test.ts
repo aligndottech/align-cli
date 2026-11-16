@@ -45,6 +45,18 @@ describe('dropMergeCarriers never loses the decision a merge row carries', () =>
       expect(asked).toEqual([]);
     });
 
+    // The merge's text must match whole sentences of the twin, not a fragment of one.
+    it('keeps a merge whose sentence appears only inside a negated sentence of the twin', () => {
+      const negated = { id: 'commit', summary: 'Do not set the tick to 0.1s.' };
+      expect(dropMergeCarriers(['other', 'merge'], rowOf, new Set(), () => negated)).toEqual(['other', 'merge']);
+    });
+
+    it('keeps a merge whose words match only part of a word in the twin', () => {
+      rows['part'] = { title: 'Run the lab at 10 Hz', summary: 'Merge pull request #14 from x/t\n\ntick' };
+      const ticket = { id: 'commit', summary: 'ticket' };
+      expect(dropMergeCarriers(['other', 'part'], rowOf, new Set(), () => ticket)).toEqual(['other', 'part']);
+    });
+
     it('keeps a merge that carries its own decision text even when a twin is in the graph', () => {
       rows['own'] = { title: 'Run the lab at 10 Hz', summary: 'Merge pull request #13 from x/rollback\n\nWe roll back to 0.05 because the 0.1 clamp broke aim.' };
       expect(dropMergeCarriers(['other', 'own'], rowOf, new Set(), () => twin)).toEqual(['other', 'own']);

@@ -16,7 +16,7 @@ import { expandedTerms } from './query-expand.js';
 import { linkPass } from './local-link-pass.js';
 import { dateOf, laterOnTopic } from './local-later-on-topic.js';
 import { orderTiesNewestFirst } from './local-tie-order.js';
-import { dropMergeCarriers } from './local-merge-dedupe.js';
+import { dropMergeCarriers, mergeAddsNothing } from './local-merge-dedupe.js';
 import type { TimelineRow, TopicTimelineResult } from './mcp-timeline-tools.js';
 import { redactSecrets } from './share/secret-scan.js';
 import { noteRedacted } from './redaction-notice.js';
@@ -311,7 +311,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       const fused = reciprocalRankFusion([{ ids: denseOrder.map(r => r.decisionId), weight: 1 }, { ids: lexical, weight: 1 }]);
       // A merge row's twin in the graph is used only if it is in `denseScore`, which is already scope- and date-bounded.
       const twinInGraph = (merge: DecisionRow) => db.getPlainTwins(merge.title, merge.repo ?? null, merge.id)
-        .find(t => !hidden.has(t.id) && denseScore.has(t.id));
+        .find(t => !hidden.has(t.id) && denseScore.has(t.id) && mergeAddsNothing(merge.title, merge.summary, t.summary));
       const split = splitRetrieved(dropMergeCarriers(fused, (id) => db.getDecisionById(id), hidden, twinInGraph).map(id => ({ decisionId: id, score: denseScore.get(id)! })), hidden, limit, (id) => db.getDecisionById(id)?.title, 'answer');
       dropNotes.splice(0, dropNotes.length, ...split.notes);
       return split.kept;
