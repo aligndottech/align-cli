@@ -25,7 +25,7 @@ import { BACKFILL_SOURCES } from '../mcp-backfill.js';
 import { transact } from './sync-state.js';
 
 /** Audit rows the system writes about itself. They are not acts. `capture_seen` is NOT here: it is a person's act. */
-export const SYSTEM_AUDIT_ACTIONS = ['text_revision_pending', 'sync_classified'] as const;
+export const SYSTEM_AUDIT_ACTIONS = ['text_revision_pending', 'sync_classified', 'date_first_commit'] as const;
 
 /** The only names `--purge` accepts: sources a connector import fills. */
 export const PURGEABLE_SOURCES: readonly string[] = [...BACKFILL_SOURCES, 'zoom'];

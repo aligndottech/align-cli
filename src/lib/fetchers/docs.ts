@@ -112,7 +112,9 @@ async function adrItem(repoRoot: string, useGit: boolean, relPath: string, conte
     platform: 'docs',
     raw_text: content,
     title: firstHeading(content) ?? humanizeFilename(relPath),
-    ...(decided ? { created_at: decided } : {}),
+    ...(decided ? { created_at: decided.date } : {}),
+    // Only a git date is marked: it may be the day the ADRs were moved, not the day anyone decided.
+    ...(decided?.source === 'first-commit' ? { date_source: 'first-commit' as const } : {}),
   };
 }
 

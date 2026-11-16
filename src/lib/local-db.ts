@@ -24,6 +24,8 @@ export interface DecisionRow {
    *  distinct from `createdAt`, the minute this CLI imported it. Null when the source did not
    *  say - never the ingest minute wearing the wrong name. */
   decidedAt: string | null;
+  /** `decidedAt` is the first git commit of the file (an ADR with no written date), so it may be a migration day. Stored as an audit mark: the table has no metadata column. */
+  dateFirstCommit?: boolean;
   /** Which repo this decision came from (host/owner/repo, or a repo root
    *  path for a remoteless git repo) - null for anything that is not code, or code
    *  whose repo could not be identified. */
@@ -139,12 +141,16 @@ export function identifyingSourceUrl(raw: string | null): string | null {
   return value;
 }
 
+/** Audit action marking a row whose `decided_at` came from git history, not from the source text. */
+export const DATE_FIRST_COMMIT = 'date_first_commit';
+
 /** Every column a DecisionRow carries, aliased to its camelCase name. One writer, read by
  *  both row readers, so a new column cannot be added to one SELECT and missed by the other. */
 const DECISION_COLUMNS =
   'id, title, summary, source_url as sourceUrl, platform, created_at as createdAt, repo, decided_at as decidedAt, ' +
   'decider_kind as deciderKind, confirmed_by as confirmedBy, confirmed_at as confirmedAt, ' +
-  'ratified_by as ratifiedBy, ratified_at as ratifiedAt';
+  'ratified_by as ratifiedBy, ratified_at as ratifiedAt, ' +
+  `EXISTS (SELECT 1 FROM decision_audit a WHERE a.decision_id = decisions.id AND a.action = '${DATE_FIRST_COMMIT}') as dateFirstCommit`;
 
 /** A person's ratification or confirmation covers the text they read (review finding 4). */
 const ATTESTED = 'decisions.ratified_at IS NOT NULL OR decisions.confirmed_at IS NOT NULL';
@@ -219,6 +225,8 @@ export function createLocalDb(dbPath: string) {
        *  the upsert for the same reason `repo` has it: a re-import that resolved no date must
        *  never blank a date the row already carries. */
       decidedAt?: string | null;
+      /** Where `decidedAt` came from. Present only with a `decidedAt`: the mark follows the latest incoming date, so a written date arriving later clears it and a git date replacing a written one sets it. */
+      dateSource?: 'first-commit';
       /** Who decided. Set on INSERT and never rewritten by the upsert - origin is
        *  immutable, so a human re-capture cannot launder an agent claim into 'human' (the
        *  cloud's snapshots.ts rule). Omitted stores NULL, which reads as 'unknown'. */
@@ -277,6 +285,11 @@ export function createLocalDb(dbPath: string) {
         key,
         row.detailPending ? 1 : 0,
       ) as { id: string };
+      if (row.decidedAt) {
+        const marked = db.prepare('SELECT 1 AS hit FROM decision_audit WHERE decision_id = ? AND action = ?').get(inserted.id, DATE_FIRST_COMMIT) !== undefined;
+        if (row.dateSource === 'first-commit' && !marked) api.insertAudit({ decisionId: inserted.id, action: DATE_FIRST_COMMIT, actor: null });
+        if (row.dateSource !== 'first-commit' && marked) db.prepare('DELETE FROM decision_audit WHERE decision_id = ? AND action = ?').run(inserted.id, DATE_FIRST_COMMIT);
+      }
       return inserted.id;
     },
 

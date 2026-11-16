@@ -40,6 +40,9 @@ CREATE TABLE IF NOT EXISTS decision_audit (
   detail TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+-- Every decision read checks this table for its date_first_commit mark (DECISION_COLUMNS), so an
+-- unindexed lookup would scan it once per row.
+CREATE INDEX IF NOT EXISTS idx_decision_audit_decision_action ON decision_audit(decision_id, action);
 
 CREATE TABLE IF NOT EXISTS decision_embeddings (
   decision_id TEXT PRIMARY KEY REFERENCES decisions(id) ON DELETE CASCADE,
