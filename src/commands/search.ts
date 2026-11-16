@@ -9,7 +9,7 @@ import { resolveScopeOpts } from '../lib/repo-identity.js';
 export function registerSearchCommand(program: Command): void {
   program
     .command('search <query>')
-    .description('Search the decision graph')
+    .description('Search the decision graph (ordered by relevance, so SCORE need not descend)')
     .option('--env <env>', 'Environment')
     .option('--limit <n>', 'Max results', '10')
     .option('--repo <name>', 'Scope to one repo - short name, owner/repo, or full identity (local mode only)')

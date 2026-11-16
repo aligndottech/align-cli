@@ -6,6 +6,8 @@
  * 1. a later decision that is mutually near the hit is listed (on-topic still appears)
  * 2. a later decision at the SAME score to the hit, but with closer neighbours of its own, is not
  * 3. the newest decision gets no later_on_topic at all
+ * 4. equal scores: the newer decision first, and the same order whichever was imported first (two examples)
+ * 4b. unequal scores: the order is the relevance rank, which a rare exact term may move above a higher cosine
  * 5. a merge row that only carries another result's change is dropped; the commit stays
  * 6. pair: a merge-titled row that is not another result stays
  */
@@ -59,8 +61,10 @@ describe('local search: later_on_topic, order and merge duplicates', () => {
   });
   afterEach(() => { client.close(); if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath); });
 
-  type R = { title: string; summary: string; similarity: number; later_on_topic?: Array<{ title: string }> };
+  type R = { title: string; summary: string; similarity: number; source_url?: string; later_on_topic?: Array<{ title: string }> };
   const search = async () => (await client.searchDecisions('what is the tick rate', 10, undefined, { all: true })).results as unknown as R[];
+  // No word in common with any title, so the lexical ranking has nothing to say and the dense order is the order.
+  const denseOnly = async () => (await client.searchDecisions('qwxz', 10, undefined, { all: true })).results as unknown as R[];
   const tags = (xs: Array<{ title: string }> | undefined) => (xs ?? []).map(x => /\((s\d+)\)/.exec(x.title)?.[1]);
 
   // s1 = the hit (oldest). s2 = on topic, later. s3 = later, same score to s1, but s4-s8 are all closer to it.
@@ -99,6 +103,42 @@ describe('local search: later_on_topic, order and merge duplicates', () => {
     const results = await search();
     expect(results.filter(r => /\(s1\)/.test(r.title))).toHaveLength(1);
     expect(results.some(r => /Merge pull request/.test(r.summary))).toBe(false);
+  });
+
+  it('answers with the commit when only the merge row reached the results and the commit is in the graph (#582)', async () => {
+    // The commit embeds far from the query (slot 2, under the search floor); the merge row, which
+    // carries the PR line, embeds near it (slot 1). Same title, so the merge only repeats the commit.
+    DENSE = { 1: 0.7, 2: 0.1 };
+    // The slot tag sits in the text, not the title, so one title can embed at two places.
+    const title = 'The lab runs at ten hertz';
+    const plain = row(1, '01', { title, text: 'Measured frametime. Set the tick (s2)', url: 'https://github.com/acme/argus/commit/1' });
+    const merge = row(1, '02', { title, text: `Merge pull request #7 from acme/tick (s1)\n\nMeasured frametime. Set the tick (s2)`, url: 'https://github.com/acme/argus/commit/99' });
+    await client.ingestBatch([plain, merge], { classify: false });
+    const results = await search();
+    expect(results).toHaveLength(1);
+    expect(results[0]!.summary).not.toMatch(/Merge pull request/);
+    expect(results[0]!.source_url).toMatch(/commit\/1$/);
+  });
+
+  it('orders equal scores newest first, whatever the import order', async () => {
+    const slots = [1, 2, 3, 4, 5, 6];
+    DENSE = Object.fromEntries(slots.map(n => [n, 0.7]));
+    const rows = slots.map(n => row(n, String(10 + n)));            // slot n is imported on day 10+n
+    await client.ingestBatch([...rows].reverse(), { classify: false }); // newest imported first
+    expect((await denseOnly()).map(r => slotOf(r.title))).toEqual([6, 5, 4, 3, 2, 1]);
+  });
+
+  it('orders equal scores newest first when the oldest was imported first (second example)', async () => {
+    const slots = [1, 2, 3, 4, 5, 6];
+    DENSE = Object.fromEntries(slots.map(n => [n, 0.55]));
+    await client.ingestBatch(slots.map(n => row(n, String(10 + n))), { classify: false });
+    expect((await denseOnly()).map(r => slotOf(r.title))).toEqual([6, 5, 4, 3, 2, 1]);
+  });
+
+  it('leaves unequal scores in score order when nothing else separates them (pair)', async () => {
+    DENSE = { 1: 0.5, 2: 0.7, 3: 0.6 };
+    await client.ingestBatch([row(1, '12'), row(2, '10'), row(3, '11')], { classify: false });
+    expect((await denseOnly()).map(r => slotOf(r.title))).toEqual([2, 3, 1]);
   });
 
   it('keeps a merge row whose title is not another result (pair)', async () => {

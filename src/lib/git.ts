@@ -1,6 +1,7 @@
 import { execa } from 'execa';
 import os from 'node:os';
 import { CONVENTIONAL_PREFIX, isOneOffChangeTitle, isReleaseOrBumpSubject, MECHANICAL_SUBJECT_PREFIXES, mechanicalSubjectRegex, MIN_DECISION_SUBJECT_CHARS, STATED_WHY, statesNumericBound } from './commit-shape.js';
+import { mergeAddsNothing } from './local-merge-dedupe.js';
 
 export interface GitCommit {
   sha: string;
@@ -79,6 +80,10 @@ export interface CommitHistoryResult {
   /** Commits that passed both gates but were not returned because `keep` was reached. Counted
    *  apart so `scanned - commits.length - rejectedByRationale` stays the subject-shape count. */
   droppedByCap: number;
+  /** Promoted merge commits left out because they only repeat a commit that is also returned
+   *  (same title, nothing of their own beyond the "Merge pull request" line). Counted apart so
+   *  `scanned - commits.length - rejectedByRationale - droppedByCap` stays the subject-shape count. */
+  mergeDuplicates: number;
 }
 
 /**
@@ -141,7 +146,7 @@ export async function getCommitHistoryDetailed(opts: {
     // Other git failures (e.g. a bad --branch) still surface.
     const e = err as { exitCode?: number; stderr?: string };
     if (e.exitCode === 128 && /does not have any commits|bad default revision/i.test(e.stderr ?? '')) {
-      return { commits: [], scanned: 0, rejectedByRationale: 0, droppedByCap: 0 };
+      return { commits: [], scanned: 0, rejectedByRationale: 0, droppedByCap: 0, mergeDuplicates: 0 };
     }
     throw err;
   }
@@ -150,6 +155,8 @@ export async function getCommitHistoryDetailed(opts: {
   let scanned = 0;
   let rejectedByRationale = 0;
   let droppedByCap = 0;
+  // For each promoted merge kept in `commits`: its full body, judged later by mergeAddsNothing.
+  const mergeOwnText = new Map<GitCommit, string>();
   let sha = '', subject = '', author = '', date = '';
   let bodyLines: string[] = [];
   let files: string[] = [];
@@ -176,7 +183,9 @@ export async function getCommitHistoryDetailed(opts: {
       droppedByCap++;
       return;
     }
-    commits.push({ sha, subject: shaped.subject, body: shaped.body, author, date, ...capFiles(files) });
+    const kept: GitCommit = { sha, subject: shaped.subject, body: shaped.body, author, date, ...capFiles(files) };
+    commits.push(kept);
+    if (wasPromotedMerge) mergeOwnText.set(kept, shaped.body);
   };
 
   // A header line must carry a full 40-hex sha in the second field. Without the check,
@@ -227,7 +236,29 @@ export async function getCommitHistoryDetailed(opts: {
   }
   flush();
 
-  return { commits, scanned, rejectedByRationale, droppedByCap };
+  const { commits: distinct, dropped: mergeDuplicates } = dropMergeDuplicates(commits, mergeOwnText);
+  return { commits: distinct, scanned, rejectedByRationale, droppedByCap, mergeDuplicates };
+}
+
+const normText = (t: string) => t.trim().replace(/\s+/g, ' ').toLowerCase();
+
+/**
+ * A promoted merge takes the PR title as its subject, so on a PR of one commit it repeats that
+ * commit and the graph would hold the same decision twice. Drop the merge when a non-merge commit in
+ * this same read has the same title and the merge says nothing the title did not (its own text, minus
+ * the boilerplate line, is empty or only the title again). A merge with its own words, or with no
+ * twin in the read (an older twin cut by the scan or the cap), is the only carrier and stays.
+ */
+function dropMergeDuplicates(commits: GitCommit[], ownText: ReadonlyMap<GitCommit, string>): { commits: GitCommit[]; dropped: number } {
+  const plain = new Map<string, string>();
+  for (const c of commits) if (!ownText.has(c)) plain.set(normText(c.subject), `${plain.get(normText(c.subject)) ?? ''}\n${c.body}`);
+  const kept = commits.filter(c => {
+    const own = ownText.get(c);
+    if (own === undefined) return true;
+    const twin = plain.get(normText(c.subject));
+    return twin === undefined || !mergeAddsNothing(c.subject, own, twin);
+  });
+  return { commits: kept, dropped: commits.length - kept.length };
 }
 
 export async function getCommitHistory(opts: Parameters<typeof getCommitHistoryDetailed>[0]): Promise<GitCommit[]> {

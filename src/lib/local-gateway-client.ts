@@ -1,5 +1,5 @@
 import { blameCandidates, type BlameVia } from './blame-candidates.js';
-import { createLocalDb, identifyingSourceUrl, type LinkRow, normaliseDecidedAt } from './local-db.js';
+import { createLocalDb, type DecisionRow, identifyingSourceUrl, type LinkRow, normaliseDecidedAt } from './local-db.js';
 import { deriveDeciderKind } from './decider-kind.js';
 import { datesOf, provenanceOf } from './local-provenance.js';
 import { currentRepoIdentity, repoFromSourceUrl } from './repo-identity.js';
@@ -15,6 +15,7 @@ import { reciprocalRankFusion } from './hybrid-rank.js';
 import { expandedTerms } from './query-expand.js';
 import { linkPass } from './local-link-pass.js';
 import { dateOf, laterOnTopic } from './local-later-on-topic.js';
+import { orderTiesNewestFirst } from './local-tie-order.js';
 import { dropMergeCarriers } from './local-merge-dedupe.js';
 import type { TimelineRow, TopicTimelineResult } from './mcp-timeline-tools.js';
 import { redactSecrets } from './share/secret-scan.js';
@@ -290,7 +291,10 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     // words the title lacks to commits that merely sound like the question. A graph with no git rows,
     // or a query with no lexical hit, fuses an empty list, which leaves the dense-plus-title order as it was.
     const hybrid = async (text: string, vec: Float32Array) => {
-      const all = await findSimilar(vec, Number.MAX_SAFE_INTEGER, 0, undefined, boundedFilter);
+      const all = orderTiesNewestFirst(
+        await findSimilar(vec, Number.MAX_SAFE_INTEGER, 0, undefined, boundedFilter),
+        (id) => { const r = db.getDecisionById(id); return r ? dateOf(r)?.ms : undefined; },
+      );
       const denseScore = new Map(all.map(r => [r.decisionId, r.score]));
       const dense = all.filter(r => r.score >= SEARCH_THRESHOLD).slice(0, poolSize);
       const denseOrder = rerankByTitle(text, dense, r => r.score, r => db.getDecisionById(r.decisionId)?.title ?? '');
@@ -305,7 +309,10 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
           .filter(r => (denseScore.get(r.id) ?? -1) >= LEXICAL_MIN_DENSE).slice(0, poolSize).map(r => r.id);
       } catch { /* dense only */ }
       const fused = reciprocalRankFusion([{ ids: denseOrder.map(r => r.decisionId), weight: 1 }, { ids: lexical, weight: 1 }]);
-      const split = splitRetrieved(dropMergeCarriers(fused, (id) => db.getDecisionById(id), hidden).map(id => ({ decisionId: id, score: denseScore.get(id)! })), hidden, limit, (id) => db.getDecisionById(id)?.title, 'answer');
+      // A merge row's twin in the graph is used only if it is in `denseScore`, which is already scope- and date-bounded.
+      const twinInGraph = (merge: DecisionRow) => db.getPlainTwins(merge.title, merge.repo ?? null, merge.id)
+        .find(t => !hidden.has(t.id) && denseScore.has(t.id));
+      const split = splitRetrieved(dropMergeCarriers(fused, (id) => db.getDecisionById(id), hidden, twinInGraph).map(id => ({ decisionId: id, score: denseScore.get(id)! })), hidden, limit, (id) => db.getDecisionById(id)?.title, 'answer');
       dropNotes.splice(0, dropNotes.length, ...split.notes);
       return split.kept;
     };
@@ -331,7 +338,8 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     // Order is the fused relevance rank (dense + title + lexical), the one documented rule; each
     // row's `similarity` is its dense cosine and need not descend. Re-sorting by cosine would undo
     // the fusion that lets an exact-identifier commit beat higher-cosine mentions (see the
-    // local-search-hybrid and rerank tests).
+    // local-search-hybrid and rerank tests). Rows with an EQUAL dense score go newest first, then by
+    // id (local-tie-order.ts), so a tie never depends on import order or on a random uuid.
     const results = similar
       .map(s => {
         const row = db.getDecisionById(s.decisionId);
