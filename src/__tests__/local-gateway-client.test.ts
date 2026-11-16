@@ -103,10 +103,14 @@ describe('local-gateway-client', () => {
     // slice of top-K candidates must be stable across runs - otherwise the same
     // offline scan compares a different candidate set each time. Force a tie and
     // assert the results come back sorted by id, not in arbitrary insert order.
+    // Equal scores sort newest first, then by id (local-tie-order.ts), so the three share one date
+    // here. Captured one by one they took their dates from the clock, and a run that crossed a
+    // second boundary (seen on Windows CI) sorted by date instead of id.
     vi.mocked(cosineSimilarity).mockReturnValue(0.75);
-    await client.captureDecision('Alpha decision', 'cli');
-    await client.captureDecision('Bravo decision', 'cli');
-    await client.captureDecision('Charlie decision', 'cli');
+    const at = '2026-10-01T10:00:00Z';
+    await client.ingestBatch(['Alpha', 'Bravo', 'Charlie'].map((t) => (
+      { source_url: `git://commit/${t}`, platform: 'git', raw_text: `${t} decision`, title: `${t} decision`, created_at: at }
+    )), { classify: false });
 
     const result = await client.searchDecisions('anything', 10);
     const ids = result.results.map((r: { id: string }) => r.id);
