@@ -6,7 +6,7 @@ import { createConfigStore, type EnvName } from '../../lib/config.js';
 import { createGatewayClient } from '../../lib/gateway-client.js';
 import { resolveImportEnv } from '../../lib/resolve-env.js';
 import { resolveAppUrl } from '../../lib/env-resolver.js';
-import { MirsadFileError, readMirsadFile } from '../../lib/fetchers/mirsad.js';
+import { MirsadFileError, mirsadUrl, readMirsadFile } from '../../lib/fetchers/mirsad.js';
 import { confirmMirsadLinks } from '../../lib/mirsad-links.js';
 import { defaultJudge } from '../../lib/curation/judge.js';
 import { getLocalDbPath } from '../../lib/local-mode.js';
@@ -46,23 +46,28 @@ export function registerImportMirsadCommand(importCmd: Command): void {
 
       const client = createGatewayClient(env);
       const items = read.items.slice(0, parseInt(opts.limit, 10));
+      const imported: { stored?: number; failedBatches?: number } = {};
       await runPersonalImport(items, client, {
         label: 'MIRSAD',
         approve: opts.approve,
         appUrl: resolveAppUrl(env),
         local: env.mode === 'local-embedded',
         funnel: { env, source: 'mirsad' },
+        result: imported,
       });
 
-      if (read.links.length === 0) return;
+      // Only links between decisions of THIS import (after --limit), and only if something was stored.
+      const selected = new Set(items.map((i) => i.source_url));
+      const links = read.links.filter((l) => selected.has(mirsadUrl(l.newer)) && selected.has(mirsadUrl(l.older)));
+      if (links.length === 0 || !imported.stored) return;
       // The confirmed record is a local-graph row (a judgement by this person); a cloud env finds its own links.
       if (env.mode !== 'local-embedded') {
         console.log(chalk.dim('MIRSAD supersedes links are recorded in a local graph only; this environment works out its own.'));
         return;
       }
-      const outcome = confirmMirsadLinks(env.localDbPath ?? getLocalDbPath(), read.links, { judge: await defaultJudge(), terminal: Boolean(process.stdin.isTTY) });
+      const outcome = confirmMirsadLinks(env.localDbPath ?? getLocalDbPath(), links, { judge: await defaultJudge(), terminal: Boolean(process.stdin.isTTY) });
       if (outcome.needsTerminal) {
-        console.log(chalk.yellow(`${read.links.length} supersedes link(s) not recorded: declaring a decision replaced is a person's act, so it needs a terminal. Run this again in your own terminal.`));
+        console.log(chalk.yellow(`${links.length} supersedes link(s) not recorded: declaring a decision replaced is a person's act, so it needs a terminal. Run this again in your own terminal.`));
         return;
       }
       const tail = [outcome.unmatched ? `${outcome.unmatched} not in your graph` : '', outcome.refused ? `${outcome.refused} refused (the older decision is ratified or confirmed: align mark <newer> replaces <older> --force)` : ''].filter(Boolean);

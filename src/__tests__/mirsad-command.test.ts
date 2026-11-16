@@ -124,6 +124,7 @@ describe('align connect mirsad', () => {
 
   it('in a cloud environment sends the decisions and writes no local link', async () => {
     state.env = { mode: 'auth', gatewayUrl: 'https://example.test', authToken: 't' };
+    state.cloudIngest.mockResolvedValue({ snapshots: [{ id: 'a' }, { id: 'b' }, { id: 'c' }] });
     setTty(true);
     expect(await run(['--file', SAMPLE, '--approve'])).toBeUndefined();
     expect(state.cloudIngest).toHaveBeenCalledTimes(1);
@@ -137,5 +138,27 @@ describe('align connect mirsad', () => {
     expect(await run(['--file', SAMPLE, '--approve', '--limit', '1'])).toBeUndefined();
     expect(q('SELECT 1 FROM decisions')).toHaveLength(1);
     expect(supersedes()).toHaveLength(0);
+  });
+
+  it('does not confirm a link between decisions already in the graph when --limit left one out of this import', async () => {
+    setTty(true);
+    expect(await run(['--file', SAMPLE, '--approve'])).toBeUndefined();
+    q('DELETE FROM decision_links');
+    q('DELETE FROM local_judgements');
+    expect(await run(['--file', SAMPLE, '--approve', '--limit', '1'])).toBeUndefined();
+    expect(supersedes()).toHaveLength(0);
+  });
+
+  it('does not confirm links when nothing was stored', async () => {
+    setTty(true);
+    expect(await run(['--file', SAMPLE, '--approve'])).toBeUndefined();
+    q('DELETE FROM decision_links');
+    q('DELETE FROM local_judgements');
+    out.length = 0;
+    vi.mocked(getEmbedding).mockRejectedValue(new Error('no model'));
+    const edited = (JSON.parse(fs.readFileSync(SAMPLE, 'utf8')) as Array<{ title: string }>).map((d) => ({ ...d, title: `${d.title} v2` }));
+    await run(['--file', write('edited.json', JSON.stringify(edited)), '--approve']);
+    expect(supersedes()).toHaveLength(0);
+    expect(out.join('\n')).not.toMatch(/\d+ supersedes link\(s\) confirmed/);
   });
 });

@@ -77,6 +77,19 @@ describe('made_at in the forms MIRSAD may send', () => {
   });
 });
 
+describe('review fixes', () => {
+  it('skips and counts ids that cannot make a stable source key', () => {
+    const r = parse([dec(1), dec(-1), dec(1.5), dec(1e21)]);
+    expect(r.items.map((i) => i.source_url)).toEqual(['mirsad://decisions/1']);
+    expect(r.skipped).toBe(3);
+  });
+
+  it('falls back to the local time when made_at_offset passes the shape but is not a real offset', () => {
+    const local = new Date(2026, 10, 16, 17, 14).toISOString();
+    expect(parse([dec(1, { made_at: '2026-11-16 17:14', made_at_offset: '+99:99' })]).items[0]?.created_at).toBe(local);
+  });
+});
+
 describe('links', () => {
   it('reads supersedes as number, array or null, and superseded_by, once per pair', () => {
     const { links } = parse([dec(1, { superseded_by: 2 }), dec(2, { supersedes: 1 }), dec(3, { supersedes: [1, 2] }), dec(4, { supersedes: null })]);

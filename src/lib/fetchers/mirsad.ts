@@ -20,7 +20,8 @@ export const mirsadUrl = (id: number): string => `mirsad://decisions/${id}`;
 
 type Raw = Record<string, unknown>;
 const isRecord = (v: unknown): v is Raw => typeof v === 'object' && v !== null && !Array.isArray(v);
-const isId = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
+// A non-negative safe integer: the only ids whose mirsad://decisions/<id> url gets a source key (source-key.ts).
+const isId = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
 const text = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
 const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 
@@ -66,7 +67,8 @@ function madeAt(d: Raw): string | undefined {
     const offset = text(d['made_at_offset']);
     if (OFFSET.test(offset) && onCalendar(y, mo, day)) {
       const pad = (n: number) => String(n).padStart(2, '0');
-      return iso(Date.parse(`${y}-${pad(mo)}-${pad(day)}T${pad(h)}:${pad(mi)}:00${offset}`));
+      const withOffset = iso(Date.parse(`${y}-${pad(mo)}-${pad(day)}T${pad(h)}:${pad(mi)}:00${offset}`));
+      if (withOffset) return withOffset;
     }
     const date = new Date(y, mo - 1, day, h, mi);
     const real = date.getFullYear() === y && date.getMonth() === mo - 1 && date.getDate() === day && date.getHours() === h && date.getMinutes() === mi;
