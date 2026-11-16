@@ -885,28 +885,49 @@ function excerptOf(d: RelatedDecision, room: number, focus = ''): string {
 const SENTENCE_BREAK = /(?<=[.!?])\s+(?=(?:[-*]\s|[A-Z0-9"'`([]))/;
 
 const STOP = new Set(['this', 'that', 'with', 'from', 'have', 'will', 'into', 'there', 'their', 'which', 'when', 'must', 'never', 'would', 'about']);
-const termsOf = (t: string): Set<string> => new Set((t.toLowerCase().match(/[a-z0-9]{4,}/g) ?? []).filter((w) => !STOP.has(w)));
+// A term is a decimal (0.1, v1.2.3 keeps its parts) or a word of 4+ characters: identifiers split on
+// underscores, so host_frametime gives "host" and "frametime".
+const termsOf = (t: string): Set<string> =>
+  new Set((t.toLowerCase().match(/\d+(?:\.\d+)+|[a-z0-9]{4,}/g) ?? []).filter((w) => !STOP.has(w)));
+
+// Cut on a word boundary at or below `max` code points (no marker added).
+function clipWords(text: string, max: number): string {
+  const chars = Array.from(text);
+  if (chars.length <= max) return text;
+  const cut = chars.slice(0, max).join('');
+  return (chars[max] === ' ' ? cut : cut.replace(/\s+\S*$/, '')).trimEnd();
+}
 
 /**
- * The sentence that shares most terms with the edit (the lead sentence added in front of it when
- * both fit), or '' when no focus was given, nothing overlaps, or the best sentence is the lead
- * itself. The lead already wins by default, so only a LATER match is worth the detour.
+ * The sentence that best matches the edit, with the lead sentence for context. Score = sum of
+ * 1/df over the terms the sentence shares with the edit, df being how many sentences of the section
+ * carry the term: a rare term (ftos) outweighs words every sentence uses (frame, tick), which plain
+ * overlap counting cannot tell apart. Lexical on purpose: no model, no network, linear in the text,
+ * and the same input always gives the same sentence (ties go to the earlier one). Returns '' when no
+ * focus was given, nothing overlaps, or the lead matches at least as well (the default already
+ * shows it). Fit: lead + match when both fit, else a clipped lead + the whole match, else the match
+ * alone, clipped on a word boundary when it is longer than `max`.
  */
 function focusedSentences(text: string, focus: string, max: number): string {
   const want = termsOf(focus);
   if (!want.size) return '';
   const sentences = text.split(SENTENCE_BREAK);
-  let best = -1;
-  let bestScore = 0;
-  sentences.forEach((sentence, i) => {
-    const score = [...termsOf(sentence)].filter((w) => want.has(w)).length;
-    if (i > 0 && score > bestScore) { best = i; bestScore = score; }
-  });
+  const sets = sentences.map(termsOf);
+  const df = new Map<string, number>();
+  sets.forEach((set) => set.forEach((w) => df.set(w, (df.get(w) ?? 0) + 1)));
+  const scores = sets.map((set) => [...set].filter((w) => want.has(w)).reduce((n, w) => n + 1 / (df.get(w) as number), 0));
+  let best = 0;
+  scores.forEach((score, i) => { if (score > (scores[best] as number)) best = i; });
   if (best < 1) return '';
+  const lead = sentences[0] as string;
   const hit = sentences[best] as string;
-  const both = `${sentences[0]} ${hit}`;
+  const both = `${lead} ${hit}`;
   if (Array.from(both).length <= max) return both;
-  return Array.from(hit).length <= max ? hit : '';
+  const hitLen = Array.from(hit).length;
+  if (hitLen > max) return clipWords(hit, max);
+  // Room left for the lead once the match is whole, joined by a space and ended by "...".
+  const room = max - hitLen - 1;
+  return room >= MIN_EXCERPT_CHARS ? `${clipWords(lead, room - 3)}... ${hit}` : hit;
 }
 
 /** The longest run of leading sentences that fits `max` code points, or '' when not even the first does. */
