@@ -132,4 +132,27 @@ describe('fetchDocsItems - decision log files', () => {
     expect(retired).toBeDefined();
     expect(retired!.raw_text).toContain('status: retired');
   });
+
+  it('keeps a fenced example containing an id line inside its entry', async () => {
+    fresh();
+    write('DECISIONS.md', 'D1: Log entries use this format\n\n```\nD999: example only, not a decision\n## Not a heading\n```\n\nD2: Entries are append-only in the file\n');
+    const items = await run();
+    expect(items.map((i) => i.source_url.split('#')[1])).toEqual(['d1', 'd2']);
+    expect(items[0].raw_text).toContain('D999: example only');
+  });
+
+  it('removes key: value fields from a heading title and keeps them in raw_text', async () => {
+    fresh();
+    write('DECISIONS.md', '## D17 - Use Postgres | status: superseded\n\nThe graph lives in Postgres for now.\n');
+    const [item] = await run();
+    expect(item.title).toBe('D17 - Use Postgres');
+    expect(item.raw_text).toContain('status: superseded');
+  });
+
+  it('keeps a short entry that has a recognised id', async () => {
+    fresh();
+    write('DECISIONS.md', 'D1: Use PostgreSQL\n');
+    const items = await run();
+    expect(items.map((i) => i.title)).toEqual(['D1: Use PostgreSQL']);
+  });
 });

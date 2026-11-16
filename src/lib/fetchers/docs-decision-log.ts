@@ -49,7 +49,15 @@ function textOutsideFields(line: string): string {
 
 export function splitDecisionLog(content: string): LogEntry[] {
   const blocks: Array<{ id: string | null; heading: string | null; level: number; lines: string[] }> = [];
+  let fence: string | null = null;
   for (const line of content.split('\n')) {
+    const fenceMark = line.match(/^\s*(```|~~~)/)?.[1];
+    // Lines inside a fenced block belong to the enclosing entry, whatever they look like.
+    if (fence !== null || fenceMark) {
+      if (fenceMark && (fence === null || fenceMark === fence)) fence = fence === null ? fenceMark : null;
+      if (blocks.length > 0) blocks[blocks.length - 1].lines.push(line);
+      continue;
+    }
     const h = line.match(HEADING);
     const topLevel = !/^\s/.test(line);
     const idMatch = h ? h[1].match(ID_IN_HEADING) : topLevel ? line.match(ID_START) : null;
@@ -63,11 +71,12 @@ export function splitDecisionLog(content: string): LogEntry[] {
     .map((b) => {
       const text = b.lines.join('\n').trim();
       const first = b.lines[0].replace(/^#+\s+/, '').replace(/^[-*]\s+/, '').trim();
-      const remainder = b.heading ? first : textOutsideFields(first);
+      // A heading keeps its first segment whole ("Decision: use pnpm"); only trailing fields go.
+      const remainder = b.heading ? first.split(/\s*[·|]\s*/)[0].trim() : textOutsideFields(first);
       const body = b.lines.slice(1).find((l) => l.trim() !== '')?.trim();
       return { id: b.id, heading: b.heading, title: (remainder || body || b.id || '').slice(0, 120), text };
     })
-    .filter((e) => e.text.length >= MIN_ENTRY_CHARS && e.title !== '' && (e.id !== null || e.heading !== null));
+    .filter((e) => e.title !== '' && (e.id !== null || (e.heading !== null && e.text.length >= MIN_ENTRY_CHARS)));
 }
 
 /** The first parseable date field. No git fallback: one file holds many decisions, so the
