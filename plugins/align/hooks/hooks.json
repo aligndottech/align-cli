@@ -1,0 +1,40 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "npx",
+            "args": [
+              "-y",
+              "@aligndottech/cli@0.80.0",
+              "check",
+              "--advisory"
+            ],
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "npx",
+            "args": [
+              "-y",
+              "@aligndottech/cli@0.80.0",
+              "check",
+              "--advisory"
+            ],
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

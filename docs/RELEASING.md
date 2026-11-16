@@ -94,6 +94,22 @@ receive, and promotion moves those same bytes - one dist-tag, one flag flip, no 
    after cli-v0.36.0 sat un-promoted on `next` for four days because the manual step was
    simply forgotten - a gap that long meant tags were going untested by a human anyway.
 
+## The Claude Code plugin pin
+
+`plugins/align` pins `@aligndottech/cli@X.Y.Z` in its MCP server and both hooks, because the Anthropic
+plugin directory rejects `@latest`. release-please updates only the plugin's `version` field: its
+generic updater needs an `x-release-please-version` marker on the same line as the version, and JSON
+has no comments, so it cannot edit a version inside a string. On every release PR, before merging:
+
+```bash
+git fetch origin && git checkout <release-branch>
+npm run sync-plugin-version     # rewrites the pins to package.json's version
+git commit -am "chore: sync plugin pin" && git push
+```
+
+`claude-plugin.test.ts` fails the release PR until this is done, and `npm run sync-plugin-version -- --check`
+exits 1 when a pin is stale.
+
 ## Things that will read as broken and are not
 
 - **A freshly merged release PR shows a prerelease and `npm view` still shows the old

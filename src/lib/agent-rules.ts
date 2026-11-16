@@ -27,11 +27,12 @@ import { safeWriteJson, type SafeWriteOptions, safeWriteText } from './safe-conf
 export const HOOK_TIMEOUT_SECONDS = 10;
 
 // The tool matcher of the Pre/PostToolUse hook. Shared with the Claude Code plugin
-// (.claude-plugin, hooks/hooks.json), whose test pins it to this constant.
+// (plugins/align), whose test pins it to this constant.
 export const EDIT_HOOK_MATCHER = 'Write|Edit';
 
-// The package spec the Claude Code plugin runs through npx. `latest`, not a pinned range: a 0.x
-// caret never crosses a minor and cannot be auto-bumped inside a string. The hook is fail-open.
+// The package spec the Codex plugin runs through npx (`latest`). The Claude Code plugin pins the exact
+// package.json version instead, because the plugin directory requires it: see
+// scripts/sync-plugin-version.mjs and src/__tests__/claude-plugin.test.ts.
 export const PLUGIN_PACKAGE_SPEC = '@aligndottech/cli@latest';
 
 // The command a SessionStart hook shells out to. No --env flag: unlike the
