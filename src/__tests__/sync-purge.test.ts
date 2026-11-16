@@ -53,7 +53,7 @@ function seed(): Record<string, string> {
   db.markConfirmed(ids['confirmed']!, 'me');
   db.insertAudit({ decisionId: ids['audited']!, action: 'pushed', actor: 'me' });
   db.insertAudit({ decisionId: ids['seen']!, action: 'capture_seen', actor: null });
-  for (const a of ['text_revision_pending', 'sync_classified']) db.insertAudit({ decisionId: ids['noted']!, action: a, actor: null });
+  for (const a of ['text_revision_pending', 'sync_classified', 'date_first_commit']) db.insertAudit({ decisionId: ids['noted']!, action: a, actor: null });
   db.close();
   exec(`INSERT INTO local_judgements (id, decision_id, counterpart_id, kind, value, judge_id, via, judged_at) VALUES ('j1', '${ids['judged']}', '${ids['counterpart']}', 'conflict_verdict', 'false', 'me', 'cli', '2026-10-01')`);
   recordActivity(dbPath, 'yours', [{ decisionId: ids['plain1']!, platform: 'slack', updatedAt: '2026-10-01T00:00:00.000Z' }]);
