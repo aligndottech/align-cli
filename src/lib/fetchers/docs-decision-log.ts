@@ -43,6 +43,16 @@ function fieldsOf(line: string): Map<string, string> {
 }
 
 /** The first line with its `key: value` segments removed; empty when the line was all fields. */
+function headingTitle(heading: string): string {
+  const [head, ...rest] = heading.split(/\s*([·|])\s*/);
+  let out = head!.trim();
+  for (let i = 0; i < rest.length; i += 2) {
+    const seg = rest[i + 1]?.trim() ?? '';
+    if (seg && !FIELD.test(seg)) out += ` ${rest[i]} ${seg}`;
+  }
+  return out;
+}
+
 function textOutsideFields(line: string): string {
   return line.split(/\s*[·|]\s*/).filter((seg) => !/^[a-z_]+:\s/i.test(seg.trim()) && !/^[a-z_]+:$/i.test(seg.trim())).join(' ').trim();
 }
@@ -71,8 +81,9 @@ export function splitDecisionLog(content: string): LogEntry[] {
     .map((b) => {
       const text = b.lines.join('\n').trim();
       const first = b.lines[0].replace(/^#+\s+/, '').replace(/^[-*]\s+/, '').trim();
-      // A heading keeps its first segment whole ("Decision: use pnpm"); only trailing fields go.
-      const remainder = b.heading ? first.split(/\s*[·|]\s*/)[0].trim() : textOutsideFields(first);
+      // A heading keeps its first segment whole ("Decision: use pnpm"); after it, only segments that
+      // are key: value fields go, so "Support Linux | macOS" keeps "macOS".
+      const remainder = b.heading ? headingTitle(first) : textOutsideFields(first);
       const body = b.lines.slice(1).find((l) => l.trim() !== '')?.trim();
       return { id: b.id, heading: b.heading, title: (remainder || body || b.id || '').slice(0, 120), text };
     })
