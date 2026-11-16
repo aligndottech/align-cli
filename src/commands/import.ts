@@ -22,6 +22,7 @@ import { registerImportTeamsCommand } from './import/teams.js';
 import { registerImportZoomCommand } from './import/zoom.js';
 import { registerImportNotionCommand } from './import/notion.js';
 import { registerImportSessionsCommand } from './import/sessions.js';
+import { registerImportMirsadCommand } from './import/mirsad.js';
 import { runConnect } from './connect.js';
 import { SINCE_HELP } from '../lib/since-flag.js';
 import type { ScopeFlags } from '../lib/scope-connect.js';
@@ -452,4 +453,5 @@ export function registerImportCommand(program: Command): void {
   registerImportZoomCommand(importCmd);
   registerImportNotionCommand(importCmd);
   registerImportSessionsCommand(importCmd);
+  registerImportMirsadCommand(importCmd);
 }

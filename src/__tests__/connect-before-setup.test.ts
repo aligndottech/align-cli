@@ -61,6 +61,13 @@ describe('align connect before Align is set up', () => {
     rmSync(home, { recursive: true, force: true });
   });
 
+  it('connect mirsad --file stops before reading the file or importing, exits 1, says what to run', async () => {
+    const { code, err } = await run(['connect', 'mirsad', '--file', path.join(home, 'no-such-export.json')]);
+    expect(code).toBe(1);
+    expect(err).toBe('Align is not set up on this machine. Run `align` to set it up.');
+    expect(fetched.ingest).not.toHaveBeenCalled();
+  });
+
   it.each([['git', fetched.gitHistory], ['docs', fetched.docs]])('connect %s stops before fetching, exits 1, says what to run', async (source, fetch) => {
     const { code, err } = await run(['connect', source]);
     expect(code).toBe(1);

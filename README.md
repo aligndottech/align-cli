@@ -244,6 +244,10 @@ Local mode keeps the read-only tokens you paste in your OS credential store, and
 rest (`search`, `decisions`, `stale`, `export`, `ratify`, `context`, ...) still work and are in
 [docs/commands.md](docs/commands.md).
 
+To import decisions from a MIRSAD JSON export, run `align connect mirsad --file <path>`. Each decision is one item,
+so exporting and importing again updates it instead of adding a copy. MIRSAD's `supersedes` links arrive as
+confirmed, the same as if you had run `align mark <newer> replaces <older>`, and need a terminal to record.
+
 Something not working? `align doctor` checks Node, that `align` is on your PATH, that the gateway
 answers, that your token is accepted, and that one real question comes back through `align mcp`.
 It names the next step for each failure and exits non-zero if any check fails. It sends no

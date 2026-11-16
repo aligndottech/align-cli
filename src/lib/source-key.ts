@@ -28,6 +28,8 @@ const ITEM_SHAPES: Record<string, RegExp[]> = {
   slack: [/^\/archives\/[A-Za-z0-9]+\/p\d+$/],
   teams: [/^\/l\/message\/[^/]+\/\d+$/],
   zoom: [/^\/recording\/[^/]+$/],
+  // mirsad://decisions/<id>: the id is MIRSAD's own, assigned once and never reused.
+  mirsad: [/^\/\d+$/], // the path of mirsad://decisions/<id>; the host is "decisions"
   git: [/\/commit\/[0-9a-f]{7,40}$/i, /^\/\/commit\/[0-9a-f]{7,40}$/i],
 };
 

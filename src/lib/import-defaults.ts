@@ -36,6 +36,7 @@ export const SYNC_CEILINGS = {
   git: 5_000,        // scan bound for `git log` WHEN --since is given; the default is GIT_DEFAULT_LIMIT.
   docs: 500,         // repo ADRs and doc sections; not a windowed read.
   sessions: 250,     // review candidates per run; not a windowed read.
+  mirsad: 1_000,     // decisions in one export file; not a windowed read.
 } as const satisfies Record<SourceId, number>;
 
 /** Git is the one source whose default is NOT the window: the newest commits however old, as
