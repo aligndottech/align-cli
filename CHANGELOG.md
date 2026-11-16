@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.80.0](https://github.com/aligndottech/align-cli/compare/cli-v0.79.0...cli-v0.80.0) (2026-11-16)
+
+
+### Features
+
+* align connect mirsad --file imports decisions from a MIRSAD export ([#605](https://github.com/aligndottech/align-cli/issues/605)) ([26413f7](https://github.com/aligndottech/align-cli/commit/26413f7816766e19dc47ac2e283acacf81e14c38))
+* **check:** read review_by inside field-separated ledger lines, skip retired entries ([#600](https://github.com/aligndottech/align-cli/issues/600)) ([12b45af](https://github.com/aligndottech/align-cli/commit/12b45af52c1839dddeb8f0936992d793b6299855))
+* **docs:** import decisions from a repo's decision log or ledger file ([#606](https://github.com/aligndottech/align-cli/issues/606)) ([cd6eca4](https://github.com/aligndottech/align-cli/commit/cd6eca4059fd85d72f83a87590fa4f6aaf97a897))
+* install align as a Claude Code plugin (ALI-2115) ([#593](https://github.com/aligndottech/align-cli/issues/593)) ([c04e203](https://github.com/aligndottech/align-cli/commit/c04e20369b106b25c958064cde7798f9f24235e3))
+* install align as a Codex plugin too ([#596](https://github.com/aligndottech/align-cli/issues/596)) ([9223a5d](https://github.com/aligndottech/align-cli/commit/9223a5d09c320208ffdf80ed4bbe7a00c1ec1f87))
+
+
+### Bug Fixes
+
+* **check:** excerpt the sentence that best matches the edit, rarest terms first ([#595](https://github.com/aligndottech/align-cli/issues/595)) ([8e54ae2](https://github.com/aligndottech/align-cli/commit/8e54ae2e18c26ace70a527ab3c85b3bc642a34df))
+* close the local graph after a MIRSAD import; keep non-field heading segments ([#608](https://github.com/aligndottech/align-cli/issues/608)) ([2522962](https://github.com/aligndottech/align-cli/commit/25229620694c58bc74ca5bac13799fe80a802173))
+* **connect:** stop before fetching when Align is not set up ([#601](https://github.com/aligndottech/align-cli/issues/601)) ([441c75a](https://github.com/aligndottech/align-cli/commit/441c75a57b729457eb9f84d1946b0d35bd5f9c39))
+* **docs:** keep URLs and drop closing markers in decision-log heading titles ([#609](https://github.com/aligndottech/align-cli/issues/609)) ([bb77e57](https://github.com/aligndottech/align-cli/commit/bb77e5775892f7a6471af6a6de4736efd87b4158))
+* **import:** give imported ADRs a decision date (ALI-2114) ([#592](https://github.com/aligndottech/align-cli/issues/592)) ([e10153a](https://github.com/aligndottech/align-cli/commit/e10153a2179df2f9107b8ac410ed56a65e513355))
+* **local:** match a merge's title the way sentences are matched ([#604](https://github.com/aligndottech/align-cli/issues/604)) ([15aac2d](https://github.com/aligndottech/align-cli/commit/15aac2d9947a94c6530ca8e9c7b042e525e38d01))
+* **local:** match merge text by whole sentence, pick the first twin it repeats ([#602](https://github.com/aligndottech/align-cli/issues/602)) ([5ee4679](https://github.com/aligndottech/align-cli/commit/5ee4679458d67ef0dec4b2159ce6010b536c254d))
+* **local:** order ties newest first, drop merge commits that only repeat a commit ([#597](https://github.com/aligndottech/align-cli/issues/597)) ([fa22279](https://github.com/aligndottech/align-cli/commit/fa222794da2fd6989a3d0e6b5e287550c7529413))
+* Windows backfill test config path, CRLF in review_by lines, connect --help before setup ([#603](https://github.com/aligndottech/align-cli/issues/603)) ([469a46a](https://github.com/aligndottech/align-cli/commit/469a46a354f2cb02000ecaa550ccc5dc6418e7c1))
+
 ## [0.79.0](https://github.com/aligndottech/align-cli/compare/cli-v0.78.0...cli-v0.79.0) (2026-11-15)
 
 
