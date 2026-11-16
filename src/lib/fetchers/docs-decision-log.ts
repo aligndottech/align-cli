@@ -14,7 +14,8 @@ const HEADING = /^#{1,6}\s+(.+?)\s*#*\s*$/;
 /** `id: X`, or a bare id-like token (D-001, D181, ADR-7), at the start of a top-level line. */
 const ID_START = /^(?:[-*]\s+)?(?:id:\s*([\w.-]+)|([A-Za-z]{1,6}-?\d+))(?![\w])/i;
 const ID_IN_HEADING = /^(?:id:\s*([\w.-]+)|([A-Za-z]{1,6}-?\d+))(?![\w])/i;
-const FIELD = /^([a-z_]+):\s*(.*)$/i;
+// `https://...` is a URL, not a field: a colon followed by // never starts a value.
+const FIELD = /^([a-z_]+):(?!\/\/)\s*(.*)$/i;
 const MIN_ENTRY_CHARS = 20;
 
 export interface LogEntry {
@@ -83,7 +84,7 @@ export function splitDecisionLog(content: string): LogEntry[] {
       const first = b.lines[0].replace(/^#+\s+/, '').replace(/^[-*]\s+/, '').trim();
       // A heading keeps its first segment whole ("Decision: use pnpm"); after it, only segments that
       // are key: value fields go, so "Support Linux | macOS" keeps "macOS".
-      const remainder = b.heading ? headingTitle(first) : textOutsideFields(first);
+      const remainder = b.heading ? headingTitle(first.replace(/\s+#+$/, '')) : textOutsideFields(first);
       const body = b.lines.slice(1).find((l) => l.trim() !== '')?.trim();
       return { id: b.id, heading: b.heading, title: (remainder || body || b.id || '').slice(0, 120), text };
     })

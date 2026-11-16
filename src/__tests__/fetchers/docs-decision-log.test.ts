@@ -156,6 +156,20 @@ describe('fetchDocsItems - decision log files', () => {
     expect(item.title).toBe('D18 - Support Linux | macOS');
   });
 
+  it('keeps a URL segment in a heading title, since a URL is not a field', async () => {
+    fresh();
+    write('DECISIONS.md', '## D19 - Reference | https://example.com/spec | status: accepted\n\nSee the spec.\n');
+    const [item] = await run();
+    expect(item.title).toBe('D19 - Reference | https://example.com/spec');
+  });
+
+  it('drops closing heading markers but keeps a # inside a word', async () => {
+    fresh();
+    write('DECISIONS.md', '## D20 - Support Linux | macOS ##\n\nBoth ship.\n\n## D21 - Support C#\n\nKeep the C# bindings.\n');
+    const items = await run();
+    expect(items.map((i) => i.title)).toEqual(['D20 - Support Linux | macOS', 'D21 - Support C#']);
+  });
+
   it('keeps a short entry that has a recognised id', async () => {
     fresh();
     write('DECISIONS.md', 'D1: Use PostgreSQL\n');
