@@ -94,6 +94,24 @@ receive, and promotion moves those same bytes - one dist-tag, one flag flip, no 
    after cli-v0.36.0 sat un-promoted on `next` for four days because the manual step was
    simply forgotten - a gap that long meant tags were going untested by a human anyway.
 
+## The Claude Code plugin pin
+
+`plugins/align` pins `@aligndottech/cli@X.Y.Z` in its MCP server and both hooks, because the Anthropic
+plugin directory rejects `@latest`. The pin is the last **promoted** release, never the one a release PR
+stages: an exact pin ignores dist-tags, so bumping it in the release PR would hand plugin users a
+version still on `next`, before E2E has passed. release-please updates only the plugin's `version` field.
+
+After `promote-release.yml` succeeds and `npm view @aligndottech/cli dist-tags.latest` shows the new
+version, move the pin on a branch off main and merge it as its own PR:
+
+```bash
+npm run sync-plugin-version     # rewrites the pins to npm's latest dist-tag, never package.json
+```
+
+`claude-plugin.test.ts` checks the pin is the same everywhere and never ahead of package.json, so a release
+PR passes with the pin one version behind. The hooks use shell form (`npx -y @aligndottech/cli@X.Y.Z check
+--advisory`): exec form, `command` plus `args`, cannot start `npx.cmd` on Windows.
+
 ## Things that will read as broken and are not
 
 - **A freshly merged release PR shows a prerelease and `npm view` still shows the old

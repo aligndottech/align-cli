@@ -5,18 +5,20 @@ import { PLUGIN_PACKAGE_SPEC } from '../lib/agent-rules.js';
 import { advisoryHookCommand, codexHookEntry } from '../lib/user-hooks.js';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
+const CLAUDE_PLUGIN = 'plugins/align/.claude-plugin/plugin.json';
 const read = (rel: string) => JSON.parse(readFileSync(root + rel, 'utf8')) as Record<string, any>;
 
 describe('Codex plugin overlay', () => {
   const manifest = read('.codex-plugin/plugin.json');
 
   it('has the same name and version as the Claude Code plugin and package.json', () => {
-    expect(manifest['name']).toBe(read('.claude-plugin/plugin.json')['name']);
+    expect(manifest['name']).toBe(read(CLAUDE_PLUGIN)['name']);
     expect(manifest['version']).toBe(read('package.json')['version']);
   });
 
-  it('declares the same MCP server as the Claude Code plugin', () => {
-    expect(manifest['mcpServers']).toEqual(read('.claude-plugin/plugin.json')['mcpServers']);
+  it('declares the same MCP server as the Claude Code plugin, apart from the version pin', () => {
+    const unpin = (s: any) => ({ ...s, align: { ...s.align, args: s.align.args.map((a: string) => a.replace(/^(@aligndottech\/cli)@.*$/, '$1')) } });
+    expect(unpin(manifest['mcpServers'])).toEqual(unpin(read(CLAUDE_PLUGIN)['mcpServers']));
   });
 
   it('points at a hooks file that exists', () => {

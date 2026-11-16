@@ -18,7 +18,7 @@
         },
         {
           "type": "json",
-          "path": ".claude-plugin/plugin.json",
+          "path": "plugins/align/.claude-plugin/plugin.json",
           "jsonpath": "$.version"
         },
         {
