@@ -22,7 +22,9 @@ let home: string;
 let env: Record<string, string | undefined>;
 beforeAll(() => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'align-l3-real-'));
-  const cfg = path.join(home, 'config', 'align-cli');
+  // ~/.align is where the CLI reads config on every platform (alignConfigDir). The old XDG path only
+  // worked on Linux, through the startup migration, so on Windows this file was never read.
+  const cfg = path.join(home, '.align');
   fs.mkdirSync(cfg, { recursive: true });
   fs.writeFileSync(path.join(cfg, 'config.json'), JSON.stringify({
     defaultEnv: 'prod',

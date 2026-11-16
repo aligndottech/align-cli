@@ -78,6 +78,15 @@ describe('align connect before Align is set up', () => {
     expect(out).not.toHaveBeenCalled();
   });
 
+  it('connect <source> --help still shows help before setup', async () => {
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    vi.spyOn(process, 'exit').mockImplementation(((c?: number) => { throw new Error(`exit:${c}`); }) as never);
+    const program = new Command();
+    program.exitOverride();
+    registerImportCommand(program);
+    await expect(program.parseAsync(['connect', 'docs', '--help'], { from: 'user' })).rejects.toMatchObject({ code: 'commander.helpDisplayed' });
+  });
+
   it('a set-up user (ALIGN_TOKEN) still reaches the fetch', async () => {
     process.env['ALIGN_TOKEN'] = 'tok_test';
     const { err } = await run(['connect', 'git']);
