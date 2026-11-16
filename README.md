@@ -121,7 +121,7 @@ first, and after "stop" the agent cited #7089 and changed nothing.
 
 ```
 /plugin marketplace add aligndottech/align-cli
-/plugin install align@aligndottech
+/plugin install align-cli@aligndottech
 ```
 
 This adds the Align MCP server and the edit-time decision check as plugin hooks. Both run
@@ -149,7 +149,7 @@ the plugin.
 
 ```
 codex plugin marketplace add aligndottech/align-cli
-codex plugin add align@aligndottech
+codex plugin add align-cli@aligndottech
 ```
 
 This adds the same MCP server and an edit check that runs before each `apply_patch`. Codex

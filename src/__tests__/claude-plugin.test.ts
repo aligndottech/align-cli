@@ -24,7 +24,9 @@ function listFiles(dir: string): string[] {
 describe('Claude Code plugin manifests', () => {
   it('plugin.json carries the documented fields', () => {
     const m = read(PLUGIN_JSON);
-    expect(m['name']).toBe('align');
+    // Not "align": the plugin directory reserves that name for an existing connector we do not own.
+    expect(m['name']).toBe('align-cli');
+    expect(m['displayName']).toBe('Align');
     expect(m['name']).toMatch(/^[a-z0-9-]+$/);
     expect(typeof m['version']).toBe('string');
     expect(typeof m['description']).toBe('string');
@@ -38,6 +40,7 @@ describe('Claude Code plugin manifests', () => {
     expect(mk['plugins']).toHaveLength(1);
     expect(mk['plugins'][0].name).toBe(read(PLUGIN_JSON)['name']);
     expect(mk['plugins'][0].source).toBe(`./${PLUGIN_DIR}`);
+    expect(readFileSync(`${root}README.md`, 'utf8')).toContain(`/plugin install ${mk['plugins'][0].name}@${mk['name']}`);
     expect(existsSync(root + PLUGIN_JSON)).toBe(true);
   });
 
