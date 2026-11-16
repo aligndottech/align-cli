@@ -1004,14 +1004,26 @@ function stalenessNote(d: RelatedDecision, now: number): string {
 // YAML `review_by:` / `review-by:`; not "Review date:", which records when a review happened), read from the stored summary at check time so no schema column is
 // needed. One line per date, line-anchored, ISO day only. The day itself is still in date; the flag
 // starts the day after. A passed date is a better signal than age, so it is its own cue.
-const REVIEW_BY_RE = /^[ \t>*_-]*(?:review[-_ ]by)[*_]*[ \t]*:[*_ \t]*["']?(\d{4}-\d{2}-\d{2})\b/gim;
+const REVIEW_BY_RE = /^[ \t>*_-]*(?:review[-_ ]by)[*_]*[ \t]*:[*_ \t]*["']?(\d{4}-\d{2}-\d{2})\b/i;
+// The same key inside a key-value line whose fields are separated by U+00B7 or "|" (a ledger line:
+// "id: D-001 · status: test · review_by: 2027-04-27"). A separator must come right before the key, so
+// prose that merely says "review by" is not read.
+const REVIEW_BY_INLINE_RE = /[\u00b7|][ \t]*review[-_ ]by[ \t]*:[ \t]*["']?(\d{4}-\d{2}-\d{2})\b/gi;
+// A retired entry needs no date. Only a field-separated line can say so, and only for itself.
+const RETIRED_FIELD_RE = /(?:^|[\u00b7|])[ \t]*status[ \t]*:[ \t]*retired[ \t]*(?=[\u00b7|]|$)/i;
 function reviewByNote(d: RelatedDecision, now: number): string {
   // Several review-by lines: the latest one is the live deadline, so only it can be overdue.
   let day: string | undefined;
   let ms: number | null = null;
-  for (const m of (d.summary ?? '').matchAll(REVIEW_BY_RE)) {
-    const t = isoInstant(m[1]);
-    if (t !== null && (ms === null || t > ms)) { ms = t; day = m[1]; }
+  const take = (iso: string): void => {
+    const t = isoInstant(iso);
+    if (t !== null && (ms === null || t > ms)) { ms = t; day = iso; }
+  };
+  for (const text of (d.summary ?? '').split('\n')) {
+    if (/[\u00b7|]/.test(text) && RETIRED_FIELD_RE.test(text)) continue;
+    const start = REVIEW_BY_RE.exec(text);
+    if (start) take(start[1]);
+    for (const m of text.matchAll(REVIEW_BY_INLINE_RE)) take(m[1]);
   }
   return day && ms !== null && now >= ms + 86_400_000 ? ` (review-by date ${day} has passed)` : '';
 }
