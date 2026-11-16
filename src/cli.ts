@@ -5,11 +5,21 @@ import { runDefaultAction } from './commands/default-action.js';
 import { addSetupOptions } from './commands/setup.js';
 import { createConfigStore, savedLlmConfig } from './lib/config.js';
 import { topLevelCommandName } from './lib/demo/invoked.js';
+import { isAlignSetUp } from './lib/setup-state.js';
 import { setSavedLlmSource } from './lib/local-llm.js';
 import { setWriteRecorder } from './lib/safe-config-write.js';
 import { printRedactionNotice } from './lib/redaction-notice.js';
 
 const { version } = pkg;
+
+/**
+ * `check --advisory` before Align is set up: the plugin hook runs it for people who never ran
+ * setup, and it must say nothing and write nothing. Opening the config store creates ~/.align,
+ * so the root hooks that do it skip this run (and the gate in check.ts then sees an untouched home).
+ */
+function isUnconfiguredAdvisory(actionCommand: Command): boolean {
+  return actionCommand.name() === 'check' && actionCommand.opts()['advisory'] === true && !isAlignSetUp(process.cwd());
+}
 
 /** Where every hidden command is documented; `align --help` points here instead of listing them. */
 export const COMMANDS_DOC_URL = 'https://github.com/aligndottech/align-cli/blob/main/docs/commands.md';
@@ -84,6 +94,7 @@ export function buildProgram(options: BuildProgramOptions = {}): Command {
   program.hook('preAction', async (_thisCommand, actionCommand) => {
     const { beginInvocationTelemetry, invocationCommandPath } = await import('./lib/usage-telemetry.js');
     const { isHookInvocation } = await import('./lib/hook-context.js');
+    if (isUnconfiguredAdvisory(actionCommand)) return;
     const commandPath = invocationCommandPath(actionCommand);
     const hook = isHookInvocation(commandPath, actionCommand.opts());
     await beginInvocationTelemetry(commandPath, { hook });
@@ -105,7 +116,7 @@ export function buildProgram(options: BuildProgramOptions = {}): Command {
   program.hook('preAction', (_thisCommand, actionCommand) => {
     // `align demo` promises to write nothing under the caller's ~/.align, and opening the
     // config store creates it. Its children run in a temp HOME and do all of this there.
-    if (topLevelCommandName(actionCommand) === 'demo') return;
+    if (topLevelCommandName(actionCommand) === 'demo' || isUnconfiguredAdvisory(actionCommand)) return;
     try {
       const config = createConfigStore();
       setWriteRecorder((file, entry) => config.recordWrittenConfig(file, entry), (file) => config.getWrittenConfigs()[file]);
@@ -121,7 +132,7 @@ export function buildProgram(options: BuildProgramOptions = {}): Command {
   // so a slow or blackholed gateway cannot delay the output the user came for.
   program.hook('postAction', async (_thisCommand, actionCommand) => {
     // No ping for `align demo` itself: reading the consent state opens ~/.align (see preAction).
-    if (topLevelCommandName(actionCommand) === 'demo') return;
+    if (topLevelCommandName(actionCommand) === 'demo' || isUnconfiguredAdvisory(actionCommand)) return;
     const { envFlagOf, invocationCommandPath, recordInvocationUsage } = await import('./lib/usage-telemetry.js');
     // Full path ("local ask"), not the leaf name ("ask"), so recordCommandUsage can exclude the
     // offline `local` group - a cloud-logged-in user running it still has a token in hand. The

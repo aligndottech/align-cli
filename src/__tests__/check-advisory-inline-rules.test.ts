@@ -13,6 +13,8 @@ import { registerCheckCommand } from '../commands/check.js';
 const mockCheckAlignment = vi.fn();
 const mockGetStarterRules = vi.fn();
 
+// These tests exercise the configured path; the never-set-up silence has its own file.
+vi.mock('../lib/setup-state.js', () => ({ isAlignSetUp: () => true }));
 vi.mock('../lib/config.js', () => ({
   createConfigStore: vi.fn(() => ({
     getEnvironment: vi.fn(() => ({ gatewayUrl: 'http://test', authToken: 'tok', tenantId: 'tid', mode: 'auth' })),

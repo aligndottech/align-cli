@@ -12,6 +12,7 @@ import { type HookPayload, readHookPayload } from '../lib/hook-payload.js';
 import { decisionsThatWroteTheseLines, proposedChangeText, type RelatedDecision } from '../lib/agent/edit-text.js';
 import { type AgentUse, recordAgentUse } from '../lib/agent-use-telemetry.js';
 import { markHookContext } from '../lib/hook-context.js';
+import { isAlignSetUp } from '../lib/setup-state.js';
 import { markSurfaced, recentlySurfaced } from '../lib/advisory-dedup.js';
 import {
   adjudicationExistsFor,
@@ -436,6 +437,10 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
         // Stay put.
       }
     }
+
+    // Never set up (no ~/.align, no project .align, no ALIGN_ENV): say nothing and write nothing.
+    // Set up but unable to check is a different case and keeps its UNVERIFIED notice below.
+    if (!isAlignSetUp(process.cwd())) process.exit(0);
 
     let text: string;
     let context: string;

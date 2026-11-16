@@ -20,6 +20,9 @@ vi.mock('../lib/git.js', () => ({
   getCurrentBranch: vi.fn(() => Promise.resolve('feat/test')),
 }));
 
+// These tests are about a set-up project; the never-set-up silence has its own file.
+vi.mock('../lib/setup-state.js', () => ({ isAlignSetUp: () => true }));
+
 vi.mock('node:fs', () => ({ existsSync: vi.fn(() => false), readFileSync: vi.fn() }));
 
 // Two tests below run `--block-on-critical`, which can reach spawnDeferredAdjudication.
