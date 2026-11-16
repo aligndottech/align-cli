@@ -105,7 +105,7 @@ After `promote-release.yml` succeeds and `npm view @aligndottech/cli dist-tags.l
 version, move the pin on a branch off main and merge it as its own PR:
 
 ```bash
-npm run sync-plugin-version     # rewrites the pins to package.json's version
+npm run sync-plugin-version     # rewrites the pins to npm's latest dist-tag, never package.json
 ```
 
 `claude-plugin.test.ts` checks the pin is the same everywhere and never ahead of package.json, so a release

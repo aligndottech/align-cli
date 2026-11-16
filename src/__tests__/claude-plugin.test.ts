@@ -115,8 +115,12 @@ describe('sync-plugin-version', () => {
     mkdirSync(`${dir}/scripts`);
     cpSync(`${root}scripts/sync-plugin-version.mjs`, `${dir}/scripts/sync-plugin-version.mjs`);
     cpSync(`${root}${PLUGIN_DIR}`, `${dir}/${PLUGIN_DIR}`, { recursive: true });
-    writeFileSync(`${dir}/package.json`, JSON.stringify({ version: '9.9.9' }));
-    execFileSync(process.execPath, [`${dir}/scripts/sync-plugin-version.mjs`]);
+    // package.json names a newer release that is merged but still staged on `next`;
+    // the pin must follow the promoted `latest` (9.9.9), never package.json (9.9.10).
+    writeFileSync(`${dir}/package.json`, JSON.stringify({ version: '9.9.10' }));
+    execFileSync(process.execPath, [`${dir}/scripts/sync-plugin-version.mjs`], {
+      env: { ...process.env, ALIGN_SYNC_LATEST: '9.9.9' },
+    });
     const hooks = JSON.parse(readFileSync(`${dir}/${HOOKS_JSON}`, 'utf8'))['hooks'] as Record<string, any[]>;
     for (const ev of ['PreToolUse', 'PostToolUse']) expect(hooks[ev]![0].hooks[0].command).toBe('npx -y @aligndottech/cli@9.9.9 check --advisory');
     const mcp = JSON.parse(readFileSync(`${dir}/${PLUGIN_JSON}`, 'utf8'))['mcpServers'].align.args;
