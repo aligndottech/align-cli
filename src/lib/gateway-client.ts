@@ -1,5 +1,6 @@
 import type { EnvironmentConfig } from './config.js';
-import { defaultGatewayUrlFor, hasCredential, LOCAL_DEFAULT_GATEWAY_URL } from './config.js';
+import { LOCAL_DEFAULT_GATEWAY_URL } from './config.js';
+import { notSetUpMessage } from './not-set-up.js';
 import { createLocalGatewayClient } from './local-gateway-client.js';
 import type { TopicTimelineResult } from './mcp-timeline-tools.js';
 import type { DecisionRelation } from './decision-relations.js';
@@ -536,14 +537,8 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
    * pointing a built-in env at the other built-in's URL gets that URL's hint (refusal is still correct).
    */
   function assertSetUp(): void {
-    if (env.mode !== 'auth' || hasCredential(env)) return;
-    const name = (['prod', 'preview'] as const).find((n) => defaultGatewayUrlFor(n) === gatewayUrl);
-    if (!name) return;
-    throw new Error(
-      name === 'prod'
-        ? 'Align is not set up on this machine. Run `align` to set it up.'
-        : 'Align is not set up for preview on this machine. Run `align login --env preview`.',
-    );
+    const message = notSetUpMessage(env, gatewayUrl);
+    if (message) throw new Error(message);
   }
 
   async function request<T>(path: string, options: Parameters<typeof fetch>[1] & { maxBytes?: number } = {}): Promise<T> {

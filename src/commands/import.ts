@@ -1,4 +1,5 @@
 import { resolveEnv } from '../lib/resolve-env.js';
+import { refuseUnlessSetUp } from '../lib/not-set-up.js';
 import type { Command } from 'commander';
 import { subcommandOpts } from '../lib/command-opts.js';
 import * as p from '@clack/prompts';
@@ -266,6 +267,7 @@ export function registerImportCommand(program: Command): void {
     .option('--to <date>', 'End date ISO')
     .option('--approve', 'Auto-approve all suggestions when scan completes')
     .hook('preSubcommand', (thisCommand, subcommand) => {
+      refuseUnlessSetUp(thisCommand.opts<ConnectGroupOpts>().env);
       // `--json` is honoured by the picker path only; a subcommand would parse it (Commander
       // awards a parent flag to the parent) and then print its human report regardless.
       if (thisCommand.opts()['json']) {
@@ -282,6 +284,7 @@ export function registerImportCommand(program: Command): void {
       }
     })
     .action(async (connectors: string[], opts: ConnectGroupOpts) => {
+      refuseUnlessSetUp(opts.env);
       if (!opts.all && !connectors.length) {
         // The local picker (or its --source bypass). False means a cloud env: fall through
         // to the connector scan bare `import` always ran there.

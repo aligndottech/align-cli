@@ -130,13 +130,16 @@ your user or project config. Once Align is set up, the hook keeps a small marker
 temp folder so it doesn't repeat the same decision on back-to-back edits.
 
 The plugin starts with no decisions to check against, and until you set Align up the hook says
-nothing and writes nothing. The MCP tools need a graph too. To fill it without `align setup`
-(which also writes hooks), import from the repo you are in:
+nothing and writes nothing. The MCP tools need a graph too. Set Align up once, from the repo you
+are in:
 
 ```
-npx @aligndottech/cli connect docs
-npx @aligndottech/cli connect git
+npx @aligndottech/cli
 ```
+
+It builds the graph from the repo. When it asks to change your agent config, say no: the plugin
+already adds the check. After that, `npx @aligndottech/cli connect docs` or `connect git` pulls
+in more.
 
 Already ran `align setup` in a project? It wrote the same checks into `.claude/settings.json`,
 so with the plugin each edit is checked twice. Remove the Align hooks from that file, or skip
