@@ -23,6 +23,8 @@ export interface IngestOptions {
   titleOverride?: string;
   sourceUrlOverride?: string | null;
   createdAt?: string;
+  /** `first-commit` when `createdAt` is a git date; stored beside the row so readers label it. */
+  dateSource?: 'first-commit';
   /** L1: false skips the capture-time classifier even with a provider key set, so a
    *  connector import or background sync never spends the user's money. Omitted keeps
    *  today's behaviour (classify when a provider is configured), which explicit human
@@ -48,6 +50,8 @@ export interface IngestSession {
 export interface LocalBatchItem {
   source_url?: string; platform?: string; raw_text: string; title?: string; created_at?: string;
   detail_pending?: boolean;
+  /** `first-commit`: `created_at` came from git history, not from the source text (fetchers/adr-date.ts). */
+  date_source?: 'first-commit';
   /** A docs item's structured co-change rule (fetchers/docs.ts); ingestBatch stores it on the item's decision. */
   co_change_rule?: unknown;
 }

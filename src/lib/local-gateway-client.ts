@@ -498,7 +498,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     const embedding = await getEmbedding(embedText);
     // Origin, from the platform - the same rule the cloud applies on insert.
     const deciderKind = deriveDeciderKind(platform);
-    const id = db.insertDecision({ title, summary, sourceUrl, platform, repo, decidedAt, deciderKind, keyed: opts.keyed, detailPending: pending });
+    const id = db.insertDecision({ title, summary, sourceUrl, platform, repo, decidedAt, dateSource: decidedAt ? opts.dateSource : undefined, deciderKind, keyed: opts.keyed, detailPending: pending });
     db.replaceRefs(id, refs);
     // The payoff: if some earlier decision already cited THIS one (a git commit
     // citing a Jira key before Jira was ever connected), resolve that gap into a real
@@ -558,7 +558,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
           const r = await ingestOne(item.raw_text, item.platform ?? 'cli', {
             titleOverride: item.title,
             sourceUrlOverride: item.source_url ?? null,
-            createdAt: item.created_at,
+            createdAt: item.created_at, dateSource: item.date_source,
             classify: opts.classify, keyed: opts.keyed, detailPending: item.detail_pending,
           }, session);
           // A docs section is the whole source of its rule, so every docs item re-syncs it, with or

@@ -27,16 +27,19 @@ export interface LaterOnTopicEntry {
   title: string;
   source_url?: string;
   date: string;
-  date_basis: 'decided' | 'recorded';
+  date_basis: DateBasis;
   /** Cosine to the hit; absent for an entry found only through a typed edge. */
   similarity?: number;
   relation?: string;
 }
 
+/** `first_commit` orders like `decided`; only its label differs (it may be the day ADRs were moved). */
+export type DateBasis = 'decided' | 'first_commit' | 'recorded';
+
 /** The row's own date as epoch ms, and which clock supplied it. */
-export function dateOf(row: Pick<DecisionRow, 'decidedAt' | 'createdAt'>): { ms: number; iso: string; basis: 'decided' | 'recorded' } | null {
+export function dateOf(row: Pick<DecisionRow, 'decidedAt' | 'createdAt' | 'dateFirstCommit'>): { ms: number; iso: string; basis: DateBasis } | null {
   const decided = row.decidedAt ? Date.parse(row.decidedAt) : NaN;
-  if (!Number.isNaN(decided)) return { ms: decided, iso: new Date(decided).toISOString(), basis: 'decided' };
+  if (!Number.isNaN(decided)) return { ms: decided, iso: new Date(decided).toISOString(), basis: row.dateFirstCommit ? 'first_commit' : 'decided' };
   // SQLite's datetime('now') default is 'YYYY-MM-DD HH:MM:SS', UTC, no offset.
   const raw = row.createdAt.includes('T') ? row.createdAt : `${row.createdAt.replace(' ', 'T')}Z`;
   const created = Date.parse(raw);
@@ -64,7 +67,7 @@ export function laterOnTopic(opts: {
     if (!row || !d || d.ms <= hitDate.ms) return;
     // An ingest minute is not comparable to a source date: an undated row imported today is "later"
     // than every commit, which says nothing about the topic. Compare like with like.
-    if (hitDate.basis === 'decided' && d.basis === 'recorded') return;
+    if (hitDate.basis !== 'recorded' && d.basis === 'recorded') return;
     const prior = out.get(id);
     out.set(id, {
       id, title: row.title,

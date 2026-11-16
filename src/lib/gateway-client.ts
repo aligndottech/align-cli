@@ -1057,7 +1057,7 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
       // rename at the wire, and a cloud row gets the same date a local row does.
       // Typed locally: connector-core 0.5.0's FetcherItem has no created_at (0.6.0's does),
       // and this must compile against both.
-      const decisions = (items as Array<BatchIngestItem & { created_at?: string }>).map(({ created_at, ...rest }) => ({
+      const decisions = (items as Array<BatchIngestItem & { created_at?: string; date_source?: string }>).map(({ created_at, date_source: _local, ...rest }) => ({
         ...rest,
         ...(created_at ? { decided_at: created_at } : {}),
       }));

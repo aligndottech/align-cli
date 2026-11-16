@@ -5,7 +5,7 @@ import { normaliseDecidedAt } from '../local-db.js';
  * When an ADR was decided, in the order a human would trust it:
  *  1. a `Date:` line in the body (Nygard; `* Date:` and `**Date:**` too) or an AsciiDoc `:revdate:`,
  *  2. YAML front matter `date:` (MADR),
- *  3. the date of the file's first commit, when the repo is a git repo.
+ *  3. the date of the file's first commit, when the repo is a git repo (reported as `first-commit`, never as written).
  * A declared date that is not a real date drops the field: it is never replaced by a guess.
  */
 const DATE_LINE = /^[ \t*_-]*(?:date[*_]*[ \t]*:|:revdate:)[*_ \t]*["']?([^\r\n"']*)/im;
@@ -117,10 +117,15 @@ export async function firstCommitDate(
   }
 }
 
+/** `written`: the ADR says it. `first-commit`: git's first add of the file, which after a move or squash is the migration day. */
+export type AdrDateSource = 'written' | 'first-commit';
+
 export async function adrDecisionDate(
   repoRoot: string, relPath: string, content: string, useGit = true,
-): Promise<string | undefined> {
+): Promise<{ date: string; source: AdrDateSource } | undefined> {
   const declared = declaredAdrDate(content, /\.(adoc|asciidoc)$/i.test(relPath));
-  if (declared !== undefined) return declared ?? undefined; // a bad declared date is dropped, not replaced
-  return useGit ? firstCommitDate(repoRoot, relPath) : undefined;
+  // a bad declared date is dropped, not replaced
+  if (declared !== undefined) return declared ? { date: declared, source: 'written' } : undefined;
+  const git = useGit ? await firstCommitDate(repoRoot, relPath) : undefined;
+  return git ? { date: git, source: 'first-commit' } : undefined;
 }

@@ -315,7 +315,7 @@ export interface TimelineRow {
    * implementation of the precedence could disagree with the ordering it is rendering, which
    * is the failure a label is supposed to prevent.
    */
-  date_basis?: 'decided' | 'created' | 'recorded';
+  date_basis?: 'decided' | 'first_commit' | 'created' | 'recorded';
   source_url?: string;
   matched_by?: string[];
 }
@@ -571,7 +571,7 @@ export function topicTimelineMessage(opts: MessageOpts): string {
     '\n`DD Mon`  `{platform}`  **{short title}** - {why, max 15 words} - {cite or id} - {status}' +
     '\n`DD Mon`  `{platform}`  **{short title}** - ... (one line per decision, oldest first)' +
     '\n\n`{platform}` is the tool the decision was made in - teams, slack, jira, github, linear, confluence. NEVER omit the platform: a Teams meeting contradicting a GitHub pull request is the thing no single tool can show, and it is invisible if every line looks alike. The cite implies it for some rows and not others, so print it explicitly on all of them.' +
-    '\n\nThe gutter is the date and NEVER an id: print the row\'s date, not a ticket key, and never the same identifier twice on one line. `date_basis` says which clock it is - `decided` (`decided_at`, the source decided it), `created` (`source_created_at`: RAISED only, never agreed), `recorded` (`created_at`, Align\'s ingest minute, not a source date). Suffix anything not `decided` right after the date - `(raised)` or `(seen)` - or a column of dates all reads as decisions. Where several share a date, normal for an imported backlog, repeat the date. If MOST are `recorded`, add ONE closing note that the graph lacks their source dates.' +
+    '\n\nThe gutter is the date and NEVER an id: print the row\'s date, not a ticket key, and never the same identifier twice on one line. `date_basis` says which clock it is - `decided` (`decided_at`, the source decided it), `first_commit` (`decided_at` is the date the file was first committed, which after a move or squash is the migration day, not a decision day), `created` (`source_created_at`: RAISED only, never agreed), `recorded` (`created_at`, Align\'s ingest minute, not a source date). Suffix anything not `decided` right after the date - `(raised)`, `(seen)` or `(first commit)` - or a column of dates all reads as decisions. Where several share a date, normal for an imported backlog, repeat the date. If MOST are `recorded`, add ONE closing note that the graph lacks their source dates.' +
     // C3 (Copilot, #298 inline at :446). Gated on `why`: with no entries there are no risks
     // to line up, so an unconditional section invites exactly the fabrication the empty state
     // exists to prevent. The empty case says so rather than going silent, because silence
