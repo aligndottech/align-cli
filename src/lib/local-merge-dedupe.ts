@@ -3,18 +3,26 @@ import type { DecisionRow } from './local-db.js';
 const MERGE_LINE = /^merge (?:pull request|branch)\b/im;
 const norm = (t: string) => t.trim().replace(/\s+/g, ' ').toLowerCase();
 
+// Lines and sentences, normalised, without a closing full stop. The unit two texts are compared in, so
+// "set the tick" never matches inside "do not set the tick", and "tick" never matches inside "ticket".
+const sentences = (t: string) => t.split(/\n+|(?<=[.!?])\s+/).map(u => norm(u).replace(/[.!?]+$/, '')).filter(Boolean);
+
 /**
  * What a merge says beyond its own title: `text` minus its FIRST "Merge pull request/branch" line (the
- * boilerplate git writes) and one copy of the title. Empty, or only words the plain commit it carries
- * already has, means the merge adds nothing to it. Only the first such line goes, so a decision line that itself starts with
+ * boilerplate git writes) and one copy of the title. Empty, or only whole sentences the plain commit it
+ * carries already has, means the merge adds nothing to it. Only the first such line goes, so a decision line that itself starts with
  * "Merge branch ..." still counts. The import rule and the search rule both use this one predicate.
  */
 export function mergeAddsNothing(title: string, text: string, plainText = ''): boolean {
   const lines = text.split('\n');
   const at = lines.findIndex(l => /^merge (?:pull request|branch)\b/i.test(l.trim()));
   if (at !== -1) lines.splice(at, 1);
-  const extra = norm(lines.join('\n')).replace(norm(title), '').trim();
-  return extra === '' || norm(plainText).includes(extra);
+  const t = norm(title);
+  const units = sentences(lines.join('\n'));
+  const at2 = units.findIndex(u => u.includes(t));
+  if (at2 !== -1) units[at2] = units[at2]!.replace(t, '').trim();
+  const plain = new Set(sentences(plainText));
+  return units.filter(Boolean).every(u => plain.has(u));
 }
 
 /**

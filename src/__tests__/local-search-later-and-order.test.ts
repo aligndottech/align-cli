@@ -120,6 +120,20 @@ describe('local search: later_on_topic, order and merge duplicates', () => {
     expect(results[0]!.source_url).toMatch(/commit\/1$/);
   });
 
+  it('takes the first twin in the graph that the merge only repeats, not just the oldest twin', async () => {
+    // Two plain commits share the merge's title. The older one says something else, the newer one is
+    // what the merge carries. The merge must give its slot to the newer one, not stay in the results.
+    DENSE = { 1: 0.7, 2: 0.1 };
+    const title = 'The lab runs at ten hertz';
+    const older = row(1, '01', { title, text: 'Tried a fixed step first (s2)', url: 'https://github.com/acme/argus/commit/1' });
+    const newer = row(1, '03', { title, text: 'Measured frametime. Set the tick (s2)', url: 'https://github.com/acme/argus/commit/3' });
+    const merge = row(1, '04', { title, text: `Merge pull request #7 from acme/tick (s1)\n\nMeasured frametime. Set the tick (s2)`, url: 'https://github.com/acme/argus/commit/99' });
+    await client.ingestBatch([older, newer, merge], { classify: false });
+    const results = await search();
+    expect(results.some(r => /Merge pull request/.test(r.summary))).toBe(false);
+    expect(results.map(r => r.source_url)).toContain('https://github.com/acme/argus/commit/3');
+  });
+
   it('orders equal scores newest first, whatever the import order', async () => {
     const slots = [1, 2, 3, 4, 5, 6];
     DENSE = Object.fromEntries(slots.map(n => [n, 0.7]));
