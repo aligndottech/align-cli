@@ -309,6 +309,25 @@ describe('D11 only the header declares the date', () => {
     expect(await dateOf('0035-a.adoc')).toBe('2017-07-07');
     expect(await dateOf('0036-b.adoc')).toBeUndefined();
   });
+  // The fence body is 3 lines with the Date on the last one, so stripping only a fence's first
+  // line (the earlier FENCE bug) leaves the Date in the header and it wins over front matter.
+  it('ignores a Date line deep inside a multi-line fenced block', async () => {
+    adr('0037-m.md', `---\ndate: 2020-01-01\n---\n# M\n\n\`\`\`yaml\nname: x\nkind: y\nDate: 1999-01-01\n\`\`\`\n\n## Context\n\n${BODY}`);
+    adr('0038-t.md', `---\ndate: 2020-01-01\n---\n# T\n\n~~~\na\nb\nDate: 1999-01-01\n~~~\n\n## Context\n\n${BODY}`);
+    expect(await dateOf('0037-m.md')).toBe('2020-01-01');
+    expect(await dateOf('0038-t.md')).toBe('2020-01-01');
+  });
+  it('strips an unclosed fence to the end, so its Date line does not count', async () => {
+    adr('0039-u.md', `---\ndate: 2020-01-01\n---\n# U\n\n\`\`\`\nfoo\n\nDate: 1999-01-01\n\n## Context\n\n${BODY}`);
+    expect(await dateOf('0039-u.md')).toBe('2020-01-01');
+  });
+  // An unfilled template line has no digits at all: it is not a declaration, so front matter wins.
+  it('an unfilled template Date line does not hide the front matter date', async () => {
+    adr('0040-p.md', `---\ndate: 2020-01-02\n---\n# P\n\n* Date: {YYYY-MM-DD when the decision was last updated}\n\n## Context\n\n${BODY}`);
+    adr('0041-e.md', `---\ndate: 2020-01-03\n---\n# E\n\nDate:\n\n## Context\n\n${BODY}`);
+    expect(await dateOf('0040-p.md')).toBe('2020-01-02');
+    expect(await dateOf('0041-e.md')).toBe('2020-01-03');
+  });
 });
 
 describe('D12 earliest add wins with branchy history', () => {

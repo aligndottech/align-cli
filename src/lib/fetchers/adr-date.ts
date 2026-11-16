@@ -10,7 +10,9 @@ import { normaliseDecidedAt } from '../local-db.js';
  */
 const DATE_LINE = /^[ \t*_-]*(?:date[*_]*[ \t]*:|:revdate:)[*_ \t]*["']?([^\r\n"']*)/im;
 const FRONT_MATTER = /^---\r?\n([\s\S]*?)\r?\n---/;
-const FENCE = /^[ \t]*(```|~~~)[^\n]*\n[\s\S]*?(?:\n[ \t]*\1[^\n]*(?=\n|$)|$)/gm;
+// `(?![\s\S])` is true end of input: with the m flag a bare `$` would stop at the end of the
+// fence's FIRST line, leaving later lines (and any Date on them) in the header.
+const FENCE = /^[ \t]*(```|~~~)[^\n]*\n[\s\S]*?(?:\n[ \t]*\1[^\n]*(?=\n|$)|(?![\s\S]))/gm;
 const FM_DATE = /^date[ \t]*:[ \t]*["']?([^\r\n"']*)/im;
 
 /** Only an ISO day (or instant) counts: '12' or 'March' must not become a date. */
@@ -33,7 +35,10 @@ export function declaredAdrDate(content: string, adoc = false): string | null | 
   const noFences = body.replace(FENCE, '');
   const header = noFences.split(adoc ? /^==[ \t]/m : /^##[ \t]/m)[0];
   const line = header.match(DATE_LINE);
-  if (line) return isoOrNull(line[1]);
+  // A blank value or an unfilled template placeholder ("{YYYY-MM-DD ...}") is not a declaration.
+  // A value a person wrote ("TBD") still is, and drops the field (D4b).
+  const unfilled = line && (line[1].trim() === '' || /^\{.*\}?$|YYYY/.test(line[1].trim()));
+  if (line && !unfilled) return isoOrNull(line[1]);
   const fmDate = fm?.[1].match(FM_DATE);
   if (fmDate) return isoOrNull(fmDate[1]);
   return undefined;
