@@ -46,7 +46,7 @@ async function runAdvisory(): Promise<{ exitCode: number | undefined; stdout: st
 describe('check --advisory when Align was never set up', () => {
   let home: string;
   let repo: string;
-  const saved = { cwd: process.cwd(), HOME: process.env['HOME'], PROFILE: process.env['USERPROFILE'], XDG: process.env['XDG_CONFIG_HOME'], ENV: process.env['ALIGN_ENV'] };
+  const saved = { cwd: process.cwd(), HOME: process.env['HOME'], PROFILE: process.env['USERPROFILE'], XDG: process.env['XDG_CONFIG_HOME'], ENV: process.env['ALIGN_ENV'], TOKEN: process.env['ALIGN_TOKEN'] };
 
   beforeEach(() => {
     home = mkdtempSync(path.join(tmpdir(), 'align-home-'));
@@ -56,6 +56,7 @@ describe('check --advisory when Align was never set up', () => {
     process.env['USERPROFILE'] = home; // os.homedir() reads this on Windows
     process.env['XDG_CONFIG_HOME'] = path.join(home, '.config');
     delete process.env['ALIGN_ENV'];
+    delete process.env['ALIGN_TOKEN'];
     process.chdir(repo);
   });
 
@@ -65,6 +66,7 @@ describe('check --advisory when Align was never set up', () => {
     if (saved.PROFILE === undefined) delete process.env['USERPROFILE']; else process.env['USERPROFILE'] = saved.PROFILE;
     if (saved.XDG === undefined) delete process.env['XDG_CONFIG_HOME']; else process.env['XDG_CONFIG_HOME'] = saved.XDG;
     if (saved.ENV !== undefined) process.env['ALIGN_ENV'] = saved.ENV;
+    if (saved.TOKEN !== undefined) process.env['ALIGN_TOKEN'] = saved.TOKEN;
     rmSync(home, { recursive: true, force: true });
     rmSync(repo, { recursive: true, force: true });
   });
@@ -98,10 +100,14 @@ describe('check --advisory when Align was never set up', () => {
   it('does not count a local graph the MCP server created on a fresh machine as set up', async () => {
     // What `align mcp` does on a fresh machine: open the config store, serve a local graph at the setup path.
     const { env } = resolveMcpEnvironment(undefined, createConfigStore(), path.join(home, '.align', 'local.db'));
-    createLocalGatewayClient(env.localDbPath ?? ':memory:');
-    expect(readdirSync(path.join(home, '.align'))).toContain('config.json');
-
-    expect(isAlignSetUp(repo)).toBe(false);
+    // Closed in finally: an open SQLite handle on local.db blocks afterEach's delete on Windows (EBUSY).
+    const client = createLocalGatewayClient(env.localDbPath ?? ':memory:');
+    try {
+      expect(readdirSync(path.join(home, '.align'))).toContain('config.json');
+      expect(isAlignSetUp(repo)).toBe(false);
+    } finally {
+      client.close();
+    }
   });
 
   it('counts a saved login, a saved local environment and a project .align as set up', () => {
@@ -114,6 +120,14 @@ describe('check --advisory when Align was never set up', () => {
     writeFileSync(cfg, JSON.stringify({ environments: {}, defaultEnv: 'prod' }));
     expect(isAlignSetUp(repo)).toBe(false);
     mkdirSync(path.join(repo, '.align'));
+    expect(isAlignSetUp(repo)).toBe(true);
+  });
+
+  // ALIGN_TOKEN is a login: the config store folds it into every env and setup-route treats it as
+  // a team login, so the gate must agree. The negative side is every other test here (cleared in beforeEach).
+  it('counts an ALIGN_TOKEN in the environment as set up', () => {
+    expect(isAlignSetUp(repo)).toBe(false);
+    process.env['ALIGN_TOKEN'] = 'tok-from-env';
     expect(isAlignSetUp(repo)).toBe(true);
   });
 });
