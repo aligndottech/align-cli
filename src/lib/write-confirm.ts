@@ -29,7 +29,7 @@ export function homeDisplay(file: string, home: string): string {
  * agent's own config. Built from the tables the writers themselves run (planAgentAlignment,
  * mcpConfigFiles), never from a second hand-written list.
  */
-export function planSetupWrites(opts: { cwd: string; editors: EditorTarget[]; home?: string }): PlannedWrite[] {
+export function planSetupWrites(opts: { cwd: string; editors: EditorTarget[]; home?: string; agent?: string | null }): PlannedWrite[] {
   const home = opts.home ?? os.homedir();
   const out: PlannedWrite[] = [];
   const seen = new Set<string>();
@@ -44,7 +44,7 @@ export function planSetupWrites(opts: { cwd: string; editors: EditorTarget[]; ho
   };
   // Run from home itself, every agent's own config sits "inside" the cwd and is still user-wide.
   const atHome = path.resolve(opts.cwd) === path.resolve(home);
-  for (const { file, action } of planAgentAlignment(opts.cwd)) add(path.join(opts.cwd, file), file, action, 'project');
+  for (const { file, action } of planAgentAlignment(opts.cwd, opts.agent)) add(path.join(opts.cwd, file), file, action, 'project');
   for (const editor of opts.editors) {
     for (const file of mcpConfigFiles(editor)) {
       add(file, homeDisplay(file, home), existsSync(file) ? 'modify' : 'create', !atHome && inProject(file) ? 'project' : 'user');

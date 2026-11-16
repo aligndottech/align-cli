@@ -27,7 +27,7 @@ import { agentByName } from '../lib/launch/agents.js';
  * `align --help` still prints the full command list; Commander handles that before this runs.
  */
 /** The hidden setup flags on the bare command. Any one of them means the wizard, not the launcher. */
-const SETUP_FLAGS = ['env', 'approve', 'local', 'reset', 'verbose'] as const;
+const SETUP_FLAGS = ['env', 'approve', 'local', 'reset', 'verbose', 'repoOnly'] as const;
 
 /** What the first run in a repo ended on. 'own' opens Align's agent; anything else leaves the terminal to the user. */
 async function openOwnAgent(opts: Record<string, unknown>, notices?: string[]): Promise<never> {

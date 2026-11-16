@@ -443,10 +443,11 @@ export function importRetryHint(sourceId: string, envName: EnvName): string {
  * prints the list and writes nothing. False means the
  * person declined: the caller writes nothing.
  */
-export async function confirmAgentWrites(o: { interactive: boolean; approve?: boolean }): Promise<{ confirmed: boolean; editors: EditorTarget[] }> {
+export async function confirmAgentWrites(o: { interactive: boolean; approve?: boolean; repoOnly?: boolean; agent?: string | null }): Promise<{ confirmed: boolean; editors: EditorTarget[] }> {
   // Detected once: the same agents are listed here and written by connectDetectedAgents.
-  const editors = detectEditors();
-  const files = planSetupWrites({ cwd: process.cwd(), editors });
+  // --repo-only detects none: every agent's own config is user-wide, and that is what it leaves alone.
+  const editors = o.repoOnly ? [] : detectEditors();
+  const files = planSetupWrites({ cwd: process.cwd(), editors, agent: o.repoOnly ? o.agent : undefined });
   console.log('');
   const confirmed = await confirmWrites({
     files,
@@ -466,10 +467,10 @@ export async function confirmAgentWrites(o: { interactive: boolean; approve?: bo
  * tell whether the project .mcp.json - the one that wires Claude Code - actually landed.
  * Naming an agent as connected off a write that threw would be false.
  */
-export function writeAgentAlignment(envName: EnvName): string[] {
+export function writeAgentAlignment(envName: EnvName, agent?: string | null): string[] {
   try {
     const foreign: string[] = [];
-    const written = setupAgentAlignment({ cwd: process.cwd(), env: envName, onForeign: (file) => foreign.push(file) });
+    const written = setupAgentAlignment({ cwd: process.cwd(), env: envName, agent, onForeign: (file) => foreign.push(file) });
     const foreignLine = projectForeignNotice(foreign);
     if (foreignLine) p.log.info(foreignLine);
     p.log.success(`Auto-alignment configured: ${written.join(', ')}`);
@@ -538,7 +539,7 @@ interface LocalValuePhaseResult {
   dbPath: string;
   // reset travels through the same opts bag the rest of the local phase already threads,
   // rather than becoming a second parameter every caller has to remember to also pass.
-  opts: { approve?: boolean; reset?: boolean; launchNext?: boolean; verbose?: boolean };
+  opts: { approve?: boolean; reset?: boolean; launchNext?: boolean; verbose?: boolean; repoOnly?: boolean };
   /** Every source the value phase fetched, for the one report the connector
    *  phase prints at the end. */
   capture: ReturnType<typeof createCaptureCollector>;
@@ -590,7 +591,7 @@ function connectedProjectAgents(written: string[]): string[] {
 /** Thrown inside the docs block to leave it without starting a read; never surfaces. */
 class SkipDocs extends Error {}
 
-async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; launchNext?: boolean; verbose?: boolean; funnel: SetupFunnel }): Promise<LocalValuePhaseResult> {
+async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; launchNext?: boolean; verbose?: boolean; repoOnly?: boolean; funnel: SetupFunnel }): Promise<LocalValuePhaseResult> {
   // Without a TTY neither prompt below can work: a piped stdin hangs forever and a closed
   // stdin crashes clack's raw-mode init (uv_tty_init EINVAL) AFTER local setup has already
   // succeeded (align-cli#118). Computed once, up front, and reused by both prompts in this
@@ -603,7 +604,7 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
   // scan and config key as the launcher, so this IS the launcher's choice (no `align use`).
   // Before initLocalMode on purpose: cancelling here must leave no half-built graph behind.
   // With two or more installed the question is deferred to the files screen below, so it is one screen.
-  const picked = await pickAgent(config, { interactive: Boolean(interactive), approve: opts.approve, defer: true });
+  const picked = await pickAgent(config, { interactive: Boolean(interactive), approve: opts.approve, defer: !opts.repoOnly });
   if (picked === PICK_CANCELLED) { p.cancel('Cancelled.'); process.exit(0); }
   const deferred = typeof picked === 'object' && picked !== null ? picked.deferred : undefined;
   let agent = deferred ? null : (picked as Exclude<typeof picked, PickDeferred>);
@@ -802,15 +803,15 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
   const both = deferred ? await confirmAgentAndWrites(deferred, config) : undefined;
   if (both === 'cancelled') { p.cancel('Cancelled.'); process.exit(0); }
   if (both) agent = both.agent as typeof agent;
-  const { confirmed: writesConfirmed, editors } = both ?? await confirmAgentWrites({ interactive: Boolean(interactive), approve: opts.approve });
+  const { confirmed: writesConfirmed, editors } = both ?? await confirmAgentWrites({ interactive: Boolean(interactive), approve: opts.approve, repoOnly: opts.repoOnly, agent });
   if (!writesConfirmed) p.log.info('Left your agent config alone. Run align again when you want it connected.');
-  const projectAgents = writesConfirmed ? connectedProjectAgents(projectAgentsFromWritten(writeAgentAlignment('local'))) : [];
+  const projectAgents = writesConfirmed ? connectedProjectAgents(projectAgentsFromWritten(writeAgentAlignment('local', opts.repoOnly ? agent : undefined))) : [];
 
   // The agents installed on this machine, not just the ones this project configures. Local
   // setup skipped this and cloud did not, which is backwards: local mode is the one whose
   // entire pitch is an agent on your own machine reading a graph that never leaves it.
   console.log('');
-  const localAgents = writesConfirmed
+  const localAgents = writesConfirmed && !opts.repoOnly
     ? await connectDetectedAgents('local', { verbose: opts.verbose, editors, projectMcpWritten: true, approved: true })
     : { detected: 0, connected: 0, wired: [] as string[] };
 
@@ -1306,7 +1307,7 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<strin
 // Local-embedded onboarding (opt-in via --local): no account, no cloud, no OAuth. Composes
 // the two phases above unchanged - this is exactly what ran before the split, just
 // as two calls instead of one function body.
-async function runLocalSetup(opts: { approve?: boolean; reset?: boolean; launchNext?: boolean; verbose?: boolean; funnel: SetupFunnel }): Promise<SetupResult> {
+async function runLocalSetup(opts: { approve?: boolean; reset?: boolean; launchNext?: boolean; verbose?: boolean; repoOnly?: boolean; funnel: SetupFunnel }): Promise<SetupResult> {
   const ctx = await runLocalValuePhase(opts);
   const notices = await runLocalConnectorPhase(ctx);
   return { writesDeclined: ctx.writesDeclined, ...(notices.length > 0 ? { notices } : {}) };
@@ -1329,6 +1330,7 @@ export function addSetupOptions(cmd: Command): Command {
     .addOption(new Option('--approve', 'Skip confirmation prompts (for scripted use)').hideHelp())
     .addOption(new Option('--local', 'Same as --env local: build the local graph even if you are logged in to a team').hideHelp())
     .addOption(new Option('--reset', 'Clear cached OAuth tokens, saved AI provider keys and the saved AI provider choice, and redo their setup').hideHelp())
+    .addOption(new Option('--repo-only', 'Set up this repo for your agent only: no user-level config, no other agents\' project files').hideHelp())
     .addOption(new Option('--verbose', 'List every agent config file setup left as is, with the command to switch it').hideHelp());
 }
 
@@ -1342,7 +1344,7 @@ export function addSetupOptions(cmd: Command): Command {
  * which would fire the postAction telemetry hook twice for one invocation.
  */
 export async function runSetup(
-  opts: { env?: string; approve?: boolean; local?: boolean; reset?: boolean; launchNext?: boolean; verbose?: boolean } = {},
+  opts: { env?: string; approve?: boolean; local?: boolean; reset?: boolean; launchNext?: boolean; verbose?: boolean; repoOnly?: boolean } = {},
 ): Promise<SetupResult | undefined> {
     const config = createConfigStore();
 
@@ -1390,7 +1392,7 @@ export async function runSetup(
     // here, where the mode is still unknown: each branch offers its own env at its top -
     // runLocalValuePhase and runCloudSetup - and again once consent / login makes a send
     // possible.
-    return await runLocalSetup({ approve: opts.approve, reset: opts.reset, launchNext: opts.launchNext, verbose: opts.verbose, funnel: createSetupFunnel() });
+    return await runLocalSetup({ approve: opts.approve, reset: opts.reset, launchNext: opts.launchNext, verbose: opts.verbose, repoOnly: opts.repoOnly, funnel: createSetupFunnel() });
 }
 
 // Cloud (team) onboarding: verify login, wire MCP, seed from git, then offer
@@ -1399,7 +1401,7 @@ export async function runSetup(
 // developer's graph is local, and the gateway no longer creates personal tenants).
 // Connectors bind per-user to the team tenant.
 async function runCloudSetup(ctx: {
-  opts: { approve?: boolean; reset?: boolean; verbose?: boolean };
+  opts: { approve?: boolean; reset?: boolean; verbose?: boolean; repoOnly?: boolean };
   config: ReturnType<typeof createConfigStore>;
   env: ReturnType<ReturnType<typeof createConfigStore>['getEnvironment']>;
   client: ReturnType<typeof createGatewayClient>;
@@ -1553,18 +1555,24 @@ async function runCloudSetup(ctx: {
   // and no --approve writes nothing. This block used to write without a word when exactly one editor was detected and
   // prompt only at two or more, and that multiselect was unguarded, so `align setup --approve`
   // with two agents installed hung.
+  const interactiveNow = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  // --repo-only: the one agent is the one picked (or already stored), never a guess across all of them.
+  const repoAgent = opts.repoOnly ? await pickAgent(config, { interactive: interactiveNow, approve: opts.approve }) : undefined;
+  if (repoAgent === PICK_CANCELLED) { p.cancel('Cancelled.'); process.exit(0); }
   const { confirmed: writesConfirmed, editors } = await confirmAgentWrites({
-    interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
+    interactive: interactiveNow,
     approve: opts.approve,
+    repoOnly: opts.repoOnly,
+    agent: typeof repoAgent === 'string' ? repoAgent : undefined,
   });
   const writesDeclined = !writesConfirmed;
   if (!writesConfirmed) p.log.info('Left your agent config alone. Run align again when you want it connected.');
-  const globalAgents = writesConfirmed
+  const globalAgents = writesConfirmed && !opts.repoOnly
     ? await connectDetectedAgents(envName, { verbose: ctx.opts.verbose, editors, approved: true })
     : { detected: 0, connected: 0, wired: [] as string[] };
 
   // ---- Step 5b: Deterministic auto-alignment files (hook + nudges) ----
-  const projectAgents = writesConfirmed ? connectedProjectAgents(projectAgentsFromWritten(writeAgentAlignment(envName))) : [];
+  const projectAgents = writesConfirmed ? connectedProjectAgents(projectAgentsFromWritten(writeAgentAlignment(envName, opts.repoOnly && typeof repoAgent === 'string' ? repoAgent : undefined))) : [];
   // Project config first - it is the one the user is most likely sitting in.
   const agents = orderAgents({ project: projectAgents, global: globalAgents.wired });
 
