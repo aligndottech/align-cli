@@ -20,7 +20,7 @@
       "command": "npx",
       "args": [
         "-y",
-        "@aligndottech/cli@0.81.0",
+        "@aligndottech/cli@0.82.0",
         "mcp"
       ]
     }
