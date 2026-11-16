@@ -23,7 +23,7 @@
         },
         {
           "type": "json",
-          "path": ".codex-plugin/plugin.json",
+          "path": "plugins/align/.codex-plugin/plugin.json",
           "jsonpath": "$.version"
         }
       ],

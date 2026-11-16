@@ -4,7 +4,7 @@
   "owner": { "name": "Align", "url": "https://align.tech" },
   "plugins": [
     {
-      "name": "align",
+      "name": "align-cli",
       "source": "./plugins/align",
       "description": "Edit-time decision checks and the Align MCP server, run through npx so no global install is needed."
     }

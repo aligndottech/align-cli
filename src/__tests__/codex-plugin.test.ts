@@ -5,11 +5,19 @@ import { PLUGIN_PACKAGE_SPEC } from '../lib/agent-rules.js';
 import { advisoryHookCommand, codexHookEntry } from '../lib/user-hooks.js';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
-const CLAUDE_PLUGIN = 'plugins/align/.claude-plugin/plugin.json';
+const PLUGIN_DIR = 'plugins/align';
+const CLAUDE_PLUGIN = `${PLUGIN_DIR}/.claude-plugin/plugin.json`;
+const CODEX_PLUGIN = `${PLUGIN_DIR}/.codex-plugin/plugin.json`;
+const CODEX_HOOKS = `${PLUGIN_DIR}/hooks/codex-hooks.json`;
 const read = (rel: string) => JSON.parse(readFileSync(root + rel, 'utf8')) as Record<string, any>;
 
 describe('Codex plugin overlay', () => {
-  const manifest = read('.codex-plugin/plugin.json');
+  const manifest = read(CODEX_PLUGIN);
+
+  it('sits in the folder the marketplace entry installs, so `codex plugin add` gets it', () => {
+    // Codex copies the marketplace entry's source folder; a manifest outside it is never installed.
+    expect(read('.claude-plugin/marketplace.json')['plugins'][0].source).toBe(`./${PLUGIN_DIR}`);
+  });
 
   it('has the same name and version as the Claude Code plugin and package.json', () => {
     expect(manifest['name']).toBe(read(CLAUDE_PLUGIN)['name']);
@@ -23,17 +31,17 @@ describe('Codex plugin overlay', () => {
 
   it('points at a hooks file that exists', () => {
     expect(manifest['hooks']).toBe('./hooks/codex-hooks.json');
-    expect(() => read('hooks/codex-hooks.json')).not.toThrow();
+    expect(() => read(CODEX_HOOKS)).not.toThrow();
   });
 
   it('release-please keeps its version in step', () => {
     const extra = read('release-please-config.json')['packages']['.']['extra-files'] as Array<{ path: string; jsonpath: string }>;
-    expect(extra.some((e) => e.path === '.codex-plugin/plugin.json' && e.jsonpath === '$.version')).toBe(true);
+    expect(extra.some((e) => e.path === CODEX_PLUGIN && e.jsonpath === '$.version')).toBe(true);
   });
 });
 
 describe('Codex plugin hooks match what `align setup` writes for Codex', () => {
-  const hooks = read('hooks/codex-hooks.json')['hooks'] as Record<string, any[]>;
+  const hooks = read(CODEX_HOOKS)['hooks'] as Record<string, any[]>;
 
   it('PreToolUse only, with setup\'s matcher, timeout and command (npx-run)', () => {
     expect(Object.keys(hooks)).toEqual(['PreToolUse']);

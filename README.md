@@ -121,7 +121,7 @@ first, and after "stop" the agent cited #7089 and changed nothing.
 
 ```
 /plugin marketplace add aligndottech/align-cli
-/plugin install align@aligndottech
+/plugin install align-cli@aligndottech
 ```
 
 This adds the Align MCP server and the edit-time decision check as plugin hooks. Both run
@@ -145,11 +145,15 @@ Already ran `align setup` in a project? It wrote the same checks into `.claude/s
 so with the plugin each edit is checked twice. Remove the Align hooks from that file, or skip
 the plugin.
 
+If you installed it as `align@aligndottech` before the rename, run
+`/plugin uninstall align@aligndottech` first, then the install line at the top of this section. In Codex, run
+`codex plugin remove align@aligndottech`, then the install line in the Codex section below.
+
 ### Install in Codex
 
 ```
 codex plugin marketplace add aligndottech/align-cli
-codex plugin add align@aligndottech
+codex plugin add align-cli@aligndottech
 ```
 
 This adds the same MCP server and an edit check that runs before each `apply_patch`. Codex
