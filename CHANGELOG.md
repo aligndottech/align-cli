@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.82.0](https://github.com/aligndottech/align-cli/compare/cli-v0.81.0...cli-v0.82.0) (2026-11-16)
+
+
+### Features
+
+* **docs:** read tenets.md, architecture.md and RFC folders ([#615](https://github.com/aligndottech/align-cli/issues/615)) ([48c2b7b](https://github.com/aligndottech/align-cli/commit/48c2b7ba048ed97ca2f4be739807dc7e6b90019a))
+
 ## [0.81.0](https://github.com/aligndottech/align-cli/compare/cli-v0.80.0...cli-v0.81.0) (2026-11-16)
 
 
