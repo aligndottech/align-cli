@@ -76,6 +76,25 @@ describe('confirmed supersedes links', () => {
     try { expect(local.isSuperseded(idOf(1))).toBe(true); expect(local.isSuperseded(idOf(2))).toBe(false); } finally { local.close(); }
   });
 
+  it('confirms every link in a chain, written from both ends, so only the newest holds', async () => {
+    // 1 <- 2 <- 3 <- 4, recorded the way a real export carries it: supersedes on the newer row,
+    // superseded_by on the older one, both at once for the middle links.
+    const chain = [
+      dec(1, { status: 'superseded', superseded_by: 2 }),
+      dec(2, { status: 'superseded', supersedes: 1, superseded_by: 3 }),
+      dec(3, { status: 'superseded', supersedes: 2, superseded_by: 4 }),
+      dec(4, { supersedes: 3 }),
+    ];
+    const { links } = await importExport(chain);
+    const out = confirmMirsadLinks(dbPath, links, { judge: JUDGE, terminal: true });
+    expect(out).toMatchObject({ confirmed: 3, unmatched: 0, refused: 0 });
+    const edges = q<{ source_id: string; target_id: string }>("SELECT source_id, target_id FROM decision_links WHERE relation = 'supersedes' ORDER BY source_id");
+    expect(edges).toHaveLength(3);
+    expect(new Set(edges.map((e) => `${e.source_id}>${e.target_id}`))).toEqual(new Set([`${idOf(2)}>${idOf(1)}`, `${idOf(3)}>${idOf(2)}`, `${idOf(4)}>${idOf(3)}`]));
+    const local = createLocalDb(dbPath);
+    try { expect([1, 2, 3, 4].map((n) => local.isSuperseded(idOf(n)))).toEqual([true, true, true, false]); } finally { local.close(); }
+  });
+
   it('is idempotent', async () => {
     const { links } = await importExport(exp);
     confirmMirsadLinks(dbPath, links, { judge: JUDGE, terminal: true });
