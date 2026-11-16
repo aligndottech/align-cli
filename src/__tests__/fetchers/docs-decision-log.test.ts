@@ -149,6 +149,13 @@ describe('fetchDocsItems - decision log files', () => {
     expect(item.raw_text).toContain('status: superseded');
   });
 
+  it('keeps a heading segment after | that is not a field', async () => {
+    fresh();
+    write('DECISIONS.md', '## D18 - Support Linux | macOS | status: accepted\n\nBoth platforms ship.\n');
+    const [item] = await run();
+    expect(item.title).toBe('D18 - Support Linux | macOS');
+  });
+
   it('keeps a short entry that has a recognised id', async () => {
     fresh();
     write('DECISIONS.md', 'D1: Use PostgreSQL\n');

@@ -47,14 +47,20 @@ export function registerImportMirsadCommand(importCmd: Command): void {
       const client = createGatewayClient(env);
       const items = read.items.slice(0, parseInt(opts.limit, 10));
       const imported: { stored?: number; failedBatches?: number } = {};
-      await runPersonalImport(items, client, {
-        label: 'MIRSAD',
-        approve: opts.approve,
-        appUrl: resolveAppUrl(env),
-        local: env.mode === 'local-embedded',
-        funnel: { env, source: 'mirsad' },
-        result: imported,
-      });
+      try {
+        await runPersonalImport(items, client, {
+          label: 'MIRSAD',
+          approve: opts.approve,
+          appUrl: resolveAppUrl(env),
+          local: env.mode === 'local-embedded',
+          funnel: { env, source: 'mirsad' },
+          result: imported,
+        });
+      } finally {
+        // Release the local graph before the link step opens it again; an open handle also keeps
+        // Windows from deleting the file (EBUSY). Only the local client holds one.
+        (client as { close?: () => void }).close?.();
+      }
 
       // Only links between decisions of THIS import (after --limit), and only if something was stored.
       const selected = new Set(items.map((i) => i.source_url));
