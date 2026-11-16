@@ -125,7 +125,9 @@ first, and after "stop" the agent cited #7089 and changed nothing.
 ```
 
 This adds the Align MCP server and the edit-time decision check as plugin hooks. Both run
-through `npx`, so no global install is needed. The plugin writes nothing outside its own files.
+through `npx`, so no global install is needed. Installing it writes no hooks or settings into
+your user or project config. Once Align is set up, the hook keeps a small marker in a private
+temp folder so it doesn't repeat the same decision on back-to-back edits.
 
 The plugin starts with no decisions to check against, and until you set Align up the hook says
 nothing and writes nothing. The MCP tools need a graph too. To fill it without `align setup`
@@ -139,6 +141,19 @@ npx @aligndottech/cli connect git
 Already ran `align setup` in a project? It wrote the same checks into `.claude/settings.json`,
 so with the plugin each edit is checked twice. Remove the Align hooks from that file, or skip
 the plugin.
+
+### Install in Codex
+
+```
+codex plugin marketplace add aligndottech/align-cli
+codex plugin add align@aligndottech
+```
+
+This adds the same MCP server and an edit check that runs before each `apply_patch`. Codex
+installs the plugin without trusting its hooks, so the check does nothing until you open Codex
+once and approve it in the hook review. `codex exec` never asks. Like the Claude Code plugin,
+installing it writes no hooks or settings into your config, and it stays silent until Align is set up. If you also ran
+`align setup`, remove one of the two Align hooks or each edit is checked twice.
 
 More in [docs/installation.md](docs/installation.md).
 

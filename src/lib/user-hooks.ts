@@ -98,6 +98,11 @@ const HOSTS: Record<HookHost, HostSpec> = {
   },
 };
 
+/** The Codex hook entry `align setup` writes, for the Codex plugin's hooks file to be pinned against. */
+export function codexHookEntry(command: string): Record<string, unknown> {
+  return HOSTS.codex.entry(command);
+}
+
 function isOurs(spec: HostSpec, entry: unknown): boolean {
   return spec.commandsOf(entry).some((c) => c.includes(OURS));
 }
