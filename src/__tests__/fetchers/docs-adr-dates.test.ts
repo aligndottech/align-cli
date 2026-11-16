@@ -95,7 +95,7 @@ describe('D3 first commit date (real git)', () => {
     await git(['commit', '-q', '-m', 'add'], '2022-05-06T10:00:00+00:00');
     adr('0007-g.md', `# G\n\n${BODY}\n\nEdited later.`);
     await git(['commit', '-q', '-am', 'edit'], '2025-01-01T10:00:00+00:00');
-    expect(await dateOf('0007-g.md')).toBe('2022-05-06T10:00:00+00:00');
+    expect(await dateOf('0007-g.md')).toBe('2022-05-06T10:00:00.000Z');
   });
   it('dates each file by its own first commit', async () => {
     await git(['init', '-q', '-b', 'main']);
@@ -105,8 +105,8 @@ describe('D3 first commit date (real git)', () => {
     adr('0009-i.md', '# I\n\nAuth: sessions live in signed cookies since the gateway must stay stateless.');
     await git(['add', '.']);
     await git(['commit', '-q', '-m', 'i'], '2023-09-10T00:00:00+00:00');
-    expect(await dateOf('0008-h.md')).toBe('2021-02-03T00:00:00+00:00');
-    expect(await dateOf('0009-i.md')).toBe('2023-09-10T00:00:00+00:00');
+    expect(await dateOf('0008-h.md')).toBe('2021-02-03T00:00:00.000Z');
+    expect(await dateOf('0009-i.md')).toBe('2023-09-10T00:00:00.000Z');
   });
   it('gives an untracked file no date, rather than failing', async () => {
     await git(['init', '-q', '-b', 'main']);
@@ -146,7 +146,7 @@ describe('D3b a moved ADR keeps its original date', () => {
     mkdirSync(join(repo, 'docs'), { recursive: true });
     await git(['mv', 'doc/adr', 'docs/adr']);
     await git(['commit', '-q', '-m', 'move'], '2024-04-04T00:00:00+00:00');
-    expect(await dateOf('0022-v.md')).toBe('2020-03-04T00:00:00+00:00');
+    expect(await dateOf('0022-v.md')).toBe('2020-03-04T00:00:00.000Z');
   });
 });
 
@@ -156,14 +156,14 @@ describe('D4d prose that merely starts with the word date is not a declaration',
     adr('0023-w.md', `# W\n\nDates are stored in UTC.\n\n${BODY}`);
     await git(['add', '.']);
     await git(['commit', '-q', '-m', 'w'], '2021-07-08T00:00:00+00:00');
-    expect(await dateOf('0023-w.md')).toBe('2021-07-08T00:00:00+00:00');
+    expect(await dateOf('0023-w.md')).toBe('2021-07-08T00:00:00.000Z');
   });
   it('"- date range filter" leaves the git date in force', async () => {
     await git(['init', '-q', '-b', 'main']);
     adr('0024-x.md', `# X\n\n- date range filter\n- Datetime handling\n\n${BODY}`);
     await git(['add', '.']);
     await git(['commit', '-q', '-m', 'x'], '2021-08-09T00:00:00+00:00');
-    expect(await dateOf('0024-x.md')).toBe('2021-08-09T00:00:00+00:00');
+    expect(await dateOf('0024-x.md')).toBe('2021-08-09T00:00:00.000Z');
   });
   it('still reads `**Date**: 2022-03-04`', async () => {
     adr('0025-y.md', `# Y\n\n**Date**: 2022-03-04\n\n${BODY}`);
@@ -181,8 +181,8 @@ describe('D3c template siblings keep their own dates', () => {
     adr('0027-bb.md', tpl('Use Redis', 'We use Redis.'));
     await git(['add', '.']);
     await git(['commit', '-q', '-m', 'bb'], '2023-05-06T00:00:00+00:00');
-    expect(await dateOf('0026-aa.md')).toBe('2020-01-02T00:00:00+00:00');
-    expect(await dateOf('0027-bb.md')).toBe('2023-05-06T00:00:00+00:00');
+    expect(await dateOf('0026-aa.md')).toBe('2020-01-02T00:00:00.000Z');
+    expect(await dateOf('0027-bb.md')).toBe('2023-05-06T00:00:00.000Z');
   });
 });
 
@@ -219,7 +219,7 @@ describe('D6 AsciiDoc', () => {
     await git(['add', '0017-q.adoc'].map((f) => (f.endsWith('adoc') ? `docs/adr/${f}` : f)));
     await git(['commit', '-q', '-m', 'q'], '2018-03-04T00:00:00+00:00');
     expect(await dateOf('0016-p.adoc')).toBe('2020-10-11');
-    expect(await dateOf('0017-q.adoc')).toBe('2018-03-04T00:00:00+00:00');
+    expect(await dateOf('0017-q.adoc')).toBe('2018-03-04T00:00:00.000Z');
   });
 });
 
@@ -268,7 +268,7 @@ describe('D10 shallow clones are left undated', () => {
     writeFileSync(join(repo, 'other.txt'), 'x');
     await git(['add', '.']);
     await git(['commit', '-q', '-m', 'later'], '2025-06-06T00:00:00+00:00');
-    expect(await dateOf('0030-old.md')).toBe('2019-01-02T00:00:00+00:00');
+    expect(await dateOf('0030-old.md')).toBe('2019-01-02T00:00:00.000Z');
     const clone = mkdtempSync(join(tmpdir(), 'align-2114-clone-'));
     try {
       await execa('git', ['clone', '-q', '--depth', '1', `file://${repo}`, clone]);
@@ -286,14 +286,14 @@ describe('D11 only the header declares the date', () => {
     adr('0031-f.md', `# F\n\n\`\`\`\nDate: 2020-01-01\n\`\`\`\n\n## Context\n\n${BODY}`);
     await git(['add', '.']);
     await git(['commit', '-q', '-m', 'f'], '2022-02-02T00:00:00+00:00');
-    expect(await dateOf('0031-f.md')).toBe('2022-02-02T00:00:00+00:00');
+    expect(await dateOf('0031-f.md')).toBe('2022-02-02T00:00:00.000Z');
   });
   it('ignores a blockquoted Date line, in the header and in Context', async () => {
     await git(['init', '-q', '-b', 'main']);
     adr('0032-q.md', `# Q\n\n> Date: 2020-01-01\n\n## Context\n\n> Date: 2019-01-01\n\n${BODY}`);
     await git(['add', '.']);
     await git(['commit', '-q', '-m', 'q'], '2022-03-03T00:00:00+00:00');
-    expect(await dateOf('0032-q.md')).toBe('2022-03-03T00:00:00+00:00');
+    expect(await dateOf('0032-q.md')).toBe('2022-03-03T00:00:00.000Z');
   });
   it('lets front matter beat a late body Date line (revision log)', async () => {
     adr('0033-l.md', `---\ndate: 2020-01-01\n---\n# L\n\n## Context\n\n${BODY}\n\n## Revision log\n\nDate: 2021-01-01\n`);
@@ -345,7 +345,7 @@ describe('D12 earliest add wins with branchy history', () => {
     await git(['add', '.']);
     await git(['commit', '-q', '-m', 'main add'], '2024-04-04T00:00:00+00:00');
     await git(['merge', '-q', '--no-edit', '-X', 'ours', 'side'], '2024-05-05T00:00:00+00:00');
-    expect(await dateOf('0037-m.md')).toBe('2019-09-09T00:00:00+00:00');
+    expect(await dateOf('0037-m.md')).toBe('2019-09-09T00:00:00.000Z');
   });
 });
 

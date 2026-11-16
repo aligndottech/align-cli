@@ -79,14 +79,16 @@ export async function firstCommitDate(
     );
     // Not `--reverse`: git applies it before --follow's rename tracking and loses the pre-move adds.
     // Take the earliest add by instant instead, so merged or rebased history cannot pick a later one.
-    let best: { ms: number; raw: string } | undefined;
+    // Returned as one canonical ISO instant: git prints %aI as `+00:00` or `Z` depending on its
+    // version, and the stored value must not depend on which git the user has.
+    let best: number | undefined;
     for (const raw of stdout.split('\n').map((l) => l.trim())) {
       const iso = normaliseDecidedAt(raw);
       if (iso === null) continue;
       const ms = Date.parse(iso);
-      if (best === undefined || ms < best.ms) best = { ms, raw };
+      if (best === undefined || ms < best) best = ms;
     }
-    return best?.raw;
+    return best === undefined ? undefined : new Date(best).toISOString();
   } catch {
     return undefined;
   }
