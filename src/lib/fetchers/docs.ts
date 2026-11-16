@@ -1,6 +1,7 @@
 import { readdir, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { buildBlobUrl, getCurrentBranch, getRemoteUrl } from '../git.js';
+import { adrDecisionDate, GIT_CONCURRENCY, isShallowRepo, mapLimit } from './adr-date.js';
 import { ALIGN_NUDGE_END, ALIGN_NUDGE_START } from '../agent-rules.js';
 import { ALIGN_IMPORT_LINE } from '../decisions-context.js';
 import type { PersonalImportItem } from '../personal-import.js';
@@ -102,12 +103,14 @@ async function readAdrFiles(repoRoot: string): Promise<Array<{ relPath: string; 
   return out;
 }
 
-function adrItem(relPath: string, content: string, remoteUrl: string | null, branch: string): PersonalImportItem {
+async function adrItem(repoRoot: string, useGit: boolean, relPath: string, content: string, remoteUrl: string | null, branch: string): Promise<PersonalImportItem> {
+  const decided = await adrDecisionDate(repoRoot, relPath, content, useGit);
   return {
     source_url: buildBlobUrl(remoteUrl, branch, relPath),
     platform: 'docs',
     raw_text: content,
     title: firstHeading(content) ?? humanizeFilename(relPath),
+    ...(decided ? { created_at: decided } : {}),
   };
 }
 
@@ -269,9 +272,10 @@ async function readDocsItems(opts: { limit: number; cwd?: string }): Promise<{
     readAdrFiles(repoRoot),
   ]);
 
-  const adrItems = adrFiles
-    .slice(0, opts.limit)
-    .map(({ relPath, content }) => adrItem(relPath, content, remoteUrl, branch));
+  // Once per import: a shallow clone's history says nothing true about when an ADR was added.
+  const useGit = !(await isShallowRepo(repoRoot));
+  const adrItems = await mapLimit(adrFiles.slice(0, opts.limit), GIT_CONCURRENCY, ({ relPath, content }) =>
+    adrItem(repoRoot, useGit, relPath, content, remoteUrl, branch));
 
   // ADRs alone already fill the limit: reading and stripping CLAUDE.md/AGENTS.md would be
   // work whose result gets sliced away, so skip it rather than doing it and throwing it out.
