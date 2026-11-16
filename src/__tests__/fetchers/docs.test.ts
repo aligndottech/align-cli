@@ -496,3 +496,83 @@ describe('fetchDocsItems - duplicate headings', () => {
     expect(new Set(urls).size).toBe(2);
   });
 });
+
+/**
+ * Tenets, architecture docs and RFC folders.
+ *
+ * Test List:
+ * 1. tenets.md at the root: one item per `##` section (the CLAUDE.md behaviour)
+ * 2. docs/tenets.md, same
+ * 3. architecture.md / ARCHITECTURE.md at root and in docs/
+ * 4. an RFC file in docs/rfcs, one item for the file, titled by its H1
+ * 5. each other RFC folder name (docs/rfc, rfcs, rfc) is read
+ * 6. `.align/` is never read, even when it holds a tenets.md
+ * 7. a repo with none of these files imports exactly its ADR and CLAUDE.md items
+ */
+describe('fetchDocsItems - tenets, architecture and RFCs', () => {
+  let repo: string;
+  afterEach(() => {
+    vi.clearAllMocks();
+    if (repo) rmSync(repo, { recursive: true, force: true });
+  });
+  const write = (rel: string, body: string) => {
+    mkdirSync(join(repo, rel, '..'), { recursive: true });
+    writeFileSync(join(repo, rel), body);
+  };
+  const TENETS = '# Tenets\n\n## Prefer boring tech\n\nWe always pick the boring option over the novel one.\n\n## Own your data\n\nEvery service must own its tables outright.\n';
+
+  it('reads tenets.md at the root, one item per section', async () => {
+    repo = mkdtempSync(join(tmpdir(), 'align-tenets-'));
+    mockGit('https://github.com/acme/app.git');
+    write('tenets.md', TENETS);
+    const { items } = await fetchDocsItems({ limit: 50, cwd: repo });
+    expect(items.map((i) => i.title)).toEqual(['Prefer boring tech', 'Own your data']);
+    expect(items[0].source_url).toBe('https://github.com/acme/app/blob/main/tenets.md#prefer-boring-tech');
+  });
+
+  it('reads docs/TENETS.md', async () => {
+    repo = mkdtempSync(join(tmpdir(), 'align-tenets-'));
+    mockGit('https://github.com/acme/app.git');
+    write('docs/TENETS.md', TENETS);
+    const { items } = await fetchDocsItems({ limit: 50, cwd: repo });
+    expect(items.map((i) => i.source_url)).toContain('https://github.com/acme/app/blob/main/docs/TENETS.md#own-your-data');
+  });
+
+  it.each(['architecture.md', 'ARCHITECTURE.md', 'docs/architecture.md', 'docs/ARCHITECTURE.md'])('reads %s', async (file) => {
+    repo = mkdtempSync(join(tmpdir(), 'align-arch-'));
+    mockGit('https://github.com/acme/app.git');
+    write(file, '# Architecture\n\n## Layers\n\nThe domain layer never imports from infrastructure.\n');
+    const { items } = await fetchDocsItems({ limit: 50, cwd: repo });
+    expect(items.map((i) => i.title)).toEqual(['Layers']);
+  });
+
+  it.each(['docs/rfcs', 'docs/rfc', 'rfcs', 'rfc'])('reads an RFC file in %s as one item', async (dir) => {
+    repo = mkdtempSync(join(tmpdir(), 'align-rfc-'));
+    mockGit('https://github.com/acme/app.git');
+    write(`${dir}/0001-queue-events.md`, '# RFC 1: Queue events\n\nStatus: Accepted\n\nWe will publish events to a queue.\n\n## Detail\n\nMore text.');
+    const { items } = await fetchDocsItems({ limit: 50, cwd: repo });
+    expect(items).toHaveLength(1);
+    expect(items[0].title).toBe('RFC 1: Queue events');
+    expect(items[0].source_url).toBe(`https://github.com/acme/app/blob/main/${dir}/0001-queue-events.md`);
+  });
+
+  it('never reads under .align/', async () => {
+    repo = mkdtempSync(join(tmpdir(), 'align-skip-'));
+    mockGit('https://github.com/acme/app.git');
+    write('.align/tenets.md', TENETS);
+    write('.align/rfcs/0001-x.md', '# RFC\n\nA decision that Align wrote itself.');
+    write('docs/.align/architecture.md', '# A\n\n## S\n\nAlign wrote this section itself, long enough.');
+    const { items } = await fetchDocsItems({ limit: 50, cwd: repo });
+    expect(items).toEqual([]);
+  });
+
+  it('a repo with none of these files imports what it did before (pair)', async () => {
+    repo = mkdtempSync(join(tmpdir(), 'align-pair-'));
+    mockGit('https://github.com/acme/app.git');
+    write('docs/adr/0001-use-postgres.md', '# 1. Use Postgres\n\nStatus: Accepted\n\nWe need a relational store.');
+    write('CLAUDE.md', '# Rules\n\n## Testing\n\nAlways write the failing test first.\n');
+    const { items, report } = await fetchDocsItems({ limit: 50, cwd: repo });
+    expect(items.map((i) => i.title)).toEqual(['1. Use Postgres', 'Testing']);
+    expect(report.scanned).toBe(2);
+  });
+});

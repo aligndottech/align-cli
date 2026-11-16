@@ -29,7 +29,7 @@ align connect scan-runs       List historical scan runs
                               flags: --env
 align connect git             Import local git commit history (no auth required)
                               flags: --limit --since --from --to --branch --approve --env
-align connect docs            Import ADRs, decision logs, CLAUDE.md/AGENTS.md, and the rules in README, CONTRIBUTING and the changelog (no auth required)
+align connect docs            Import ADRs and RFCs, decision logs, CLAUDE.md/AGENTS.md, tenets and architecture docs, and the rules in README, CONTRIBUTING and the changelog (no auth required)
                               flags: --limit --approve --env
 align connect github          Import your GitHub PRs and issues
                               flags: --token --personal --limit --since --repo --all --approve --env
