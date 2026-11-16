@@ -580,12 +580,30 @@ const ALIGNMENT_WRITES: Array<{ file: string; write: (c: AlignmentWriteCtx) => b
 ];
 
 /**
+ * Which project files each agent reads. Used only when setup is narrowed to one agent (--repo-only);
+ * an agent not listed reads AGENTS.md alone, and no agent at all keeps every file.
+ */
+const AGENT_PROJECT_FILES: Record<string, string[]> = {
+  'claude-code': ['.claude/settings.json', 'CLAUDE.md', '.mcp.json'],
+  cursor: ['.cursor/rules/align.md', 'AGENTS.md'],
+  pi: ['.pi/mcp.json', '.pi/extensions/align.ts', 'AGENTS.md'],
+  'gemini-cli': ['.gemini/settings.json', 'AGENTS.md'],
+  opencode: ['.opencode/plugins/align.js', 'AGENTS.md'],
+};
+
+function writesFor(agent?: string | null): typeof ALIGNMENT_WRITES {
+  if (!agent) return ALIGNMENT_WRITES;
+  const files = AGENT_PROJECT_FILES[agent] ?? ['AGENTS.md'];
+  return ALIGNMENT_WRITES.filter((w) => files.includes(w.file));
+}
+
+/**
  * The project files setupAgentAlignment will create or modify, before it runs anything.
  * An upper bound: a writer that finds a team-owned entry or a symlink leaves its file as
  * found, and setupAgentAlignment then leaves it out of what it returns.
  */
-export function planAgentAlignment(cwd: string): Array<{ file: string; action: 'create' | 'modify' }> {
-  return ALIGNMENT_WRITES.map(({ file }) => ({
+export function planAgentAlignment(cwd: string, agent?: string | null): Array<{ file: string; action: 'create' | 'modify' }> {
+  return writesFor(agent).map(({ file }) => ({
     file,
     action: existsSync(path.join(cwd, file)) ? 'modify' : 'create',
   }));
@@ -593,7 +611,7 @@ export function planAgentAlignment(cwd: string): Array<{ file: string; action: '
 
 // Write every deterministic-alignment artifact into the project. Returns the
 // repo-relative paths written, for the caller to report.
-export function setupAgentAlignment(opts: { cwd: string; env?: string; onForeign?: OnForeign }): string[] {
+export function setupAgentAlignment(opts: { cwd: string; env?: string; onForeign?: OnForeign; agent?: string | null }): string[] {
   const skipped = new Set<string>();
   // Opt-in: with no callback every writer overwrites, exactly as before.
   const onForeign: OnForeign | undefined = opts.onForeign
@@ -607,10 +625,11 @@ export function setupAgentAlignment(opts: { cwd: string; env?: string; onForeign
     projectEnv: opts.env === 'prod' ? undefined : opts.env,
     onForeign,
   };
-  for (const { file, write } of ALIGNMENT_WRITES) {
+  const writes = writesFor(opts.agent);
+  for (const { file, write } of writes) {
     if (!write(ctx)) left.add(file);
   }
-  return ALIGNMENT_WRITES.map((w) => w.file).filter((f) => !skipped.has(f) && !left.has(f));
+  return writes.map((w) => w.file).filter((f) => !skipped.has(f) && !left.has(f));
 }
 
 const PROJECT_FILE_TELLS: Array<[string, string[]]> = [
