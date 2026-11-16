@@ -10,16 +10,24 @@ const norm = (t: string) => t.trim().replace(/\s+/g, ' ').toLowerCase();
  * with the same title is also a candidate, keep ONE row: the plain commit, at the better of the two
  * ranks. Rank between the two is close to a coin flip (their text is nearly identical), so the rule
  * must not depend on which came first, and taking the better rank means a limit cut can never drop
- * the decision. A merge row with no such twin stays where it is.
+ * the decision. When the twin is not a candidate but is in the graph, it replaces the merge at the
+ * merge's rank. A merge row with no such twin anywhere stays where it is.
  */
-export function dropMergeCarriers(ids: readonly string[], rowOf: (id: string) => DecisionRow | null, hidden: { has(id: string): boolean } = new Set()): string[] {
+export function dropMergeCarriers(
+  ids: readonly string[],
+  rowOf: (id: string) => DecisionRow | null,
+  hidden: { has(id: string): boolean } = new Set(),
+  /** The id of a visible non-merge row in the GRAPH with this merge's title, when that twin is not a
+   *  result (imported by an earlier run, or ranked outside the pool). It takes the merge's slot. */
+  graphTwin: (merge: DecisionRow) => string | undefined = () => undefined,
+): string[] {
   const rows = ids.map(id => ({ id, row: rowOf(id) }));
   const isMerge = (r: DecisionRow | null) => !!r && MERGE_LINE.test(r.summary);
   const twinOf = (id: string, row: DecisionRow) => rows.find(o => o.id !== id && o.row && !hidden.has(o.id) && !isMerge(o.row) && norm(o.row.title) === norm(row.title));
   const out: string[] = [];
   const placed = new Set<string>();
   for (const { id, row } of rows) {
-    const pick = row && isMerge(row) ? (twinOf(id, row)?.id ?? id) : id;
+    const pick = row && isMerge(row) ? (twinOf(id, row)?.id ?? graphTwin(row) ?? id) : id;
     if (!placed.has(pick)) { placed.add(pick); out.push(pick); }
   }
   return out;

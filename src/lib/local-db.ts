@@ -430,6 +430,14 @@ export function createLocalDb(dbPath: string) {
         .all(...shas, ...prs) as unknown as DecisionRow[];
     },
 
+    /** Decisions in the same repo with this exact title that are not merge rows. The caller drops hidden ones. */
+    getPlainTwins(title: string, repo: string | null, excludeId: string): DecisionRow[] {
+      return db.prepare(
+        `SELECT ${DECISION_COLUMNS} FROM decisions WHERE title = ? AND repo IS ? AND id != ? ORDER BY created_at, id`
+      ).all(title, repo, excludeId).map(r => r as unknown as DecisionRow)
+        .filter(r => !/^merge (?:pull request|branch)\b/im.test(r.summary));
+    },
+
     getDecisionById(id: string): DecisionRow | null {
       return (db.prepare(
         `SELECT ${DECISION_COLUMNS} FROM decisions WHERE id = ?`

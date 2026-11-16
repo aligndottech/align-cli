@@ -155,7 +155,7 @@ align import [args]           removed in 0.40.0 - use align connect
 
 # Keyword search, ranked list
 
-align search <query>          Search the decision graph
+align search <query>          Search the decision graph (ordered by relevance, so SCORE need not descend)
                               flags: --env --limit --repo --all
 
 # List and show decisions

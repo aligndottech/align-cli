@@ -11,12 +11,16 @@ import type { CaptureFetchReport, CaptureFetchResult, CaptureSkip } from './capt
  * is exactly the subject-shape count, because getCommitHistoryDetailed counts every
  * scanned commit into one of those three buckets and nothing else.
  */
-export function gitCaptureSkips(counts: { scanned: number; kept: number; rejectedByRationale: number; droppedByCap?: number }): CaptureSkip[] {
+export function gitCaptureSkips(counts: { scanned: number; kept: number; rejectedByRationale: number; droppedByCap?: number; mergeDuplicates?: number }): CaptureSkip[] {
   const capped = counts.droppedByCap ?? 0;
-  const mechanical = counts.scanned - counts.kept - counts.rejectedByRationale - capped;
+  const merges = counts.mergeDuplicates ?? 0;
+  const mechanical = counts.scanned - counts.kept - counts.rejectedByRationale - capped - merges;
   return [
     ...(capped > 0
       ? [{ count: capped, detail: 'older commits that state a reason, not imported (a first import keeps the newest; `align connect git --limit` reads further)' }]
+      : []),
+    ...(merges > 0
+      ? [{ count: merges, detail: 'skipped: merge commits that only repeat a commit imported beside them' }]
       : []),
     ...(counts.rejectedByRationale > 0
       ? [{ count: counts.rejectedByRationale, detail: 'skipped: commit message states no reason beyond the subject' }]
@@ -40,7 +44,7 @@ export function gitCaptureSkips(counts: { scanned: number; kept: number; rejecte
  * line that tells the user a bigger --limit reaches further back.
  */
 export function gitCaptureReport(counts: {
-  scanned: number; kept: number; rejectedByRationale: number; limit: number; droppedByCap?: number;
+  scanned: number; kept: number; rejectedByRationale: number; limit: number; droppedByCap?: number; mergeDuplicates?: number;
 }): CaptureFetchReport {
   return {
     scanned: counts.scanned,
@@ -57,11 +61,11 @@ export async function fetchGitItems(opts: { limit: number; since?: string; keep?
   // Read ONCE and hand the commits to the pure GitFetcher, rather than letting it call
   // git again: two reads of a moving history are two different answers, and the scanned
   // and rejected counts have to describe the same read the items came from.
-  const { commits, scanned, rejectedByRationale, droppedByCap } = await getCommitHistoryDetailed({ limit: opts.limit, ...(opts.since !== undefined ? { from: opts.since } : {}), ...(opts.keep !== undefined ? { keep: opts.keep } : {}) });
+  const { commits, scanned, rejectedByRationale, droppedByCap, mergeDuplicates } = await getCommitHistoryDetailed({ limit: opts.limit, ...(opts.since !== undefined ? { from: opts.since } : {}), ...(opts.keep !== undefined ? { keep: opts.keep } : {}) });
   const items = await new GitFetcher({ getCommitHistory: async () => commits, getRemoteUrl })
     .fetch({ token: '', limit: opts.limit });
   return {
     items,
-    report: gitCaptureReport({ scanned, kept: commits.length, rejectedByRationale, limit: opts.limit, droppedByCap }),
+    report: gitCaptureReport({ scanned, kept: commits.length, rejectedByRationale, limit: opts.limit, droppedByCap, mergeDuplicates }),
   };
 }

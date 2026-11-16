@@ -22,4 +22,26 @@ describe('dropMergeCarriers never loses the decision a merge row carries', () =>
   it('keeps the merge when the twin is hidden (marked not-a-decision)', () => {
     expect(dropMergeCarriers(['commit', 'merge'], rowOf, new Set(['commit']))).toEqual(['commit', 'merge']);
   });
+
+  // The twin was imported earlier (or ranks outside the pool): it is in the graph, not in the results.
+  describe('a twin that is in the graph but not among the results', () => {
+    it('puts the twin in the merge row\'s slot, so the decision stays and the merge does not', () => {
+      expect(dropMergeCarriers(['other', 'merge'], rowOf, new Set(), () => 'commit')).toEqual(['other', 'commit']);
+    });
+
+    it('does the same at another rank, and once when the twin is also a result', () => {
+      expect(dropMergeCarriers(['merge', 'other'], rowOf, new Set(), () => 'commit')).toEqual(['commit', 'other']);
+      expect(dropMergeCarriers(['merge', 'commit'], rowOf, new Set(), () => 'commit')).toEqual(['commit']);
+    });
+
+    it('keeps the merge when the graph has no twin for it', () => {
+      expect(dropMergeCarriers(['other', 'merge'], rowOf, new Set(), () => undefined)).toEqual(['other', 'merge']);
+    });
+
+    it('never asks for a twin of a row that is not a merge', () => {
+      const asked: string[] = [];
+      dropMergeCarriers(['commit', 'other'], rowOf, new Set(), (row) => { asked.push(row.title); return 'x'; });
+      expect(asked).toEqual([]);
+    });
+  });
 });
