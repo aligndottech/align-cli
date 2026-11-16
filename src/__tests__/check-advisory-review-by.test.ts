@@ -51,4 +51,43 @@ describe('review-by flag', () => {
   it('ignores an unreal date', () => {
     expect(line('Review-by: 2026-13-45')).not.toContain('review-by');
   });
+  describe('review_by inside a field-separated line (ledger style)', () => {
+    const COLLIN = 'Control: id: D-001 \u00b7 status: test \u00b7 review_by: 2026-06-01 \u00b7 modified: 2026-10-27';
+    it("flags Collin's ledger line (middle dot separators) once the date has passed", () => {
+      expect(line(COLLIN)).toContain(FLAG);
+    });
+    it('flags a middle-dot line written with the "Review by" spelling at the end', () => {
+      expect(line('Control: id: D-002 \u00b7 status: stable \u00b7 Review by: 2026-06-01')).toContain(FLAG);
+    });
+    it('flags a pipe-separated line', () => {
+      expect(line('Control: id: D-003 | status: experimental | review-by: 2026-06-01 | modified: 2026-10-27')).toContain(FLAG);
+    });
+    it('says nothing for a future inline date', () => {
+      expect(line(COLLIN.replace('2026-06-01', '2027-04-27'))).not.toContain('review-by');
+    });
+    it('keeps latest wins across inline and start-of-line dates', () => {
+      expect(line(`${COLLIN}\nReview-by: 2027-06-01`)).not.toContain('review-by');
+      expect(line(`${COLLIN}\nReview-by: 2026-01-01`)).toContain(FLAG);
+    });
+    it('ignores an unparseable inline date', () => {
+      expect(line(COLLIN.replace('2026-06-01', '2026-13-45'))).not.toContain('review-by');
+    });
+    it('does not read "review date" inline', () => {
+      expect(line(COLLIN.replace('review_by', 'review date'))).not.toContain('review-by');
+    });
+    it('does not match prose that merely contains "review by" after a separator', () => {
+      expect(line('We chose A | B and want a review by: 2026-06-01 someday')).not.toContain('review-by');
+      expect(line('Notes \u00b7 needs a review by 2026-06-01')).not.toContain('review-by');
+    });
+    it('a retired entry is not overdue', () => {
+      expect(line(COLLIN.replace('status: test', 'status: retired'))).not.toContain('review-by');
+      expect(line('Control: id: D-004 | status: RETIRED | review_by: 2026-06-01')).not.toContain('review-by');
+    });
+    it('retired only counts within the same line: another line stays flagged', () => {
+      expect(line(`${COLLIN.replace('status: test', 'status: retired')}\n${COLLIN.replace('D-001', 'D-005')}`)).toContain(FLAG);
+    });
+    it('a plain "status: retired" line does not suppress a separate start-of-line date', () => {
+      expect(line('status: retired\nReview-by: 2026-06-01')).toContain(FLAG);
+    });
+  });
 });
