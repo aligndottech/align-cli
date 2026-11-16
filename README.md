@@ -140,6 +140,19 @@ Already ran `align setup` in a project? It wrote the same checks into `.claude/s
 so with the plugin each edit is checked twice. Remove the Align hooks from that file, or skip
 the plugin.
 
+### Install in Codex
+
+```
+codex plugin marketplace add aligndottech/align-cli
+codex plugin add align@aligndottech
+```
+
+This adds the same MCP server and an edit check that runs before each `apply_patch`. Codex
+installs the plugin without trusting its hooks, so the check does nothing until you open Codex
+once and approve it in the hook review. `codex exec` never asks. Like the Claude Code plugin,
+it writes nothing outside its own files and stays silent until Align is set up. If you also ran
+`align setup`, remove one of the two Align hooks or each edit is checked twice.
+
 More in [docs/installation.md](docs/installation.md).
 
 ## How it works

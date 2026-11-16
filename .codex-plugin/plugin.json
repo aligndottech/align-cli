@@ -1,0 +1,29 @@
+{
+  "name": "align",
+  "displayName": "Align",
+  "version": "0.79.0",
+  "description": "Check proposed edits against your team's decision graph before they land, and give the agent the Align MCP tools.",
+  "author": {
+    "name": "Align",
+    "url": "https://align.tech"
+  },
+  "homepage": "https://align.tech",
+  "repository": "https://github.com/aligndottech/align-cli",
+  "license": "MIT",
+  "keywords": [
+    "decisions",
+    "alignment",
+    "mcp"
+  ],
+  "mcpServers": {
+    "align": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@aligndottech/cli@latest",
+        "mcp"
+      ]
+    }
+  },
+  "hooks": "./hooks/codex-hooks.json"
+}
