@@ -97,18 +97,20 @@ receive, and promotion moves those same bytes - one dist-tag, one flag flip, no 
 ## The Claude Code plugin pin
 
 `plugins/align` pins `@aligndottech/cli@X.Y.Z` in its MCP server and both hooks, because the Anthropic
-plugin directory rejects `@latest`. release-please updates only the plugin's `version` field: its
-generic updater needs an `x-release-please-version` marker on the same line as the version, and JSON
-has no comments, so it cannot edit a version inside a string. On every release PR, before merging:
+plugin directory rejects `@latest`. The pin is the last **promoted** release, never the one a release PR
+stages: an exact pin ignores dist-tags, so bumping it in the release PR would hand plugin users a
+version still on `next`, before E2E has passed. release-please updates only the plugin's `version` field.
+
+After `promote-release.yml` succeeds and `npm view @aligndottech/cli dist-tags.latest` shows the new
+version, move the pin on a branch off main and merge it as its own PR:
 
 ```bash
-git fetch origin && git checkout <release-branch>
 npm run sync-plugin-version     # rewrites the pins to package.json's version
-git commit -am "chore: sync plugin pin" && git push
 ```
 
-`claude-plugin.test.ts` fails the release PR until this is done, and `npm run sync-plugin-version -- --check`
-exits 1 when a pin is stale.
+`claude-plugin.test.ts` checks the pin is the same everywhere and never ahead of package.json, so a release
+PR passes with the pin one version behind. The hooks use shell form (`npx -y @aligndottech/cli@X.Y.Z check
+--advisory`): exec form, `command` plus `args`, cannot start `npx.cmd` on Windows.
 
 ## Things that will read as broken and are not
 

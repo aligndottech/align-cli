@@ -9,7 +9,11 @@ const read = (rel: string) => JSON.parse(readFileSync(root + rel, 'utf8')) as Re
 const PLUGIN_DIR = 'plugins/align';
 const PLUGIN_JSON = `${PLUGIN_DIR}/.claude-plugin/plugin.json`;
 const HOOKS_JSON = `${PLUGIN_DIR}/hooks/hooks.json`;
-const PIN = `@aligndottech/cli@${read('package.json')['version']}`;
+// The pinned version is the last PROMOTED release, which can trail package.json while a release is
+// staged on `next`: pinning ahead would hand plugin users a version that has not passed E2E.
+const PIN = (read(PLUGIN_JSON)['mcpServers'].align.args as string[]).find((a) => a.startsWith('@aligndottech/cli@'))!;
+const semver = (v: string) => v.split('.').map(Number);
+const atMost = (a: string, b: string) => { const [x, y] = [semver(a), semver(b)]; for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i]! < y[i]!; return true; };
 
 function listFiles(dir: string): string[] {
   return readdirSync(root + dir, { withFileTypes: true }).flatMap((e) =>
@@ -66,44 +70,57 @@ describe('plugin folder holds only what the plugin directory accepts', () => {
   });
 });
 
-describe('every npx in the plugin is `npx` plus exact-version args', () => {
-  const hooks = read(HOOKS_JSON)['hooks'] as Record<string, any[]>;
-  const entries: Array<{ where: string; command: string; args: string[] }> = [
-    ...Object.entries(read(PLUGIN_JSON)['mcpServers']).map(([k, v]: [string, any]) => ({ where: `mcp:${k}`, command: v.command, args: v.args })),
-    ...Object.entries(hooks).flatMap(([ev, groups]) =>
-      groups.flatMap((g) => g.hooks.map((h: any) => ({ where: ev, command: h.command, args: h.args }))),
-    ),
-  ];
-
-  it('found the entries (positive control: 1 server, 2 hooks)', () => {
-    expect(entries).toHaveLength(3);
+describe('every npx in the plugin pins an exact version', () => {
+  it('the MCP server is `npx` plus plain-word args with one exact pin', () => {
+    const v = read(PLUGIN_JSON)['mcpServers'].align as { command: string; args: string[] };
+    expect(v.command).toBe('npx');
+    for (const a of v.args) expect(a).toMatch(/^[@A-Za-z0-9._/-]+$/);
+    expect(v.args.filter((a) => /^@aligndottech\/cli@\d+\.\d+\.\d+$/.test(a))).toHaveLength(1);
   });
 
-  for (const e of entries) {
-    it(`${e.where}: command is exactly npx, args are plain words, the package is pinned X.Y.Z`, () => {
-      expect(e.command).toBe('npx');
-      expect(Array.isArray(e.args)).toBe(true);
-      for (const a of e.args) expect(a).toMatch(/^[@A-Za-z0-9._/-]+$/);
-      const pkgs = e.args.filter((a) => a.startsWith('@aligndottech/cli@'));
-      expect(pkgs).toHaveLength(1);
-      expect(pkgs[0]).toMatch(/^@aligndottech\/cli@\d+\.\d+\.\d+$/);
+  // Shell form, not `command` plus `args`: exec form starts the program directly, and on Windows npx is
+  // npx.cmd, which exec form cannot start, so the hooks would never run there.
+  for (const ev of ['PreToolUse', 'PostToolUse']) {
+    it(`${ev}: one shell-form command with an exact pin and no args`, () => {
+      const hk = (read(HOOKS_JSON)['hooks'] as Record<string, any[]>)[ev]![0].hooks[0];
+      expect(hk.args).toBeUndefined();
+      expect(hk.command).toMatch(/^npx -y @aligndottech\/cli@\d+\.\d+\.\d+ check --advisory$/);
     });
   }
 });
 
-describe('the pin follows package.json', () => {
-  it('plugin.json version, MCP pin and both hook pins equal the package.json version', () => {
-    const v = read('package.json')['version'];
-    expect(read(PLUGIN_JSON)['version']).toBe(v);
-    expect(read(PLUGIN_JSON)['mcpServers'].align.args).toContain(PIN);
+describe('the pin', () => {
+  it('is the same version in the MCP server and both hooks', () => {
     const hooks = read(HOOKS_JSON)['hooks'] as Record<string, any[]>;
-    for (const ev of ['PreToolUse', 'PostToolUse']) expect(hooks[ev]![0].hooks[0].args).toContain(PIN);
+    for (const ev of ['PreToolUse', 'PostToolUse']) expect(hooks[ev]![0].hooks[0].command).toContain(` ${PIN} `);
   });
 
-  it('release-please keeps plugin.json version in step, and the pins are covered by sync-plugin-version', () => {
+  it('never runs ahead of package.json (it moves only after a release is promoted)', () => {
+    expect(atMost(PIN.split('@').pop()!, read('package.json')['version'])).toBe(true);
+  });
+
+  it('release-please keeps plugin.json version in step, and sync-plugin-version exists for the pins', () => {
     const extra = read('release-please-config.json')['packages']['.']['extra-files'] as Array<{ path: string; jsonpath: string }>;
     expect(extra.some((e) => e.path === PLUGIN_JSON && e.jsonpath === '$.version')).toBe(true);
     expect(read('package.json')['scripts']['sync-plugin-version']).toContain('sync-plugin-version.mjs');
+  });
+});
+
+describe('sync-plugin-version', () => {
+  it('rewrites only the version inside the shell-form hook, keeping the rest of the command', async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync, cpSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { execFileSync } = await import('node:child_process');
+    const dir = mkdtempSync(`${tmpdir()}/align-sync-`);
+    mkdirSync(`${dir}/scripts`);
+    cpSync(`${root}scripts/sync-plugin-version.mjs`, `${dir}/scripts/sync-plugin-version.mjs`);
+    cpSync(`${root}${PLUGIN_DIR}`, `${dir}/${PLUGIN_DIR}`, { recursive: true });
+    writeFileSync(`${dir}/package.json`, JSON.stringify({ version: '9.9.9' }));
+    execFileSync(process.execPath, [`${dir}/scripts/sync-plugin-version.mjs`]);
+    const hooks = JSON.parse(readFileSync(`${dir}/${HOOKS_JSON}`, 'utf8'))['hooks'] as Record<string, any[]>;
+    for (const ev of ['PreToolUse', 'PostToolUse']) expect(hooks[ev]![0].hooks[0].command).toBe('npx -y @aligndottech/cli@9.9.9 check --advisory');
+    const mcp = JSON.parse(readFileSync(`${dir}/${PLUGIN_JSON}`, 'utf8'))['mcpServers'].align.args;
+    expect(mcp).toEqual(['-y', '@aligndottech/cli@9.9.9', 'mcp']);
   });
 });
 
@@ -112,7 +129,7 @@ describe('plugin hooks match what `align setup` writes', () => {
   const setup = alignClaudeHooks() as Record<string, any[]>;
 
   for (const event of ['PreToolUse', 'PostToolUse']) {
-    it(`${event}: same matcher, timeout and command (npx exec form)`, () => {
+    it(`${event}: same matcher, timeout and command (through npx, pinned)`, () => {
       expect(plugin[event]).toHaveLength(1);
       const [p] = plugin[event]!;
       const [s] = setup[event]!;
@@ -123,8 +140,7 @@ describe('plugin hooks match what `align setup` writes', () => {
       expect(p.hooks[0].timeout).toBe(HOOK_TIMEOUT_SECONDS);
       const [bin, ...rest] = (s.hooks[0].command as string).split(' ');
       expect(bin).toBe('align');
-      expect(p.hooks[0].command).toBe('npx');
-      expect(p.hooks[0].args).toEqual(['-y', PIN, ...rest]);
+      expect(p.hooks[0].command).toBe(`npx -y ${PIN} ${rest.join(' ')}`);
     });
   }
 
