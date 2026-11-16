@@ -1,6 +1,6 @@
 {
   "name": "align-cli",
-  "displayName": "Align",
+  "displayName": "Align CLI",
   "version": "0.82.0",
   "description": "Check proposed edits against your team's decision graph before they land, and give the agent the Align MCP tools.",
   "author": {
