@@ -249,6 +249,10 @@ export function createLocalDb(dbPath: string) {
       const sourceUrl = identifyingSourceUrl(row.sourceUrl);
       const key = (row.keyed ? connectorItemKey(row.platform, sourceUrl) : undefined) ?? null;
       api.foldPendingTwin(sourceUrl, row.title, row.platform, row.keyed);
+      // One savepoint for the date and its first-commit mark: the upsert takes the write lock, so a
+      // concurrent import cannot land a different date between them and leave the mark on the wrong one.
+      db.exec('SAVEPOINT decision_date');
+      try {
       const inserted = db.prepare(
         `INSERT INTO decisions (id, title, summary, source_url, platform, repo, decided_at, decider_kind, source_key, detail_pending) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(source_key) WHERE source_key IS NOT NULL DO UPDATE SET
@@ -290,7 +294,13 @@ export function createLocalDb(dbPath: string) {
         if (row.dateSource === 'first-commit' && !marked) api.insertAudit({ decisionId: inserted.id, action: DATE_FIRST_COMMIT, actor: null });
         if (row.dateSource !== 'first-commit' && marked) db.prepare('DELETE FROM decision_audit WHERE decision_id = ? AND action = ?').run(inserted.id, DATE_FIRST_COMMIT);
       }
+      db.exec('RELEASE decision_date');
       return inserted.id;
+      } catch (e) {
+        db.exec('ROLLBACK TO decision_date');
+        db.exec('RELEASE decision_date');
+        throw e;
+      }
     },
 
     /**

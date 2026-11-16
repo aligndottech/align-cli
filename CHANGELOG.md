@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.81.0](https://github.com/aligndottech/align-cli/compare/cli-v0.80.0...cli-v0.81.0) (2026-11-16)
+
+
+### Features
+
+* **import:** label ADR dates taken from git history as first_commit ([#611](https://github.com/aligndottech/align-cli/issues/611)) ([c1e66a6](https://github.com/aligndottech/align-cli/commit/c1e66a6c16e78c26ec89e11e7edc1464cb2f5352))
+* **setup:** hidden --repo-only sets up one repo for one agent, no user-level writes ([#610](https://github.com/aligndottech/align-cli/issues/610)) ([e0b7208](https://github.com/aligndottech/align-cli/commit/e0b7208229ede6990bf197f14c0c12e959b580a9))
+
+
+### Bug Fixes
+
+* repo-only setup tests on Windows; write an ADR date and its source mark atomically ([#613](https://github.com/aligndottech/align-cli/issues/613)) ([bfcd208](https://github.com/aligndottech/align-cli/commit/bfcd2083760f2991f715d2cc2aab5b691e7ac12b))
+
 ## [0.80.0](https://github.com/aligndottech/align-cli/compare/cli-v0.79.0...cli-v0.80.0) (2026-11-16)
 
 
