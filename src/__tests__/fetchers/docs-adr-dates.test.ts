@@ -29,6 +29,8 @@ vi.mock('../../lib/local-relationship-classifier.js', () => ({
 }));
 vi.setConfig({ testTimeout: 30_000 });
 
+import { chmodSync } from 'node:fs';
+import { firstCommitDate, mapLimit } from '../../lib/fetchers/adr-date.js';
 import { fetchDocsItems } from '../../lib/fetchers/docs.js';
 import { createLocalGatewayClient } from '../../lib/local-gateway-client.js';
 import { createLocalDb } from '../../lib/local-db.js';
@@ -254,5 +256,100 @@ describe('D8 / D9 stored decided_at and the edit check', () => {
     ) as { hookSpecificOutput: { additionalContext: string } };
     expect(out.hookSpecificOutput.additionalContext).toContain('Use Postgres');
     expect(out.hookSpecificOutput.additionalContext).not.toContain('no decision date');
+  });
+});
+
+describe('D10 shallow clones are left undated', () => {
+  it('a depth-1 clone leaves an undated ADR undated, the full repo gives the real date', async () => {
+    await git(['init', '-q', '-b', 'main']);
+    adr('0030-old.md', '# Old\n\nStorage: blobs go to S3 because the disks filled twice in 2019.');
+    await git(['add', '.']);
+    await git(['commit', '-q', '-m', 'old'], '2019-01-02T00:00:00+00:00');
+    writeFileSync(join(repo, 'other.txt'), 'x');
+    await git(['add', '.']);
+    await git(['commit', '-q', '-m', 'later'], '2025-06-06T00:00:00+00:00');
+    expect(await dateOf('0030-old.md')).toBe('2019-01-02T00:00:00+00:00');
+    const clone = mkdtempSync(join(tmpdir(), 'align-2114-clone-'));
+    try {
+      await execa('git', ['clone', '-q', '--depth', '1', `file://${repo}`, clone]);
+      const { items } = await fetchDocsItems({ limit: 50, cwd: clone });
+      const hit = items.find((i) => i.source_url.endsWith('0030-old.md'));
+      expect(hit).toBeDefined();
+      expect(hit).not.toHaveProperty('created_at');
+    } finally { rmSync(clone, { recursive: true, force: true }); }
+  });
+});
+
+describe('D11 only the header declares the date', () => {
+  it('ignores a Date line inside a fenced code block', async () => {
+    await git(['init', '-q', '-b', 'main']);
+    adr('0031-f.md', `# F\n\n\`\`\`\nDate: 2020-01-01\n\`\`\`\n\n## Context\n\n${BODY}`);
+    await git(['add', '.']);
+    await git(['commit', '-q', '-m', 'f'], '2022-02-02T00:00:00+00:00');
+    expect(await dateOf('0031-f.md')).toBe('2022-02-02T00:00:00+00:00');
+  });
+  it('ignores a blockquoted Date line, in the header and in Context', async () => {
+    await git(['init', '-q', '-b', 'main']);
+    adr('0032-q.md', `# Q\n\n> Date: 2020-01-01\n\n## Context\n\n> Date: 2019-01-01\n\n${BODY}`);
+    await git(['add', '.']);
+    await git(['commit', '-q', '-m', 'q'], '2022-03-03T00:00:00+00:00');
+    expect(await dateOf('0032-q.md')).toBe('2022-03-03T00:00:00+00:00');
+  });
+  it('lets front matter beat a late body Date line (revision log)', async () => {
+    adr('0033-l.md', `---\ndate: 2020-01-01\n---\n# L\n\n## Context\n\n${BODY}\n\n## Revision log\n\nDate: 2021-01-01\n`);
+    expect(await dateOf('0033-l.md')).toBe('2020-01-01');
+  });
+  it('reads a Date line before the first heading when the title has no front matter', async () => {
+    adr('0034-h.md', `# H\n\nDate: 2018-08-08\n\n## Status\n\nAccepted\n\n## Context\n\n${BODY}`);
+    expect(await dateOf('0034-h.md')).toBe('2018-08-08');
+  });
+  it('AsciiDoc: a Date line after the first == section does not count', async () => {
+    adr('0035-a.adoc', `= A\n:revdate: 2017-07-07\n\n== Context\n\nDate: 2021-01-01\n\n${BODY}`);
+    adr('0036-b.adoc', `= B\n\n== Context\n\nDate: 2021-01-01\n\n${BODY}`);
+    expect(await dateOf('0035-a.adoc')).toBe('2017-07-07');
+    expect(await dateOf('0036-b.adoc')).toBeUndefined();
+  });
+});
+
+describe('D12 earliest add wins with branchy history', () => {
+  it('takes the earliest add when two branches add the same path', async () => {
+    await git(['init', '-q', '-b', 'main']);
+    writeFileSync(join(repo, 'seed.txt'), 's');
+    await git(['add', '.']);
+    await git(['commit', '-q', '-m', 'seed'], '2018-01-01T00:00:00+00:00');
+    await git(['checkout', '-q', '-b', 'side']);
+    adr('0037-m.md', '# M\n\nMerging: we rebase because the history must stay linear for bisect.');
+    await git(['add', '.']);
+    await git(['commit', '-q', '-m', 'side add'], '2019-09-09T00:00:00+00:00');
+    await git(['checkout', '-q', 'main']);
+    adr('0037-m.md', '# M\n\nMerging: we rebase because the history must stay linear for bisect.');
+    await git(['add', '.']);
+    await git(['commit', '-q', '-m', 'main add'], '2024-04-04T00:00:00+00:00');
+    await git(['merge', '-q', '--no-edit', '-X', 'ours', 'side'], '2024-05-05T00:00:00+00:00');
+    expect(await dateOf('0037-m.md')).toBe('2019-09-09T00:00:00+00:00');
+  });
+});
+
+describe('D13 bounded git use', () => {
+  it('a git that never answers yields undefined after the timeout', async () => {
+    const bin = mkdtempSync(join(tmpdir(), 'align-2114-bin-'));
+    try {
+      writeFileSync(join(bin, 'git'), '#!/bin/sh\nexec sleep 5\n');
+      chmodSync(join(bin, 'git'), 0o755);
+      vi.stubEnv('PATH', `${bin}:${process.env.PATH}`);
+      const t0 = Date.now();
+      expect(await firstCommitDate(repo, 'x.md', { timeoutMs: 200 })).toBeUndefined();
+      expect(Date.now() - t0).toBeLessThan(3000);
+    } finally { rmSync(bin, { recursive: true, force: true }); }
+  });
+  it('mapLimit never runs more than the limit at once, and keeps order', async () => {
+    let live = 0; let peak = 0;
+    const out = await mapLimit([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 3, async (n) => {
+      live++; peak = Math.max(peak, live);
+      await new Promise((r) => setTimeout(r, 10));
+      live--; return n * 2;
+    });
+    expect(out).toEqual([2, 4, 6, 8, 10, 12, 14, 16, 18, 20]);
+    expect(peak).toBe(3);
   });
 });
