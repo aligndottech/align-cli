@@ -170,13 +170,21 @@ async function readAgentRulesItems(
   // is dropped: nobody wrote it as a section, so nobody will look for it in the graph.
   let droppedShort = 0;
   const seenReal = new Set<string>(); // a case-insensitive filesystem answers tenets.md and TENETS.md with one file
-  for (const file of AGENT_RULES_FILES) {
+  for (const candidate of AGENT_RULES_FILES) {
     let raw: string;
+    let file = candidate;
     try {
-      const real = await realpath(path.join(repoRoot, file));
+      const real = await realpath(path.join(repoRoot, candidate));
       if (seenReal.has(real)) continue;
       seenReal.add(real);
-      raw = await readFile(path.join(repoRoot, file), 'utf8');
+      raw = await readFile(path.join(repoRoot, candidate), 'utf8');
+      // On a case-insensitive filesystem `tenets.md` opens `TENETS.md`. Name the file as it is stored,
+      // so the source_url (the identity key) is the same on every platform.
+      const dir = path.posix.dirname(candidate);
+      const entries = await readdir(path.join(repoRoot, dir));
+      const base = path.posix.basename(candidate);
+      const stored = entries.find((e) => e === base) ?? entries.find((e) => e.toLowerCase() === base.toLowerCase()) ?? base;
+      file = dir === '.' ? stored : `${dir}/${stored}`;
     } catch {
       continue; // file not present in this repo - not an error
     }
