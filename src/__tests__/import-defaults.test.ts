@@ -56,8 +56,8 @@ describe('SYNC_CEILINGS (was IMPORT_LIMITS; L3 made it the one table)', () => {
     // per-tenant fetch, and refuses any environment but the local graph outright - there is
     // nothing for `align setup`'s cloud/local onboarding to wire up, so it is exempt from
     // this loop the same way docs is, rather than forcing a fetch-shaped entry that would
-    // not fire.
-    for (const id of commandIds.filter((c) => c !== 'docs' && c !== 'sessions' && c !== 'git')) {
+    // not fire. mirsad reads a file the person names, so it is exempt for the same reason.
+    for (const id of commandIds.filter((c) => c !== 'docs' && c !== 'sessions' && c !== 'mirsad' && c !== 'git')) {
       expect(buildSources, `setup reads SYNC_CEILINGS.${id} through fetchWindow`).toContain(`fetchWindow('${id}'`);
     }
     // git is unwindowed by default (L3 review 7): it reads GIT_DEFAULT_LIMIT, not the window table.
@@ -73,7 +73,7 @@ describe('SYNC_CEILINGS (was IMPORT_LIMITS; L3 made it the one table)', () => {
   it('carries the numbers the plan set (L3 table)', () => {
     expect(SYNC_CEILINGS).toEqual({
       github: 3_000, slack: 2_000, jira: 2_000, linear: 2_000, gitlab: 2_000, confluence: 2_000,
-      notion: 1_000, teams: 1_000, zoom: 200, git: 5_000, docs: 500, sessions: 250,
+      notion: 1_000, teams: 1_000, zoom: 200, git: 5_000, docs: 500, sessions: 250, mirsad: 1_000,
     });
     expect(SYNC_WINDOW_DEFAULT_DAYS).toBe(180);
     expect(SYNC_TIME_BUDGET_MS).toBe(8 * 60_000);

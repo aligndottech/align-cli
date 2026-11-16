@@ -1,0 +1,83 @@
+[
+  {
+    "id": 1,
+    "title": "Store agent memory in a local SQLite database",
+    "description": "All facts and decisions live in one local SQLite file owned by the user.",
+    "status": "superseded",
+    "made_by": "sample-owner",
+    "made_at": "2026-11-16 17:14",
+    "supersedes": null,
+    "superseded_by": 2,
+    "entities": [
+      "Mirsad"
+    ],
+    "reasons": [
+      "Zero external dependencies",
+      "The owner can inspect and back up the file directly"
+    ],
+    "evidence": [
+      {
+        "text": "Prototype ran fully offline",
+        "ref": null
+      }
+    ],
+    "alternatives_rejected": [
+      "Hosted vector database: adds an account, a network dependency, and a third party holding the memory"
+    ],
+    "effects": [
+      "mirsad.db becomes the single store"
+    ],
+    "outcomes": []
+  },
+  {
+    "id": 2,
+    "title": "Keep facts bi-temporal instead of overwriting in place",
+    "description": "A changed fact closes the old value's validity window and opens a new one; nothing is deleted.",
+    "status": "accepted",
+    "made_by": "sample-owner",
+    "made_at": "2026-11-16 17:14",
+    "supersedes": 1,
+    "superseded_by": null,
+    "entities": [
+      "Mirsad"
+    ],
+    "reasons": [
+      "History stays auditable",
+      "Point-in-time queries become possible"
+    ],
+    "evidence": [],
+    "alternatives_rejected": [
+      "Overwrite in place: simpler, but destroys the record of what was believed before"
+    ],
+    "effects": [
+      "facts gain valid_from / valid_to windows"
+    ],
+    "outcomes": []
+  },
+  {
+    "id": 3,
+    "title": "Resolve cross-agent fact conflicts by owner ruling only",
+    "description": "When two agents record different values for the same fact, the disagreement opens a conflict that only the owner resolves; no agent's version wins automatically.",
+    "status": "accepted",
+    "made_by": "sample-owner",
+    "made_at": "2026-11-16 17:14",
+    "supersedes": null,
+    "superseded_by": null,
+    "entities": [
+      "Mirsad"
+    ],
+    "reasons": [
+      "A machine's version never silently wins",
+      "The ruling stays on the conflict record permanently"
+    ],
+    "evidence": [],
+    "alternatives_rejected": [
+      "Last-writer-wins without a conflict record",
+      "Majority vote between agents"
+    ],
+    "effects": [
+      "conflicts queue added to the hub"
+    ],
+    "outcomes": []
+  }
+]

@@ -21,4 +21,5 @@ export const CAPTURE_SOURCES = {
   linear: { label: 'Linear', unit: 'issues' },
   notion: { label: 'Notion', unit: 'pages' },
   sessions: { label: 'Agent sessions', unit: 'decisions' },
+  mirsad: { label: 'MIRSAD', unit: 'decisions' },
 } as const satisfies Record<string, { label: string; unit: string }>;

@@ -51,6 +51,8 @@ align connect notion          Import your Notion pages (internal integration tok
                               flags: --token --personal --limit --since --approve --env
 align connect sessions        Review decision-shaped moments from local coding-agent sessions (Claude Code, pi, Codex CLI, opencode) one by one
                               flags: --limit --env
+align connect mirsad          Import decisions from a MIRSAD JSON export (its supersedes links arrive as confirmed)
+                              flags: --file --limit --approve --env
 
 align check                   Check current changes against the decision graph (exit 1 = conflict found)
                               flags: --env --all --hook --advisory --format --block-on-critical --adjudicate-deferred --ci --json --title --base --depth --resolve
@@ -485,6 +487,17 @@ Local-only mode sends anonymous counts: install, setup completed, and which comm
 after a one-time notice; `align telemetry off` or `DO_NOT_TRACK=1` stops all of it. See
 [Telemetry](telemetry.md) for every event and field, and
 [Cloud or local-only](local-mode.md#telemetry) for how the two modes differ.
+
+## Importing from MIRSAD
+
+```bash
+align connect mirsad --file mirsad-export.json
+```
+
+Reads a MIRSAD JSON export. Each decision becomes one item keyed `mirsad://decisions/<id>`, so a re-import updates
+it. MIRSAD's owner records the `supersedes` links, so they arrive as confirmed, written the way `align mark <newer>
+replaces <older>` writes them, and like that command they need a terminal. A link to a decision that is not in the
+file is ignored, and a decision you ratified is not replaced without `align mark ... --force`.
 
 ## Undoing `align local forget <source> --purge`
 
