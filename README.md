@@ -145,6 +145,10 @@ Already ran `align setup` in a project? It wrote the same checks into `.claude/s
 so with the plugin each edit is checked twice. Remove the Align hooks from that file, or skip
 the plugin.
 
+If you installed it as `align@aligndottech` before the rename, run
+`/plugin uninstall align@aligndottech` first, then the install line at the top of this section. In Codex, run
+`codex plugin remove align@aligndottech`, then the install line in the Codex section below.
+
 ### Install in Codex
 
 ```

@@ -51,11 +51,14 @@ describe('Claude Code plugin manifests', () => {
 });
 
 describe('plugin folder holds only what the plugin directory accepts', () => {
-  it('is exactly plugin.json, icon.png and hooks.json (no package.json, lockfile or scripts)', () => {
+  // The Codex manifest and hooks live here too: Codex installs the same marketplace source folder.
+  it('is exactly the Claude and Codex manifests, icon.png and the two hooks files (no package.json, lockfile or scripts)', () => {
     const files = listFiles(PLUGIN_DIR).sort();
     expect(files).toEqual([
       `${PLUGIN_DIR}/.claude-plugin/icon.png`,
       `${PLUGIN_DIR}/.claude-plugin/plugin.json`,
+      `${PLUGIN_DIR}/.codex-plugin/plugin.json`,
+      `${PLUGIN_DIR}/hooks/codex-hooks.json`,
       `${PLUGIN_DIR}/hooks/hooks.json`,
     ]);
   });
