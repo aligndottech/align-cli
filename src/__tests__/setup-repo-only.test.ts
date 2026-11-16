@@ -65,6 +65,7 @@ function rig() {
     LOCALAPPDATA: join(home, 'AppData', 'Local'),
     XDG_CONFIG_HOME: join(home, '.config'),
     ALIGN_NO_LAUNCH: '1',
+    ALIGN_TOKEN_STORE: 'file',
   };
   const run = (args: string[]) => exec(process.execPath, [TSX, ENTRY, ...args], { cwd: repo, env, timeout: 120_000 });
   return { repo, home, run };
@@ -72,7 +73,9 @@ function rig() {
 
 const AGENT_DIRS = ['.cursor', '.gemini', '.opencode'];
 
-describe('align --repo-only', () => {
+// The rig is POSIX: it links /usr/bin into a PATH joined with ':', and the fake agents are sh
+// scripts. The plan filter below runs everywhere.
+describe.skipIf(process.platform === 'win32')('align --repo-only', () => {
   it('writes nothing under home beyond Align\'s own ~/.align', async () => {
     const r = rig();
     const before = walk(r.home);
