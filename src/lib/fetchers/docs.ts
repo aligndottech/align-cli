@@ -10,9 +10,10 @@ import type { CoChangeRule } from '../co-change-rule.js';
 import {
   CHANGELOG_FILES, CONTRIBUTING_FILES, type DocKind, inferCoChangeRule, isRuleSection, README_FILES, sectionBody,
 } from './docs-conventions.js';
+import { entryDate, findDecisionLogFiles, readLogFile, splitDecisionLog } from './docs-decision-log.js';
 
 /**
- * Read what the repo already wrote down, credential-free. Three sources:
+ * Read what the repo already wrote down, credential-free. Four sources:
  *
  *  - ADR directories, the common naming conventions. ADRs are decision-shaped by
  *    construction (title, status, context, decision) - highest precision, lowest
@@ -20,6 +21,7 @@ import {
  *  - CLAUDE.md / AGENTS.md content the user wrote themselves, minus the block and
  *    import line Align itself put there (align-cli#116: Align owns `.align/`
  *    outright and must never re-ingest its own output - that is a feedback loop).
+ *  - Decision log files (DECISIONS.md, a ledger), one item per entry (docs-decision-log.ts).
  *  - The rule-bearing sections of README.md, CONTRIBUTING.md and the changelog's policy
  *    sections (docs-conventions.ts). Never a changelog's release entries: those are history.
  *
@@ -254,6 +256,30 @@ async function readConventionItems(
   return { items, droppedNonRule, droppedShort };
 }
 
+/** Decision log files (docs-decision-log.ts): one item per entry, anchored on the entry's id so a
+ *  re-import updates it. Status (retired, superseded) stays in raw_text: PersonalImportItem has no
+ *  status field, and the ingest relationship analysis reads it from the text. */
+async function readDecisionLogItems(repoRoot: string, remoteUrl: string | null, branch: string): Promise<DocsItem[]> {
+  const items: DocsItem[] = [];
+  for (const file of await findDecisionLogFiles(repoRoot)) {
+    const seen = new Map<string, number>();
+    for (const entry of splitDecisionLog(await readLogFile(repoRoot, file))) {
+      const slug = slugify(entry.id ?? entry.heading ?? entry.title);
+      const n = seen.get(slug) ?? 0;
+      seen.set(slug, n + 1);
+      const created = entryDate(entry.text);
+      items.push({
+        source_url: `${buildBlobUrl(remoteUrl, branch, file)}#${slug}${n > 0 ? `-${n + 1}` : ''}`,
+        platform: 'docs',
+        raw_text: entry.text,
+        title: entry.title,
+        ...(created ? { created_at: created } : {}),
+      });
+    }
+  }
+  return items;
+}
+
 async function readDocsItems(opts: { limit: number; cwd?: string }): Promise<{
   items: DocsItem[];
   /** Every ADR file and every headed section seen, kept or dropped. */
@@ -286,9 +312,10 @@ async function readDocsItems(opts: { limit: number; cwd?: string }): Promise<{
 
   const { items: agentRulesItems, droppedShort } = await readAgentRulesItems(repoRoot, remoteUrl, branch);
   const conventions = await readConventionItems(repoRoot, remoteUrl, branch);
-  const candidates = adrFiles.length + agentRulesItems.length + conventions.items.length;
+  const logItems = await readDecisionLogItems(repoRoot, remoteUrl, branch);
+  const candidates = adrFiles.length + agentRulesItems.length + conventions.items.length + logItems.length;
   return {
-    items: [...adrItems, ...agentRulesItems, ...conventions.items].slice(0, opts.limit),
+    items: [...adrItems, ...agentRulesItems, ...conventions.items, ...logItems].slice(0, opts.limit),
     scanned: candidates + droppedShort + conventions.droppedShort + conventions.droppedNonRule,
     // Strictly more than the limit: everything was read, so the cap bound the read only
     // if the slice actually cut something.

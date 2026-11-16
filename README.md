@@ -45,7 +45,7 @@ copied from those runs and shortened. The GIF replays it, so it isn't a live ses
 Without Align the agent plans to skip signature checks; with it, the agent stops and cites the
 decision that ruled that out.*
 
-Run it in a git repo. The first run builds a graph from your commit history, the repo's ADRs,
+Run it in a git repo. The first run builds a graph from your commit history, the repo's ADRs, decision logs,
 CLAUDE.md and AGENTS.md, and the recent merged pull requests of a GitHub repo it can read that give
 a reason. Then the first `align` in a repo asks how you want to use Align:
 
@@ -162,7 +162,7 @@ More in [docs/installation.md](docs/installation.md).
 
 ## How it works
 
-1. **Import.** Reads decisions from Git (commits that state a reason), the repo's ADRs, CLAUDE.md
+1. **Import.** Reads decisions from Git (commits that state a reason), the repo's ADRs, decision logs, CLAUDE.md
    and AGENTS.md, GitHub, GitLab, Jira, Confluence, Linear, Notion, Slack, Teams and Zoom.
    Read-only. In a repo, GitHub and GitLab (gitlab.com) read that repo, as far as your token can see. For Jira, Linear, Confluence and Notion you
    pick what belongs to it (a Jira project, board or filter, Linear projects, Confluence page trees,

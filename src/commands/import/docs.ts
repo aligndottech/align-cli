@@ -21,7 +21,7 @@ interface DocsImportOpts {
 export function registerImportDocsCommand(importCmd: Command): void {
   importCmd
     .command('docs')
-    .description('Import ADRs, CLAUDE.md/AGENTS.md, and the rules in README, CONTRIBUTING and the changelog (no auth required)')
+    .description('Import ADRs, decision logs, CLAUDE.md/AGENTS.md, and the rules in README, CONTRIBUTING and the changelog (no auth required)')
     .option('--limit <n>', 'Max items to import', String(SYNC_CEILINGS.docs))
     .option('--approve', 'Skip confirmation prompt')
     .option('--env <env>', 'Environment')
