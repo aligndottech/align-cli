@@ -148,6 +148,42 @@ describe('D3b a moved ADR keeps its original date', () => {
   });
 });
 
+describe('D4d prose that merely starts with the word date is not a declaration', () => {
+  it('"Dates are stored in UTC." leaves the git date in force', async () => {
+    await git(['init', '-q', '-b', 'main']);
+    adr('0023-w.md', `# W\n\nDates are stored in UTC.\n\n${BODY}`);
+    await git(['add', '.']);
+    await git(['commit', '-q', '-m', 'w'], '2021-07-08T00:00:00+00:00');
+    expect(await dateOf('0023-w.md')).toBe('2021-07-08T00:00:00+00:00');
+  });
+  it('"- date range filter" leaves the git date in force', async () => {
+    await git(['init', '-q', '-b', 'main']);
+    adr('0024-x.md', `# X\n\n- date range filter\n- Datetime handling\n\n${BODY}`);
+    await git(['add', '.']);
+    await git(['commit', '-q', '-m', 'x'], '2021-08-09T00:00:00+00:00');
+    expect(await dateOf('0024-x.md')).toBe('2021-08-09T00:00:00+00:00');
+  });
+  it('still reads `**Date**: 2022-03-04`', async () => {
+    adr('0025-y.md', `# Y\n\n**Date**: 2022-03-04\n\n${BODY}`);
+    expect(await dateOf('0025-y.md')).toBe('2022-03-04');
+  });
+});
+
+describe('D3c template siblings keep their own dates', () => {
+  it('two ADRs differing only in title and decision line', async () => {
+    await git(['init', '-q', '-b', 'main']);
+    const tpl = (t: string, d: string) => `# ${t}\n\n## Status\n\nAccepted\n\n## Context\n\nWe have a problem that needs a decision from the team.\n\n## Decision\n\n${d}\n\n## Consequences\n\nSome things get easier and some get harder over time.\n`;
+    adr('0026-aa.md', tpl('Use SQS', 'We use SQS.'));
+    await git(['add', '.']);
+    await git(['commit', '-q', '-m', 'aa'], '2020-01-02T00:00:00+00:00');
+    adr('0027-bb.md', tpl('Use Redis', 'We use Redis.'));
+    await git(['add', '.']);
+    await git(['commit', '-q', '-m', 'bb'], '2023-05-06T00:00:00+00:00');
+    expect(await dateOf('0026-aa.md')).toBe('2020-01-02T00:00:00+00:00');
+    expect(await dateOf('0027-bb.md')).toBe('2023-05-06T00:00:00+00:00');
+  });
+});
+
 describe('D4b a bad declared date is not replaced by the git date', () => {
   it('stays undated in a repo with history', async () => {
     await git(['init', '-q', '-b', 'main']);

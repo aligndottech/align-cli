@@ -8,7 +8,7 @@ import { normaliseDecidedAt } from '../local-db.js';
  *  3. the date of the file's first commit, when the repo is a git repo.
  * A declared date that is not a real date drops the field: it is never replaced by a guess.
  */
-const DATE_LINE = /^[ \t>*_-]*(?:date|:revdate:)[*_]*[ \t]*:?[*_ \t]*["']?([^\r\n"']*)/im;
+const DATE_LINE = /^[ \t>*_-]*(?:date[*_]*[ \t]*:|:revdate:)[*_ \t]*["']?([^\r\n"']*)/im;
 const FRONT_MATTER = /^---\r?\n([\s\S]*?)\r?\n---/;
 const FM_DATE = /^date[ \t]*:[ \t]*["']?([^\r\n"']*)/im;
 
@@ -37,7 +37,7 @@ export function declaredAdrDate(content: string): string | null | undefined {
 /** Author date of the commit that first added the file, or undefined (not a repo, untracked, git missing). */
 export async function firstCommitDate(repoRoot: string, relPath: string): Promise<string | undefined> {
   try {
-    const { stdout } = await execa('git', ['log', '--follow', '--diff-filter=A', '--format=%aI', '--', relPath], { cwd: repoRoot });
+    const { stdout } = await execa('git', ['log', '--follow', '--find-renames=100%', '--diff-filter=A', '--format=%aI', '--', relPath], { cwd: repoRoot });
     const last = stdout.trim().split('\n').pop()?.trim();
     return last && normaliseDecidedAt(last) !== null ? last : undefined;
   } catch {
