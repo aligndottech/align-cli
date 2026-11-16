@@ -2,7 +2,7 @@ import { execa } from 'execa';
 import { normaliseDecidedAt } from '../local-db.js';
 
 /**
- * When an ADR was decided (ALI-2114), in the order a human would trust it:
+ * When an ADR was decided, in the order a human would trust it:
  *  1. a `Date:` line in the body (Nygard; `* Date:` and `**Date:**` too) or an AsciiDoc `:revdate:`,
  *  2. YAML front matter `date:` (MADR),
  *  3. the date of the file's first commit, when the repo is a git repo.
@@ -17,16 +17,17 @@ const FM_DATE = /^date[ \t]*:[ \t]*["']?([^\r\n"']*)/im;
  * length; only a line of the SAME character, at least that long, with nothing after it but
  * whitespace closes it; an unclosed fence runs to the end of input.
  */
+// CommonMark: a fence may be indented by at most three spaces; four or more (or a tab) is content.
 function stripFences(text: string): string {
   const out: string[] = [];
   let open: { ch: string; len: number } | null = null;
   for (const line of text.split('\n')) {
     if (open === null) {
-      const m = line.match(/^[ \t]*(`{3,}|~{3,})/);
+      const m = line.match(/^ {0,3}(`{3,}|~{3,})/);
       if (m) open = { ch: m[1][0], len: m[1].length };
       else out.push(line);
     } else {
-      const m = line.match(/^[ \t]*(`{3,}|~{3,})[ \t]*\r?$/);
+      const m = line.match(/^ {0,3}(`{3,}|~{3,})[ \t]*\r?$/);
       if (m && m[1][0] === open.ch && m[1].length >= open.len) open = null;
     }
   }

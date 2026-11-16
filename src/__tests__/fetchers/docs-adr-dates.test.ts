@@ -1,5 +1,5 @@
 /**
- * ALI-2114: an ADR carries a decision date. Test List (two examples per rule):
+ * An ADR carries a decision date. Test List (two examples per rule):
  *  D1  a `Date:` line in the body (Nygard; `* Date:` and `**Date:**` too)      -> created_at
  *  D2  YAML front matter `date:` (MADR; bare and quoted)                        -> created_at
  *  D3  neither: the date of the file's FIRST commit (real git, never mocked)    -> created_at
@@ -401,6 +401,16 @@ describe('D14 fence scanner follows CommonMark closing rules', () => {
   it('an unclosed fence runs to the end of input', async () => {
     const t = '# F\n\n```\nDate: 1999-01-01\n';
     expect(await committed('0044-e.md', t)).toBe(GIT);
+  });
+  // CommonMark allows at most three leading spaces before a fence. A closing marker indented four
+  // spaces is content, so the block stays open and its Date line must not reach the header.
+  it('a closing fence indented four spaces does not close the block', async () => {
+    const t = `# F\n\n\`\`\`\n    \`\`\`\nDate: 1999-01-01\n\`\`\`\n\nDate: 2021-05-05\n\n## Context\n\n${BODY}`;
+    expect(await committed('0048-i.md', t)).toBe('2021-05-05');
+  });
+  it('an opening fence indented four spaces is not a fence', async () => {
+    const t = `# F\n\n    \`\`\`\nDate: 2021-06-06\n\n## Context\n\n${BODY}`;
+    expect(await committed('0049-j.md', t)).toBe('2021-06-06');
   });
 });
 
