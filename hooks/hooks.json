@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [{ "type": "command", "command": "npx -y @aligndottech/cli@^0.79 check --advisory", "timeout": 10 }]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [{ "type": "command", "command": "npx -y @aligndottech/cli@^0.79 check --advisory", "timeout": 10 }]
+      }
+    ]
+  }
+}

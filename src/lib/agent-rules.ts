@@ -24,7 +24,11 @@ import { safeWriteJson, type SafeWriteOptions, safeWriteText } from './safe-conf
 
 // Claude Code hook command timeout, in SECONDS (Claude Code's unit). The advisory
 // check also self-bounds (see ADVISORY_TIMEOUT_MS in check.ts); this is the backstop.
-const HOOK_TIMEOUT_SECONDS = 10;
+export const HOOK_TIMEOUT_SECONDS = 10;
+
+// The tool matcher of the Pre/PostToolUse hook. Shared with the Claude Code plugin
+// (.claude-plugin, hooks/hooks.json), whose test pins it to this constant.
+export const EDIT_HOOK_MATCHER = 'Write|Edit';
 
 // The command a SessionStart hook shells out to. No --env flag: unlike the
 // advisory check, this reads a local file (.align/decisions.md) and never touches the
@@ -73,7 +77,7 @@ export function isAlignSessionHookGroup(group: unknown): boolean {
  */
 export function alignClaudeHooks(env?: string): Record<'PreToolUse' | 'PostToolUse', unknown[]> {
   const group = () => ({
-    matcher: 'Write|Edit',
+    matcher: EDIT_HOOK_MATCHER,
     hooks: [{ type: 'command', command: advisoryCommand(env), timeout: HOOK_TIMEOUT_SECONDS }],
   });
   return { PreToolUse: [group()], PostToolUse: [group()] };

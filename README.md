@@ -117,6 +117,16 @@ first, and after "stop" the agent cited #7089 and changed nothing.
   [releases page](https://github.com/aligndottech/align-cli/releases/latest), rename it to
   `align.exe` and put it on your `PATH`.
 
+### Install as a Claude Code plugin
+
+```
+/plugin marketplace add aligndottech/align-cli
+/plugin install align@aligndottech
+```
+
+This adds the Align MCP server and the edit-time decision check as plugin hooks. Both run
+through `npx`, so no global install is needed. The plugin writes nothing outside its own files.
+
 More in [docs/installation.md](docs/installation.md).
 
 ## How it works
