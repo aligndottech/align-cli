@@ -17,7 +17,8 @@ export function mergeAddsNothing(title: string, text: string, plainText = ''): b
   const lines = text.split('\n');
   const at = lines.findIndex(l => /^merge (?:pull request|branch)\b/i.test(l.trim()));
   if (at !== -1) lines.splice(at, 1);
-  const t = norm(title);
+  // Normalised like a sentence (closing full stop dropped), or a title ending in "." never matches.
+  const t = norm(title).replace(/[.!?]+$/, '');
   const units = sentences(lines.join('\n'));
   const at2 = units.findIndex(u => u.includes(t));
   if (at2 !== -1) units[at2] = units[at2]!.replace(t, '').trim();
