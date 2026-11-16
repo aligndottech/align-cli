@@ -309,6 +309,9 @@ From people using it:
 >
 > Ryan Joshua Gapac ([#569](https://github.com/aligndottech/align-cli/pull/569))
 
+With pi, a finding that blocks stops the edit before it runs. One that doesn't is added to
+the edit's result, so the model reads it straight after.
+
 > The pipe-guard question found the right commit and its reason: that guard would have refused
 > about 1 in 24 of the Bash calls I'd recorded. Handy to get that back.
 >
