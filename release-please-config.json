@@ -25,6 +25,11 @@
           "type": "json",
           "path": "plugins/align/.codex-plugin/plugin.json",
           "jsonpath": "$.version"
+        },
+        {
+          "type": "json",
+          "path": "plugins/align-skill/.claude-plugin/plugin.json",
+          "jsonpath": "$.version"
         }
       ],
       "prerelease": true
