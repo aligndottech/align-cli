@@ -463,6 +463,22 @@ export async function getRepoRoot(opts: { cwd?: string } = {}): Promise<string |
   }
 }
 
+/**
+ * This folder's own git folder and the one its repo shares, absolute and one per line, or null when
+ * git cannot say (not a repo, or a git older than 2.31, which has no `--path-format`). The two differ
+ * only in a linked worktree; `mainRootOfLinkedWorktree` (repo-identity.ts) reads the answer.
+ */
+export const GIT_DIRS_ARGS = ['rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir'];
+
+export async function getGitDirs(opts: { cwd?: string } = {}): Promise<string | null> {
+  try {
+    const { stdout } = await execa('git', GIT_DIRS_ARGS, opts.cwd ? { cwd: opts.cwd } : {});
+    return stdout.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 /** GitHub/GitLab web base parsed from a remote, or null for anything else (bitbucket,
  *  self-hosted, no remote). Shared by buildCommitUrl and buildBlobUrl so the two web
  *  link builders can't drift on what counts as "a known host" (code-style.md, two

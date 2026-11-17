@@ -6,7 +6,7 @@
  * import-time stamp and a `--repo <name>` filter can never drift apart.
  */
 import { execFileSync } from 'node:child_process';
-import { getRemoteUrl, getRepoRoot, isGitRepo } from './git.js';
+import { getGitDirs, getRemoteUrl, getRepoRoot, GIT_DIRS_ARGS, isGitRepo } from './git.js';
 
 /**
  * `host/owner/repo`, lowercased, parsed out of a hosted commit/pull/issue URL - or null
@@ -72,6 +72,10 @@ export function repoFromRemoteUrl(remoteUrl: string | null): string | null {
  * with `/` (or a drive letter), which can never collide with the `host/owner/repo` shape
  * above, so the two identity spaces never need disambiguating.
  *
+ * In a linked worktree the path is the MAIN checkout's root, not the worktree's own: a
+ * worktree is one more folder of the same repo, and naming it after its own folder made
+ * every scoped read there miss the decisions stamped from the main checkout.
+ *
  * Returns null outside a git repo: there is nothing to stamp, and nothing to scope to
  * either (the ticket's own rule - "outside a git repo, default to all").
  */
@@ -80,7 +84,26 @@ export async function currentRepoIdentity(opts: { cwd?: string } = {}): Promise<
   const remote = await getRemoteUrl(opts);
   const fromRemote = repoFromRemoteUrl(remote);
   if (fromRemote) return fromRemote;
-  return getRepoRoot(opts);
+  return mainRootOfLinkedWorktree(await getGitDirs(opts)) ?? getRepoRoot(opts);
+}
+
+const SHARED_DOT_GIT = '/.git';
+
+/**
+ * The main checkout's root, read from `git rev-parse --path-format=absolute --git-dir
+ * --git-common-dir` (two lines), when the folder asked about is a linked worktree of it. Null
+ * everywhere else, so the caller keeps the repo root it always used: in a main checkout (the two
+ * folders are one), when git gave no answer, and when the shared folder is not a checkout's
+ * `.git` (a bare repo, a submodule), where there is no main checkout to name.
+ *
+ * The root is the shared folder minus its `/.git`, in git's own spelling (forward slashes on
+ * Windows too), which is what `--show-toplevel` prints for the main checkout - so a decision
+ * stamped there and a read from a worktree agree byte for byte.
+ */
+export function mainRootOfLinkedWorktree(gitDirs: string | null): string | null {
+  const [own, shared] = (gitDirs ?? '').split(/\r?\n/).map((l) => l.trim());
+  if (!own || !shared || own === shared || !shared.endsWith(SHARED_DOT_GIT)) return null;
+  return shared.slice(0, -SHARED_DOT_GIT.length) || null;
 }
 
 /** Set on a background sync child: the repo it was started for. The child runs from the home directory, so the folder cannot say. */
@@ -88,7 +111,7 @@ export const SYNC_REPO_ENV = 'ALIGN_SYNC_REPO';
 
 /**
  * `currentRepoIdentity`, read synchronously, for the callers that cannot await (the scope store is a sync seam). Same answer by the same
- * steps: not a git repo is null, a recognised remote is `host/owner/repo`, anything else is the absolute repo root.
+ * steps: not a git repo is null, a recognised remote is `host/owner/repo`, anything else is the absolute repo root (the main checkout's, in a linked worktree).
  * scope-per-repo.test.ts holds the two to each other.
  */
 /** A git call that hangs (a stalled network mount, a lock) must not hang the scope store with it. */
@@ -104,7 +127,7 @@ export function currentRepoIdentitySync(opts: { cwd?: string } = {}): string | n
     }
   };
   if (git('rev-parse', '--git-dir') === null) return null;
-  return repoFromRemoteUrl(git('remote', 'get-url', 'origin')) ?? git('rev-parse', '--show-toplevel');
+  return repoFromRemoteUrl(git('remote', 'get-url', 'origin')) ?? mainRootOfLinkedWorktree(git(...GIT_DIRS_ARGS)) ?? git('rev-parse', '--show-toplevel');
 }
 
 /**
