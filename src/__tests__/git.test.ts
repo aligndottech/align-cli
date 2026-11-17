@@ -201,6 +201,38 @@ describe('hasStatedRationale', () => {
     expect(hasStatedRationale('fix: cap retries at no more than 5 per job', '')).toBe(true);
   });
 
+  // A body-less commit used to need a number in its subject to count. In fastify's history that
+  // dropped all 1,960 body-less commits whose subject passes the decision check, including plain
+  // rules. Every fixture below is a real fastify subject, taken as written.
+  describe('a subject-only commit that states a rule, with no number in it', () => {
+    it.each([
+      ['a prohibition', 'fix: disallow reply status code 600 (#3999)'],
+      ['"do not"', 'fix: do not force close in-flight connections on \'idle\' (#6889)'],
+      ['"don\'t" with a type', 'perf: don\'t use optional chaining for typeof .then checks (#5942)'],
+      ['"should not"', 'fix(typescript): route config should not pass url and method (#4872)'],
+      ['"always"', 'fix: stream should always be destroyed when response is ended (#2915)'],
+      ['a replacement with "instead of"', 'Use secure-json-parse instead of bourne (#1619)'],
+      ['a deprecation "in favour of"', 'refactor: deprecate `Reply#getResponseTime()` in favour of `Reply#elapsedTime` (#5263)'],
+      ['"Do not", no type and no PR number', 'Do not use helmet, but use the default individual packages.'],
+    ])('keeps %s', (_label, subject) => {
+      expect(hasStatedRationale(subject, '')).toBe(true);
+    });
+
+    it.each([
+      ['a rule word inside a package name, in a docs commit', 'docs(ecosystem): add fastify-https-always (#4201)'],
+      // Constructed, not from fastify: the real subject above is a docs commit, so the docs exemption
+      // drops it before the name guard is reached. This one is a feat, so only the guard can drop it.
+      ['a rule word inside a package name, in a feat commit', 'feat: register the fastify-https-always plugin by default'],
+      ['"requires" as a noun', 'Fix requires in the benchmark scripts (#3073)'],
+      ['"deprecated" as an adjective', 'refactor(types)!: remove deprecated ValidationResult type alias (#6914)'],
+      ['a test commit, even with a rule word', 'test: fix request terminated should not crash fastify test (#4024)'],
+      ['a docs commit, even with a rule word', 'docs: Clarify thrown values must be Errors (#2126)'],
+      ['a change note with no rule in it', 'fix: route error statusCode through one shared helper'],
+    ])('still drops %s', (_label, subject) => {
+      expect(hasStatedRationale(subject, '')).toBe(false);
+    });
+  });
+
   it('still rejects a title with a number but no bound, on a separator-and-trailers body', () => {
     const body = '---------\n\nSigned-off-by: Ada <ada@align.tech>';
     expect(hasStatedRationale('fix: handle the 500 page in the router', body)).toBe(false);
