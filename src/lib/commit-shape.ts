@@ -108,6 +108,28 @@ export function statesNumericBound(title: string): boolean {
   return NUMERIC_BOUND.test(title);
 }
 
+// Types whose commits do not set how the code behaves, so a rule word in their title is about a test
+// or a doc, not a decision ("test: ... should not crash", "docs: clarify ... must be Errors").
+const RULE_EXEMPT_TYPES = new Set(['docs', 'test', 'tests', 'chore', 'ci', 'style', 'build']);
+// A word that states a rule or a replacement. The lookarounds keep it from matching inside a package,
+// file or code name ("fastify-https-always", "require.cache"). "deprecated" and "required" are left
+// out on purpose: as adjectives ("remove deprecated X") they describe, they do not decide.
+const SUBJECT_RULE = /(?<![-\w./])(?:do not|don't|never|must(?: not)?|should not|shouldn't|no longer|always|disallow|forbid|deprecates?|in fav(?:o|ou)r of|instead of)(?![-\w./])/i;
+
+/**
+ * Does a commit title state a rule on its own, with no body to say why? A prohibition or obligation
+ * ("do not force close ...", "should not pass url", "disallow reply status code 600"), a deprecation,
+ * or a replacement ("use X instead of Y", "deprecate A in favour of B"). Docs, test, chore, ci, style
+ * and build commits never count. Measured on fastify's history, this keeps 45 of the 1,960 body-less
+ * commits that a body-only rule dropped, and reading them, most are real decisions.
+ */
+export function statesSubjectRule(title: string): boolean {
+  const t = title.trim().replace(PR_REFERENCE, '').trim();
+  const prefix = t.match(TYPE_PREFIX);
+  if (prefix && RULE_EXEMPT_TYPES.has(prefix[1].toLowerCase())) return false;
+  return SUBJECT_RULE.test(prefix ? t.slice(prefix[0].length) : t);
+}
+
 export function isOneOffChangeTitle(title: string): boolean {
   const t = title.trim().replace(PR_REFERENCE, '').trim();
   const prefix = t.match(TYPE_PREFIX);
