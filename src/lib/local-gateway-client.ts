@@ -961,8 +961,13 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
         return r.status === 'superseded' ? { status: r.status, successor: r.successor } : {};
       };
       const relevant_decisions = typed.map(t => ({ id: t.id, title: t.title, summary: t.summary, similarity: t.similarity, url: t.url, found_by: t.found_by, ...t.dates, ...t.provenance, ...replacedBy(t.id), ...laterOf(t.id) }));
+      // In a check the subject is a proposed change, so "supersedes" means the change and a recorded
+      // decision replace each other on one subject: a reversal. It used to fall through to aligned,
+      // so undoing a decision (MAX_REVIEW_DAYS 365 -> 3650 against the commit that set 365) passed
+      // with no word of the reversal. A person decides a reversal; the check never waves it through.
+      const reverses = (t: { relationship: string }) => t.relationship === 'supersedes';
       const rawConflicts = typed
-        .filter(t => t.relationship === 'conflicts_with' || t.relationship === 'contradicts')
+        .filter(t => t.relationship === 'conflicts_with' || t.relationship === 'contradicts' || reverses(t))
         .map(t => ({
           decision_id: t.id,
           title: t.title,
@@ -970,7 +975,9 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
           url: t.url,
           found_by: t.found_by,
           ...t.provenance,
-          reason: t.reason ?? 'Conflicts with an existing decision in your local graph',
+          reason: reverses(t)
+            ? `Reverses a recorded decision: ${t.reason ?? 'this change replaces it'}`
+            : t.reason ?? 'Conflicts with an existing decision in your local graph',
           severity: (t.confidence >= 0.8 ? 'critical' : 'warning') as 'critical' | 'warning',
         }));
       // LM: this person's false-alarm marks hide a hit for exactly this set of files, or annotate it.

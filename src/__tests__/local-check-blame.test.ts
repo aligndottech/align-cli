@@ -73,6 +73,19 @@ describe('local align_check_alignment with blame candidates', () => {
     expect(r.conflicts?.[0]).toMatchObject({ title: TITLE, found_by: 'blame-file' });
   });
 
+  // A user's report: raising MAX_REVIEW_DAYS from 365 to 3650, against the commit that set 365,
+  // came back "Aligned" because the local judge called the pair "supersedes". In a check the
+  // subject is a proposed change, so "supersedes" means the change and a recorded decision replace
+  // each other on one subject: a reversal, which a person must decide, never a plain pass.
+  it('the judge saying supersedes is a reversal: conflicting, naming the decision it reverses', async () => {
+    judge('supersedes');
+    const r = await client.checkAlignment(PROSE, 'ctx');
+    expect(r.status).toBe('conflicting');
+    expect(r.conflicts).toHaveLength(1);
+    expect(r.conflicts?.[0]).toMatchObject({ title: TITLE, found_by: 'blame-file' });
+    expect(r.conflicts?.[0]?.reason).toMatch(/^Reverses a recorded decision: because$/);
+  });
+
   it('a unified diff over the blamed line yields it as blame-lines', async () => {
     judge('relates');
     const diff = '--- a/error-status.js\n+++ b/error-status.js\n@@ -1,1 +1,1 @@\n-if (code >= 400) keep(code)\n+if (code >= 100) keep(code)\n';
