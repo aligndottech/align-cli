@@ -96,6 +96,20 @@ describe('skill and command: instructions only', () => {
     expect(md).not.toMatch(/\bnpx\b|npm i(nstall)? -g/);
   });
 
+  for (const rel of [SKILL, COMMAND]) {
+    it(`${rel}: checks the whole working tree and can tell a conflict from a check that did not run`, () => {
+      const md = text(rel);
+      // --all: without it, once anything is staged, edits made after staging are not checked.
+      // --json: the human mode exits 1 both for a conflict and for a failed request; --json exits 2
+      // when nothing was verified, so "conflict" and "could not run" stay distinguishable.
+      expect(md).toContain('`align check --all --json --title');
+      expect(md).toMatch(/exit code 2/i);
+      // A conflict entry carries title, reason and url, not who or when; those come from
+      // relevant_decisions, so the instructions must say where to read them.
+      expect(md).toContain('relevant_decisions');
+    });
+  }
+
   it('the skill treats a conflict as a stop, and never as something to override quietly', () => {
     const md = text(SKILL);
     expect(md).toMatch(/stop/i);

@@ -36,22 +36,27 @@ the later one.
 
 ## 3. After you edit, before you commit: check the change
 
-Run `align check --title "<the decision in one sentence>"`.
+Run `align check --all --json --title "<the decision in one sentence>"`.
+
+`--all` checks every uncommitted change, staged or not. `--json` prints one JSON result and
+keeps a conflict apart from a check that did not run. Read the exit code first:
 
 - Exit code 0: nothing recorded conflicts with the change.
 - Exit code 1: a recorded decision conflicts with it. Go to step 4.
-- Any other failure: say that the check could not run. A check that did not run is not a pass.
+- Exit code 2: the check did not run, or ran without a verdict. Say so and show the `message`
+  field. A check that did not run is not a pass.
 
 ## 4. If a decision conflicts
 
 Stop. Do not edit further and do not commit.
 
-Tell the person, in this order:
+Each entry in the result's `conflicts` list is one decision. Tell the person, for each one:
 
-1. The decision, in its own words.
-2. Who made it, and when.
-3. The link to where it was made.
-4. What in your change conflicts with it.
+1. The decision: its `title`.
+2. Why your change conflicts with it: its `reason`.
+3. The link to where it was made: its `url`, or `decision_url` if there is no `url`.
+4. Who made it and when, if the entry in `relevant_decisions` whose `id` matches its
+   `decision_id` has `ratified_by` or `decided_at`. If neither is there, leave this out. Do not guess.
 
 Then ask the person which to follow: the recorded decision, or the request as written. If they
 choose the request, the decision may be out of date, so say that it should be updated in Align.
