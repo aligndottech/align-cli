@@ -814,7 +814,25 @@ async function discoverOllamaModel(host: string): Promise<{ ok: true; model: str
     const tags = await tagsRes.json() as { models?: Array<{ name: string }> };
     const models = (tags.models ?? []).map(m => m.name);
     if (!models.length) return { ok: false, outcome: { kind: 'unavailable', detail: 'no models installed' } };
-    const choice = resolveOllamaModel(models, process.env['ALIGN_OLLAMA_MODEL']);
+    // ALIGN_OLLAMA_MODEL wins, then the model saved by `align ai --provider ollama --model`
+    // (same rule as every hosted provider, via modelFor), then the auto-pick.
+    const named = process.env['ALIGN_OLLAMA_MODEL'] || undefined;
+    const saved = named ? undefined : modelFor(resolution(), 'ollama', null, '') || undefined;
+    if (saved) {
+      const present = models.some(m => m === saved || m === `${saved}:latest`);
+      if (!present) {
+        return {
+          ok: false,
+          outcome: {
+            kind: 'failed',
+            model: saved,
+            detail: `the model you chose with \`align ai\` is not installed in Ollama. Run \`ollama pull ${saved}\`, or choose another with \`align ai --provider ollama --model <name>\`. Installed: ${models.join(', ')}`,
+          },
+        };
+      }
+      return { ok: true, model: saved };
+    }
+    const choice = resolveOllamaModel(models, named);
     if (!choice.ok) {
       // The models travel WITH the outcome, so the caller that asked gets them - see
       // LlmFailure. A module variable here could be cleared by a concurrent call.

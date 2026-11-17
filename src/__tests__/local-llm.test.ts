@@ -8,6 +8,7 @@ import {
   hasConfiguredProvider,
   HOSTED_WINDOW_TOKENS_DEFAULT,
   isAbstention,
+  setSavedLlmSource,
   SYNTHESIS_MAX_TOKENS,
   SYNTHESIS_SYSTEM_PROMPT,
   synthesiseDetailed,
@@ -670,5 +671,62 @@ describe('synthesiseDetailed sends a decision-count-scaled sentence budget to th
 
     const body = JSON.parse(mockFetch.mock.calls[0][1].body as string);
     expect(body.messages[0].content).toContain(synthesisSentenceBudget(5));
+  });
+});
+
+describe('the model saved by `align ai --provider ollama --model` is the one Ollama is asked for', () => {
+  const INSTALLED = ['llama3.2:latest', 'qwen3-coder:30b', 'qwen3:8b'];
+  let chatBodies: Array<{ model?: string }>;
+
+  beforeEach(() => {
+    vi.stubGlobal('fetch', mockFetch);
+    mockFetch.mockReset();
+    for (const k of ALL_KEYS) vi.stubEnv(k, undefined);
+    chatBodies = [];
+    mockFetch.mockImplementation(async (url: string, init?: { body?: string }) => {
+      if (String(url).includes('/api/tags')) {
+        return { ok: true, json: async () => ({ models: INSTALLED.map((name) => ({ name })) }) };
+      }
+      if (String(url).includes('/api/show')) {
+        return { ok: true, json: async () => ({ model_info: { 'llama.context_length': 32_768 } }) };
+      }
+      chatBodies.push(JSON.parse(init?.body ?? '{}') as { model?: string });
+      return { ok: true, json: async () => ({ message: { content: 'an answer' } }) };
+    });
+  });
+  afterEach(() => {
+    setSavedLlmSource(() => ({ keys: {} }));
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it('uses the saved model instead of the auto-picked one', async () => {
+    setSavedLlmSource(() => ({ keys: {}, provider: 'ollama', model: 'qwen3-coder:30b' }));
+    const result = await callChatDetailed('sys', 'user');
+    expect(result.ok).toBe(true);
+    expect(chatBodies.map((b) => b.model)).toEqual(['qwen3-coder:30b']);
+  });
+
+  it('lets ALIGN_OLLAMA_MODEL override the saved model', async () => {
+    setSavedLlmSource(() => ({ keys: {}, provider: 'ollama', model: 'qwen3-coder:30b' }));
+    vi.stubEnv('ALIGN_OLLAMA_MODEL', 'qwen3:8b');
+    await callChatDetailed('sys', 'user');
+    expect(chatBodies.map((b) => b.model)).toEqual(['qwen3:8b']);
+  });
+
+  it('stops with a clear error when the saved model is not installed', async () => {
+    setSavedLlmSource(() => ({ keys: {}, provider: 'ollama', model: 'qwen3-coder:480b' }));
+    const result = await callChatDetailed('sys', 'user');
+    expect(chatBodies).toEqual([]);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.failure).toMatchObject({ kind: 'provider_stopped', provider: 'ollama', model: 'qwen3-coder:480b' });
+    expect(JSON.stringify(result.failure)).toContain('ollama pull qwen3-coder:480b');
+  });
+
+  it('matches a saved name without a tag to its :latest install', async () => {
+    setSavedLlmSource(() => ({ keys: {}, provider: 'ollama', model: 'llama3.2' }));
+    await callChatDetailed('sys', 'user');
+    expect(chatBodies.map((b) => b.model)).toEqual(['llama3.2']);
   });
 });
