@@ -813,11 +813,13 @@ async function discoverOllamaModel(host: string): Promise<{ ok: true; model: str
     if (!tagsRes.ok) return { ok: false, outcome: { kind: 'unavailable', detail: 'tags probe failed' } };
     const tags = await tagsRes.json() as { models?: Array<{ name: string }> };
     const models = (tags.models ?? []).map(m => m.name);
-    if (!models.length) return { ok: false, outcome: { kind: 'unavailable', detail: 'no models installed' } };
     // ALIGN_OLLAMA_MODEL wins, then the model saved by `align ai --provider ollama --model`
     // (same rule as every hosted provider, via modelFor), then the auto-pick.
     const named = process.env['ALIGN_OLLAMA_MODEL'] || undefined;
     const saved = named ? undefined : modelFor(resolution(), 'ollama', null, '') || undefined;
+    // Checked before the saved model, but after resolving it: with nothing installed, a saved
+    // model is still the missing one, and its `ollama pull` line is the useful answer.
+    if (!models.length && !saved) return { ok: false, outcome: { kind: 'unavailable', detail: 'no models installed' } };
     if (saved) {
       const present = models.some(m => m === saved || m === `${saved}:latest`);
       if (!present) {
@@ -826,7 +828,7 @@ async function discoverOllamaModel(host: string): Promise<{ ok: true; model: str
           outcome: {
             kind: 'failed',
             model: saved,
-            detail: `the model you chose with \`align ai\` is not installed in Ollama. Run \`ollama pull ${saved}\`, or choose another with \`align ai --provider ollama --model <name>\`. Installed: ${models.join(', ')}`,
+            detail: `the model you chose with \`align ai\` is not installed in Ollama. Run \`ollama pull ${saved}\`, or choose another with \`align ai --provider ollama --model <name>\`. Installed: ${models.join(', ') || 'none'}`,
           },
         };
       }

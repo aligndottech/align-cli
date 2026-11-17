@@ -36,6 +36,7 @@ const ALL_KEYS = [
   'GROQ_API_KEY', 'MISTRAL_API_KEY', 'GROK_API_KEY', 'XAI_API_KEY',
   'ALIGN_LLM_BASE_URL', 'ALIGN_LLM_API_KEY', 'ALIGN_LLM_MODEL', 'OLLAMA_HOST',
   'ALIGN_SYNTHESIS_MAX_TOKENS', 'ALIGN_CLASSIFIER_MAX_TOKENS', 'OLLAMA_CONTEXT_LENGTH',
+  'ALIGN_OLLAMA_MODEL', 'ALIGN_LLM_PROVIDER',
 ];
 
 describe('callChat (provider-agnostic resolver)', () => {
@@ -722,6 +723,20 @@ describe('the model saved by `align ai --provider ollama --model` is the one Oll
     if (result.ok) return;
     expect(result.failure).toMatchObject({ kind: 'provider_stopped', provider: 'ollama', model: 'qwen3-coder:480b' });
     expect(JSON.stringify(result.failure)).toContain('ollama pull qwen3-coder:480b');
+  });
+
+  // With nothing installed at all, the saved model is still the one that is missing, so the person
+  // gets the same `ollama pull` instruction instead of a bare "no models installed".
+  it('names the saved model and how to pull it when Ollama has no models installed', async () => {
+    setSavedLlmSource(() => ({ keys: {}, provider: 'ollama', model: 'qwen3:8b' }));
+    mockFetch.mockImplementation(async (url: string) => (String(url).includes('/api/tags')
+      ? { ok: true, json: async () => ({ models: [] }) }
+      : { ok: true, json: async () => ({}) }));
+    const result = await callChatDetailed('sys', 'user');
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.failure).toMatchObject({ kind: 'provider_stopped', provider: 'ollama', model: 'qwen3:8b' });
+    expect(JSON.stringify(result.failure)).toContain('ollama pull qwen3:8b');
   });
 
   it('matches a saved name without a tag to its :latest install', async () => {
