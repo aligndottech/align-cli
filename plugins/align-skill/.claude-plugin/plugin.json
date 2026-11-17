@@ -9,6 +9,10 @@
   },
   "homepage": "https://align.tech",
   "repository": "https://github.com/aligndottech/align-cli",
+  "documentationUrl": "https://github.com/aligndottech/align-cli/blob/main/docs/commands.md",
+  "supportUrl": "https://github.com/aligndottech/align-cli/issues",
+  "privacyPolicyUrl": "https://align.tech/privacy",
+  "termsOfServiceUrl": "https://align.tech/terms",
   "license": "MIT",
   "keywords": [
     "decisions",

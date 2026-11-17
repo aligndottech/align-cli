@@ -54,6 +54,16 @@ describe('skill-only plugin: only what the plugin directory accepts from an unve
     for (const v of [m['name'], m['displayName'], m['author'].name]) expect(String(v).toLowerCase()).not.toBe('align');
   });
 
+  it('links the pages the directory listing shows, each to a page that exists', () => {
+    const m = json(PLUGIN_JSON);
+    expect(m['privacyPolicyUrl']).toBe('https://align.tech/privacy');
+    expect(m['termsOfServiceUrl']).toBe('https://align.tech/terms');
+    expect(m['supportUrl']).toBe('https://github.com/aligndottech/align-cli/issues');
+    expect(m['documentationUrl']).toBe('https://github.com/aligndottech/align-cli/blob/main/docs/commands.md');
+    // The documentation link points into this repo, so the file has to be here.
+    expect(() => text('docs/commands.md')).not.toThrow();
+  });
+
   it('carries the release version, kept in step by release-please', () => {
     expect(json(PLUGIN_JSON)['version']).toBe(json('package.json')['version']);
     const extra = json('release-please-config.json')['packages']['.']['extra-files'] as Array<{ path: string; jsonpath: string }>;
