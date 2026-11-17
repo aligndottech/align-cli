@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.83.0](https://github.com/aligndottech/align-cli/compare/cli-v0.82.0...cli-v0.83.0) (2026-11-17)
+
+
+### Features
+
+* **plugin:** a skill-only plugin for the plugin directory ([#622](https://github.com/aligndottech/align-cli/issues/622)) ([e5b4a62](https://github.com/aligndottech/align-cli/commit/e5b4a629f10b2cb04cf0f2fc18b45b922c7043db))
+* **plugin:** directory plugin folder is plugins/align-cli, with its own README ([#624](https://github.com/aligndottech/align-cli/issues/624)) ([888bcf3](https://github.com/aligndottech/align-cli/commit/888bcf3c26f08061c88f0800cd7673da3b4ea959))
+* **plugin:** move the Claude Code plugin into plugins/align for the plugin directory ([#616](https://github.com/aligndottech/align-cli/issues/616)) ([856b4ea](https://github.com/aligndottech/align-cli/commit/856b4eab8d77ac7d9c7e55d5c2e7c46079e1f83a))
+* **plugin:** privacy, terms, support and docs links for the directory listing ([#623](https://github.com/aligndottech/align-cli/issues/623)) ([b043fb6](https://github.com/aligndottech/align-cli/commit/b043fb6149f6c7b19594d46a0c279c604656506a))
+
+
+### Bug Fixes
+
+* **import:** keep a body-less commit whose subject states a rule ([#625](https://github.com/aligndottech/align-cli/issues/625)) ([8baedaf](https://github.com/aligndottech/align-cli/commit/8baedaf8b66328aa8a9e164f79f73f42b3fc1705))
+* **plugin:** display name Align CLI; the directory reserves "Align" too ([#621](https://github.com/aligndottech/align-cli/issues/621)) ([3ca3e7b](https://github.com/aligndottech/align-cli/commit/3ca3e7b90b9002684a8f5f38c05a89c839828d77))
+* **plugin:** rename the plugin to align-cli for the plugin directory ([#620](https://github.com/aligndottech/align-cli/issues/620)) ([cbcb9a1](https://github.com/aligndottech/align-cli/commit/cbcb9a17521262cff945151dfcff8b9fba6b6aa7))
+
 ## [0.82.0](https://github.com/aligndottech/align-cli/compare/cli-v0.81.0...cli-v0.82.0) (2026-11-16)
 
 
