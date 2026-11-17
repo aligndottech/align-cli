@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.83.2](https://github.com/aligndottech/align-cli/compare/cli-v0.83.1...cli-v0.83.2) (2026-11-17)
+
+
+### Bug Fixes
+
+* **check:** read a v0 'supersedes' in the right direction ([#630](https://github.com/aligndottech/align-cli/issues/630)) ([2dcc245](https://github.com/aligndottech/align-cli/commit/2dcc245947fca4baa5bcbd28ee5a795bd1564998))
+
 ## [0.83.1](https://github.com/aligndottech/align-cli/compare/cli-v0.83.0...cli-v0.83.1) (2026-11-17)
 
 
