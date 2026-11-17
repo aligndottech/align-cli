@@ -26,7 +26,7 @@ let repo: string;
 let dbPath: string;
 let client: ReturnType<typeof createLocalGatewayClient>;
 vi.mock('../lib/local-relationship-classifier.js', async (orig) => ({
-  ...(await orig<typeof import('../lib/local-relationship-classifier.js')>()),
+  ...(await orig<Record<string, unknown>>()),
   classifyRelationship: vi.fn(async (a: { title: string }) => ({
     ok: true,
     // B supersedes A only when the RECORDED decision is A (so B, the change, replaces it).
