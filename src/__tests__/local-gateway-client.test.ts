@@ -188,9 +188,10 @@ describe('local-gateway-client', () => {
 
     await client.checkAlignment('diff body', undefined, { title: 'Move the main store to MySQL' });
 
+    // The change is B (second argument): the recorded decision is A. See local-check-direction.test.ts.
     expect(classifyRelationship).toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'Move the main store to MySQL' }),
       expect.anything(),
+      expect.objectContaining({ title: 'Move the main store to MySQL' }),
     );
   });
 
@@ -202,9 +203,10 @@ describe('local-gateway-client', () => {
 
     await client.checkAlignment('diff body');
 
+    // The change is B (second argument): the recorded decision is A. See local-check-direction.test.ts.
     expect(classifyRelationship).toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'Proposed change' }),
       expect.anything(),
+      expect.objectContaining({ title: 'Proposed change' }),
     );
   });
 
@@ -222,7 +224,7 @@ describe('local-gateway-client', () => {
 
     await client.checkAlignment(bigDiff);
 
-    const [subjectArg] = vi.mocked(classifyRelationship).mock.calls[0]!;
+    const [, subjectArg] = vi.mocked(classifyRelationship).mock.calls[0]!;
     expect(subjectArg.summary).toContain('diff opening line');
     // Was 2,000 before the cap - proves the slice is gone, not just that SOMETHING changed.
     expect(subjectArg.summary.length).toBeGreaterThan(2000);
