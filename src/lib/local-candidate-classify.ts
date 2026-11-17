@@ -9,9 +9,10 @@ import { createConfigStore } from './config.js';
  * relationship comes back typed `relates` at its similarity, exactly what a judged, unrelated
  * pair reads as to every caller today; a whole-call failure is reported on every candidate.
  *
- * `order` keeps v0's two orientations: `check` asks how the candidate relates to the proposed
- * change (subject is A), capture asks how the new decision relates to the existing one (existing
- * is A). v1 always puts the new/proposed side as the NEW DECISION.
+ * `order` picks which side is A in v0's "how does B relate to A" prompt. Every caller now passes
+ * 'candidate-first' (the recorded decision is A, the proposed change or new capture is B), so
+ * `supersedes` always means the new side replaces the recorded one. v1 always puts the
+ * new/proposed side as the NEW DECISION.
  */
 import { type DetectorVersion, resolveDetectorVersion } from '../detector/detector-version.js';
 import { defaultDetectorForLocalModel } from '../detector/local-model-default.js';
