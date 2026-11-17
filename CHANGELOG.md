@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.83.1](https://github.com/aligndottech/align-cli/compare/cli-v0.83.0...cli-v0.83.1) (2026-11-17)
+
+
+### Bug Fixes
+
+* **ai:** the model chosen with align ai is used for local Ollama calls ([#628](https://github.com/aligndottech/align-cli/issues/628)) ([6027e36](https://github.com/aligndottech/align-cli/commit/6027e3669c4e6d6d681c72d30a3b2a6cbf9d3607))
+* **check:** a change that reverses a recorded decision is a conflict, not a pass ([#627](https://github.com/aligndottech/align-cli/issues/627)) ([f64d0ee](https://github.com/aligndottech/align-cli/commit/f64d0ee4f9fd9f0765e015348f375adb1b39dbbf))
+
 ## [0.83.0](https://github.com/aligndottech/align-cli/compare/cli-v0.82.0...cli-v0.83.0) (2026-11-17)
 
 
