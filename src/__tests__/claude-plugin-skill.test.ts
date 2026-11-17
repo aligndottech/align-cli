@@ -2,13 +2,15 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-// The skill-only plugin (plugins/align-skill) is the listing for Anthropic's plugin directory.
+// The skill-only plugin (plugins/align-cli) is the listing for Anthropic's plugin directory.
 // Since 17 Nov 2026 the directory refuses command hooks and local MCP servers from organizations
 // it has not marked Verified, and there is no application for that. So this folder holds only what
 // an unverified publisher may ship: Markdown, JSON and an image. The full plugin (plugins/align,
 // hooks and MCP server) is still what this repo's own marketplace installs.
 const root = fileURLToPath(new URL('../../', import.meta.url));
-const DIR = 'plugins/align-skill';
+// The directory locks a listing to its repository and folder, so the folder is named for the
+// plugin it will become once hooks and the MCP server are allowed, not for today's skill-only form.
+const DIR = 'plugins/align-cli';
 const PLUGIN_JSON = `${DIR}/.claude-plugin/plugin.json`;
 const SKILL = `${DIR}/skills/check-decisions/SKILL.md`;
 const COMMAND = `${DIR}/commands/check.md`;
@@ -32,6 +34,7 @@ describe('skill-only plugin: only what the plugin directory accepts from an unve
     expect(listFiles(DIR).sort()).toEqual([
       `${DIR}/.claude-plugin/icon.png`,
       `${DIR}/.claude-plugin/plugin.json`,
+      `${DIR}/README.md`,
       COMMAND,
       SKILL,
     ]);
@@ -73,6 +76,30 @@ describe('skill-only plugin: only what the plugin directory accepts from an unve
   it('is not in this repo\'s own marketplace, which still installs the full plugin', () => {
     const plugins = json('.claude-plugin/marketplace.json')['plugins'] as Array<{ source: string }>;
     expect(plugins.map((p) => p.source)).toEqual(['./plugins/align']);
+  });
+});
+
+describe('the listing README in the plugin folder', () => {
+  const readme = () => text(`${DIR}/README.md`);
+  const prose = (md: string) => md.replace(/```[\s\S]*?```/g, '');
+
+  it('exists with at least 40 words outside code blocks (the directory blocks a shorter one)', () => {
+    expect(prose(readme()).split(/\s+/).filter(Boolean).length).toBeGreaterThanOrEqual(40);
+  });
+
+  it('says what the plugin runs and everything that can leave the machine (the security scan reads it)', () => {
+    const md = readme();
+    expect(md).toContain('`align ask`');
+    expect(md).toContain('`align check`');
+    expect(md).toMatch(/anonymous usage counts/i);
+    expect(md).toMatch(/your own (AI|model) provider/i);
+    expect(md).toMatch(/installs nothing/i);
+    expect(md).toContain('https://align.tech/privacy');
+  });
+
+  it('carries no run command and no em-dash', () => {
+    expect(readme()).not.toMatch(/\bnpx\b/);
+    expect(readme()).not.toContain('\u2014');
   });
 });
 
