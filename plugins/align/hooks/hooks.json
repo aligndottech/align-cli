@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "npx -y @aligndottech/cli@0.83.0 check --advisory",
+            "command": "npx -y @aligndottech/cli@0.83.2 check --advisory",
             "timeout": 10
           }
         ]
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "npx -y @aligndottech/cli@0.83.0 check --advisory",
+            "command": "npx -y @aligndottech/cli@0.83.2 check --advisory",
             "timeout": 10
           }
         ]
