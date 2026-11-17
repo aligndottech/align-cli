@@ -847,7 +847,12 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       const embedding = await getEmbedding(diff);
       const judge = await activeJudge();
       const hidden = judge ? notADecisionMarks(dbPath, judge) : new Map();
-      const retrieved = splitRetrieved(await findSimilar(embedding, 5 + hidden.size, threshold), hidden, 5, (id) => db.getDecisionById(id)?.title);
+      // Scoped like search: this repo's decisions and the unattributed ones (Jira, Slack, docs), and
+      // everything outside a git repo. Unscoped, the edit hook named other repos' decisions on every
+      // edit as soon as one graph held two repos. The blame candidates below are not scoped: git
+      // names them as the writers of this repo's own lines.
+      const { dbFilter } = await resolveScope();
+      const retrieved = splitRetrieved(await findSimilar(embedding, 5 + hidden.size, threshold, undefined, dbFilter), hidden, 5, (id) => db.getDecisionById(id)?.title);
       const similar = retrieved.kept;
       const searched = similar
         .map(s => {
@@ -885,14 +890,14 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       // them. The cost of this direction: a future caller misspelling the value adjudicates,
       // so keep `depth` typed as the union at every call site rather than widening it.
       // The same later_on_topic rule as search, so the edit hook can say a decision has a newer one.
-      // Same scope as this check's own retrieval above (findSimilar is unscoped here), built once and
+      // Same scope as this check's own retrieval above, built once and
       // only when a candidate is shown, so a check with no candidates loads no vectors.
       let checkVectors: Map<string, Float32Array> | undefined;
       const laterOf = (id: string) => {
         const row = db.getDecisionById(id);
-        checkVectors ??= new Map(db.getAllEmbeddings({ model: EMBEDDING_MODEL_ID })
+        checkVectors ??= new Map(db.getAllEmbeddings({ ...dbFilter, model: EMBEDDING_MODEL_ID })
           .filter(e => !hidden.has(e.decisionId)).map(e => [e.decisionId, e.embedding]));
-        const later = row ? laterOnTopicFor(row, checkVectors, { dbFilter: {}, createdBefore: undefined, hidden }) : [];
+        const later = row ? laterOnTopicFor(row, checkVectors, { dbFilter, createdBefore: undefined, hidden }) : [];
         return later.length ? { later_on_topic: later } : {};
       };
       if (opts.depth === 'related') {

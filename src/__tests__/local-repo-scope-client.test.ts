@@ -12,6 +12,9 @@
  * 6. searchDecisions outside a git repo defaults to everything (nothing to scope to)
  * 7. listDecisions mirrors the same two rules (scoped default, `{ all: true }` override)
  * 8. the returned scope names which repo a scoped search answered from
+ * 9. checkAlignment (the edit hook's retrieval, and `align check`) scopes its content search the
+ *    same way: inside repo A it names A's decisions and unattributed ones, never B's; outside a
+ *    git repo it names everything
  */
 import { execa } from 'execa';
 import fs from 'node:fs';
@@ -216,5 +219,55 @@ describe('retrieval scoping', () => {
     expect(all.scope).toBeNull();
     expect(all.results.map((r) => r.title)).toContain('Use SvelteKit');
     fs.rmSync(dirA, { recursive: true, force: true });
+  });
+});
+
+describe('checkAlignment scopes its content search like search does', () => {
+  // Every row carries the same stored score, above both relatedness floors, so what comes back is
+  // decided by scope alone. Nothing links the rows and no model is configured: depth 'related' is
+  // the edit hook's retrieval, which stops before adjudication.
+  function seedThree(): void {
+    const raw = createLocalDb(dbPath);
+    const strong = (): Float32Array => { const e = new Float32Array(384).fill(0); e[0] = 0.9; return e; };
+    raw.setEmbedding(raw.insertDecision({ title: 'Use Postgres', summary: 's', sourceUrl: 'https://github.com/acme/api/pull/1', platform: 'github', repo: 'github.com/acme/api' }), strong());
+    raw.setEmbedding(raw.insertDecision({ title: 'Use SvelteKit', summary: 's', sourceUrl: 'https://github.com/acme/web/pull/1', platform: 'github', repo: 'github.com/acme/web' }), strong());
+    raw.setEmbedding(raw.insertDecision({ title: 'Adopt design system', summary: 's', sourceUrl: 'https://acme.atlassian.net/browse/X-1', platform: 'jira' }), strong());
+    raw.close();
+  }
+
+  async function repoDir(remote: string): Promise<string> {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'check-scope-'));
+    await execa('git', ['init'], { cwd: d });
+    await execa('git', ['remote', 'add', 'origin', remote], { cwd: d });
+    return d;
+  }
+
+  it.each(['related', undefined] as const)('inside repo A (depth %s): names A and the unattributed decision, never B', async (depth) => {
+    seedThree();
+    const dirA = await repoDir('git@github.com:acme/api.git');
+    client = createLocalGatewayClient(dbPath, { cwd: dirA });
+    const result = await client.checkAlignment('switch the API service to another database', undefined, depth ? { depth } : {});
+    const titles = (result.relevant_decisions ?? []).map((d) => d.title).sort();
+    expect(titles).toEqual(['Adopt design system', 'Use Postgres']);
+    fs.rmSync(dirA, { recursive: true, force: true });
+  });
+
+  it('inside repo B the same change names B, not A - the scope follows the folder', async () => {
+    seedThree();
+    const dirB = await repoDir('git@github.com:acme/web.git');
+    client = createLocalGatewayClient(dbPath, { cwd: dirB });
+    const result = await client.checkAlignment('switch the API service to another database', undefined, { depth: 'related' });
+    const titles = (result.relevant_decisions ?? []).map((d) => d.title).sort();
+    expect(titles).toEqual(['Adopt design system', 'Use SvelteKit']);
+    fs.rmSync(dirB, { recursive: true, force: true });
+  });
+
+  it('outside a git repo, names everything - nothing to scope to', async () => {
+    seedThree();
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'check-scope-outside-'));
+    client = createLocalGatewayClient(dbPath, { cwd: outside });
+    const result = await client.checkAlignment('switch the API service to another database', undefined, { depth: 'related' });
+    expect((result.relevant_decisions ?? []).map((d) => d.title).sort()).toEqual(['Adopt design system', 'Use Postgres', 'Use SvelteKit']);
+    fs.rmSync(outside, { recursive: true, force: true });
   });
 });
