@@ -1,0 +1,19 @@
+{
+  "name": "align-cli",
+  "displayName": "Align CLI",
+  "version": "0.82.0",
+  "description": "Teaches Claude to check a change against your team's recorded decisions with the Align CLI before it edits, and to stop and ask when one conflicts.",
+  "author": {
+    "name": "Align Tech Ltd",
+    "url": "https://align.tech"
+  },
+  "homepage": "https://align.tech",
+  "repository": "https://github.com/aligndottech/align-cli",
+  "license": "MIT",
+  "keywords": [
+    "decisions",
+    "alignment",
+    "adr",
+    "claude-code"
+  ]
+}
