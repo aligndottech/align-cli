@@ -929,7 +929,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       const { outcomes } = await classifyCandidates(subject, candidates.map(c => ({
         id: c.id, title: c.title, summary: c.summary, similarity: c.score, platform: c.platform, decidedAt: c.decidedAt,
         status: db.isSuperseded(c.id) ? 'superseded' : null,
-      })), 'subject-first');
+      })), 'candidate-first'); // the classifier asks how B relates to A: recorded decision A, proposed change B
       const typed = [];
       for (const [i, c] of candidates.entries()) {
         const outcome = outcomes[i]!;
