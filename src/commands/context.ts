@@ -201,7 +201,8 @@ export function registerContextCommand(program: Command): void {
         // A payload that NAMES a path which is not a directory (a stale or deleted workspace)
         // prints nothing: a user-level hook can start in any repo, so the process cwd would send
         // another project's decisions. A payload that names nothing keeps the process cwd for
-        // codex, gemini and copilot; Cursor's workspace is the only hint it gives, so it has none.
+        // codex, gemini and copilot. Cursor's workspace_roots is its only hint, so with none named
+        // it prints nothing.
         if (named) {
           if (!isDir(named)) return;
           root = named;
