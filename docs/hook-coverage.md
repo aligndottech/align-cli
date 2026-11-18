@@ -22,11 +22,13 @@ agent was run.
 | Host | Main agent, interactive session | Subagent | Headless or SDK run |
 |---|---|---|---|
 | **Claude Code** | not tested. No interactive capture was made. | fires, headless only: `by-cell/claude-code-headless-subagent-pre.json` | fires: `by-cell/claude-code-headless-main-pre.json` |
-| **Codex** | not tested. `codex-pre.json` is a real payload, but it did not record whether the session was interactive. | not tested | not tested |
+| **Codex** | not tested. `codex-pre.json` is a real payload, but it did not record whether the session was interactive. | not tested | not tested, because no payload from a headless run is saved. Seen on 18 Nov 2026 with Codex CLI 0.153.0: in `codex exec` runs, after the hook was approved once in an interactive session, Codex called it before and after 9 `apply_patch` edits, and the check answered. Only the payload's field names were logged, not the payload, and they match `codex-pre.json`. Whether the hook's text reached the model was not checked. |
 | **Cursor** | not tested. Cursor was not installed where this was written. | not tested | not tested |
 | **Gemini CLI** | not tested. No model credentials were available to run a session. | not tested | not tested |
 | **pi** | not tested. `pi-pre.json` is a real payload, but it did not record the run mode. | not tested. pi has no subagents in core. | fires: `by-cell/pi-headless-main-pre.json` |
 | **OpenCode** | not tested. No interactive session was captured. | fires, headless only: `by-cell/opencode-headless-subagent-task-pre.json` and `by-cell/opencode-headless-subagent-edit-pre.json` | fires: `by-cell/opencode-headless-main-pre.json` |
+
+The Codex headless cell stays "not tested" on purpose. This page counts a cell as "fires" only when the payload itself is saved and replayed by a test, and that run saved the field names alone. Saving one payload from a `codex exec` run would move it.
 
 "Headless only" means the subagent capture came from a headless run. A subagent edit in an interactive session is not tested.
 

@@ -95,7 +95,8 @@ Claude Code users can install it as a plugin instead:
 ```
 
 Then run `npx @aligndottech/cli` once in the repo to build the graph. Codex has a plugin too. Its
-hook is untested, and does nothing until you approve it inside Codex. Both are in
+hook does nothing until you approve it once inside Codex. After that we have seen it run in
+`codex exec` (Codex CLI 0.153.0), though no recorded payload backs that yet. Both are in
 [Installing](docs/installation.md#claude-code-plugin).
 
 ### 3. A check in CI
