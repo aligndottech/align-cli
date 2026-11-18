@@ -314,6 +314,41 @@ describe('fetchDocsItems - CLAUDE.md / AGENTS.md', () => {
     expect(items.map((i) => i.title).sort()).toEqual(['Database', 'Testing']);
   });
 
+  // code-conductor (github.com/yeisonrestrepo/code-conductor) keeps a committed team memory at
+  // .claude/memory/project.md: one `##` section per checkpoint, holding decisions and conventions.
+  // Its template ships with empty sections that hold only an HTML comment.
+  it('reads code-conductor\'s .claude/memory/project.md, one item per checkpoint section', async () => {
+    repo = mkdtempSync(join(tmpdir(), 'align-ccmem-'));
+    mkdirSync(join(repo, '.claude', 'memory'), { recursive: true });
+    writeFileSync(join(repo, '.claude', 'memory', 'project.md'), [
+      '# Project Memory',
+      '',
+      'Shared team memory. Committed to git. Updated automatically by /checkpoint.',
+      '',
+      '## Architecture Decisions',
+      '<!-- Append by /checkpoint. Never delete entries. -->',
+      '',
+      '## Technical Debt',
+      '<!-- Known shortcuts, limitations, and deferred work -->',
+      '',
+      '## Checkpoint 2026-06-10 07:23',
+      '',
+      '### Decisions',
+      '- Spec read budget: a 30-line cap on source file reads during the spec phase',
+      '',
+      '## Checkpoint 2026-06-11',
+      '',
+      '### Conventions',
+      '- Plans must include task IDs on every checkbox line',
+    ].join('\n'));
+    mockGit(null);
+
+    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
+
+    expect(items.map((i) => i.title).sort()).toEqual(['Checkpoint 2026-06-10 07:23', 'Checkpoint 2026-06-11']);
+    expect(items.find((i) => i.title === 'Checkpoint 2026-06-10 07:23')!.raw_text).toContain('30-line cap');
+  });
+
   it('returns no agent-rules items, without throwing, when neither file exists', async () => {
     repo = mkdtempSync(join(tmpdir(), 'align-793-'));
     mockGit(null);
