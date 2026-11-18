@@ -53,6 +53,17 @@ describe('align up', () => {
     ]);
   });
 
+  it('passes --limit and --out to the step that writes the file, and only to it', async () => {
+    const r = recorder();
+    await runUp({ limit: '40', out: 'DECISIONS.md' }, r.deps);
+    expect(r.ran.map((a) => a.join(' '))).toEqual([
+      'connect git --approve',
+      'connect docs --approve',
+      'sync',
+      'context sync --limit 40 --out DECISIONS.md',
+    ]);
+  });
+
   it('a failed refresh of connected sources is reported, and the file is still written from the repo', async () => {
     const r = recorder({ sync: 1 });
     expect(await runUp({}, r.deps)).toBe(0);
