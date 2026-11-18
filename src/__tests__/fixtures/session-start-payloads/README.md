@@ -12,3 +12,4 @@ use it say so. Replace a file with a real capture, redacted, when one exists. Th
 | `codex-session-start.json` | learn.chatgpt.com/docs/hooks (common fields, `source`, `permission_mode`) |
 | `gemini-session-start.json` | geminicli.com/docs/hooks/reference (`source`, base fields) |
 | `copilot-session-start.json` | docs.github.com/en/copilot/reference/hooks-reference (camelCase input) |
+| `cursor-session-start.json` | cursor.com/docs/hooks, `sessionStart` input plus the common fields (read 2026-11-18). Documented, not captured: Cursor is not installed on the machine this was written on. The workspace is `workspace_roots`, there is no `cwd` |

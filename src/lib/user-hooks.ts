@@ -98,10 +98,11 @@ const HOSTS: Record<HookHost, HostSpec> = {
   },
 };
 
-// The session-start (read path) hook, for the user-level hosts whose docs prove one that injects.
-// Read 2026-11-18, cited in docs/agent-hooks.md. Cursor is not here on purpose: it documents
+// The session-start (read path) hook, for the user-level hosts whose docs describe one that injects.
+// Read 2026-11-18, cited in docs/agent-hooks.md. Cursor is here because its docs describe
 // `sessionStart` + `additional_context`, but its own forum has open reports that the text never
-// reaches the model. This command reads a local file and takes no --env.
+// reaches the model, so Cursor is wired per the docs with delivery unverified.
+// This command reads a local file and takes no --env.
 const INJECT = 'align context inject';
 
 interface SessionSpec {
@@ -120,6 +121,13 @@ const SESSION_HOSTS: Partial<Record<HookHost, SessionSpec>> = {
       hooks: [{ type: 'command', command, timeout: HOOK_TIMEOUT_SECONDS }],
     }),
     commandsOf: (entry) => HOSTS.codex.commandsOf(entry),
+  },
+  // Cursor sessionStart: fire-and-forget, no matcher (cursor.com/docs/hooks). Flat entry like its
+  // preToolUse one.
+  cursor: {
+    event: 'sessionStart',
+    entry: (command) => ({ command, timeout: HOOK_TIMEOUT_SECONDS }),
+    commandsOf: (entry) => HOSTS.cursor.commandsOf(entry),
   },
   // Copilot CLI sessionStart (startup, resume, new) has no matcher and no compact source.
   copilot: {

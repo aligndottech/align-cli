@@ -314,8 +314,8 @@ describe('writeUserHooks - a user edit inside our own element survives the next 
 
 // the session-start (read path) hook. Codex SessionStart fires on startup, resume, clear
 // and compact (learn.chatgpt.com/docs/hooks, read 2026-11-18); Copilot CLI sessionStart on startup,
-// resume and new, no matcher (docs.github.com Copilot hooks reference). Cursor is deliberately
-// absent: see user-hooks.ts.
+// resume and new, no matcher (docs.github.com Copilot hooks reference). Cursor sessionStart is wired per
+// cursor.com/docs/hooks (read 2026-11-18); delivery is unverified, see docs/agent-hooks.md.
 describe('writeUserHooks - session start', () => {
   it('Codex: SessionStart runs `align context inject --format codex` on every source, compact included', () => {
     writeUserHooks(target('codex', 'c.json'));
@@ -341,17 +341,22 @@ describe('writeUserHooks - session start', () => {
     });
   });
 
-  it('Cursor gets no session hook: its docs promise one, its forum reports the text never arrives', () => {
+  it('Cursor: sessionStart runs `align context inject --format cursor`, no matcher, no env', () => {
     writeUserHooks(target('cursor', 'u.json'));
-    expect(Object.keys(readJson('u.json').hooks).sort()).toEqual(['postToolUse', 'preToolUse']);
+    expect(Object.keys(readJson('u.json').hooks).sort()).toEqual(['postToolUse', 'preToolUse', 'sessionStart']);
+    expect(readJson('u.json').hooks.sessionStart).toEqual([
+      { command: 'align context inject --format cursor', timeout: 10 },
+    ]);
+    writeUserHooks(target('cursor', 'v.json'), 'local');
+    expect(readJson('v.json').hooks.sessionStart[0].command).not.toContain('--env');
   });
 
-  it.each([['codex', 'SessionStart'], ['copilot', 'sessionStart']] as const)(
+  it.each([['codex', 'SessionStart'], ['copilot', 'sessionStart'], ['cursor', 'sessionStart']] as const)(
     '%s: a re-run leaves one align session entry, keeps the user\'s own, and remove takes only ours',
     (host, event) => {
       const theirs = host === 'codex'
         ? { matcher: 'startup', hooks: [{ type: 'command', command: 'echo hi' }] }
-        : { type: 'command', bash: 'echo hi' };
+        : host === 'cursor' ? { command: 'echo hi' } : { type: 'command', bash: 'echo hi' };
       mkdirSync(dir, { recursive: true });
       writeFileSync(join(dir, 's.json'), JSON.stringify({ version: 1, hooks: { [event]: [theirs] } }));
       writeUserHooks(target(host, 's.json'));
@@ -383,6 +388,17 @@ describe('writeUserHooks - session start', () => {
     writeUserHooks(target('codex', 'e.json'), undefined, undefined, (f) => edited.push(f));
     expect(edited).toHaveLength(1);
     expect(readJson('e.json').hooks.SessionStart[0].hooks[0].timeout).toBe(99);
+  });
+
+  it('Cursor: keeps a sessionStart entry whose timeout the user changed, and says so', () => {
+    writeUserHooks(target('cursor', 'ce.json'));
+    const cfg = readJson('ce.json');
+    cfg.hooks.sessionStart[0].timeout = 99;
+    writeFileSync(join(dir, 'ce.json'), JSON.stringify(cfg));
+    const edited: string[] = [];
+    writeUserHooks(target('cursor', 'ce.json'), undefined, undefined, (f) => edited.push(f));
+    expect(edited).toHaveLength(1);
+    expect(readJson('ce.json').hooks.sessionStart[0].timeout).toBe(99);
   });
 
   it('an edited session entry does not stop an env change reaching the edit-check hook', () => {

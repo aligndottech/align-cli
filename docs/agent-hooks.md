@@ -143,7 +143,7 @@ this table was captured from a live session; the fixtures in
 | **Codex** | yes, `SessionStart`, sources `startup`, `resume`, `clear`, `compact`, `fork`; `hookSpecificOutput.additionalContext` | `PreCompact` and `PostCompact` exist, plain-text output is ignored, no context channel. The docs say to use `SessionStart` with the `compact` matcher | **Wired**: `~/.codex/hooks.json`, matcher `startup\|resume\|clear\|compact\|fork`. The Codex plugin's hooks file carries the edit check only, not this hook: a plugin hook runs through `npx`, which can miss the ten-second window, and with both installed the decisions would arrive twice. Codex skips a new hook until you approve it once, interactively | [learn.chatgpt.com/docs/hooks](https://learn.chatgpt.com/docs/hooks) (redirect from developers.openai.com/codex/hooks) |
 | **Gemini CLI** | yes, `SessionStart`, sources `startup`, `resume`, `clear`; `hookSpecificOutput.additionalContext`, injected as the first history turn in an interactive session and prepended to the prompt in a non-interactive one | none that injects. `PreCompress` is advisory and can only show a message. No post-compression event | **Wired for session start**: `.gemini/settings.json`, one exact matcher per source. After a compaction: the fallback below | [geminicli.com/docs/hooks/reference](https://geminicli.com/docs/hooks/reference/) |
 | **Copilot CLI** | yes, `sessionStart`, sources `startup`, `resume`, `new`, no matcher; a top-level `additionalContext` is consumed | none that injects. `preCompact` is notification only | **Wired for session start**: `~/.copilot/hooks/align.json`. After a compaction: the fallback below | [docs.github.com/en/copilot/reference/hooks-reference](https://docs.github.com/en/copilot/reference/hooks-reference) |
-| **Cursor** | documented: `sessionStart` with `additional_context`, fire-and-forget. **Not relied on**, see below | `preCompact` exists and is observational: it cannot block, modify or inject | **Not wired.** Fallback below | [cursor.com/docs/agent/hooks](https://cursor.com/docs/agent/hooks) |
+| **Cursor** | documented: `sessionStart` with a top-level `additional_context`, fire-and-forget, added to the conversation's initial system context. Forum reports say it never arrives, see below | `preCompact` exists and is observational: it cannot block, modify or inject | **Wired per docs; injection reliability unverified.** `~/.cursor/hooks.json`, no matcher. After a compaction: the fallback below | [cursor.com/docs/hooks](https://cursor.com/docs/hooks), read 2026-11-18 |
 | **pi** | none that injects. `session_start` (reasons `startup`, `reload`, `new`, `resume`, `fork`) documents no return value. `before_agent_start` can return a `message` the model sees, but it fires on every prompt | `session_compact` is for observation. `session_before_compact` can supply the summary, which is not a way to add decisions | **Not wired.** Fallback below | [pi extensions.md](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md), first 100,000 of 158,000 characters read |
 | **OpenCode** | none documented. The current plugin docs have a `session` `context` hook that can add to the system prompt on every model call, which is per call, not session start | none documented. The `compaction` hook runs before the summary, not after | **Not wired.** Fallback below | [opencode.ai/docs/build/plugins/server](https://opencode.ai/docs/build/plugins/server) |
 
@@ -173,17 +173,28 @@ config directory where a local graph keeps it. A `.align/decisions.md` that link
 elsewhere is ignored, so a workspace you did not write cannot make a user-level hook send an
 arbitrary file to the model. From a subdirectory it uses the nearest file, up to the git root.
 
-### Why Cursor is not wired, and why Copilot CLI is now
+### Why Cursor is wired with a caveat, and why Copilot CLI is now
 
-**Cursor.** The documentation promises `sessionStart` with `additional_context`. Cursor's own
-forum has open bug reports that the hook runs, its log says the text was accepted, and the text
-never reaches the model: for the IDE
+**Cursor: wired per its documentation, and not known to work.** Cursor's docs (read 2026-11-18)
+describe `sessionStart` with an output field `additional_context` ("Added to the conversation's
+initial system context"), and say the hook is fire-and-forget. The docs show no complete example
+output. Cursor's own forum has open reports that the hook runs, its log says the text was
+accepted, and the text never reaches the model: for the IDE
 ([forum.cursor.com/t/158452](https://forum.cursor.com/t/sessionstart-hook-additional-context-is-never-injected-into-agents-initial-system-context/158452)),
 and reports on the Agents Window (3.24.9, 17 Oct 2026) and the Cursor SDK (7 Oct 2026). Search
 results on 2026-11-18 found no changelog entry saying it is fixed. Some third-party notes say
-the Cursor CLI does deliver it. A hook that runs and is swallowed reads as delivered, so it is not
-wired. These reports are from search results and the forum, not from Cursor's own documentation,
-and none was reproduced here. Revisit when those threads close as fixed.
+the Cursor CLI does deliver it. **These are unverified third-party reports** from search results
+and the forum. None was reproduced here, and Cursor is not installed on the machine this was
+written on, so the fixture is the documented shape, not a capture. The hook is wired because
+the current documentation says it works, and a hook that runs and is swallowed reads as
+delivered, so do not read "wired" as "delivered". Cursor documents that `sessionStart` does not
+run in cloud agents.
+
+**To verify on a real Cursor, one step.** Run `align context sync` in a project. Run `align setup`
+to write the hook. Open a new Agent chat in that project and ask "Quote the first line of
+.align/decisions.md without opening any file or calling a tool." If the model quotes it, the
+text reached the model. If it says it cannot see it, the forum reports hold on your Cursor version.
+Then update this row with the Cursor version and the result.
 
 **Copilot CLI.** The September list said its `sessionStart` output is ignored. The current
 reference says "Only `additionalContext` is consumed for `sessionStart`", so that row was
@@ -202,8 +213,8 @@ live Gemini CLI, which was installed without auth on the machine this was writte
 `writeClaudeCodeSessionHook` (`src/lib/agent-rules.ts`) writes the Claude Code hook into the
 project's `.claude/settings.json`. `writeGeminiHooks` (same file) adds the three Gemini
 `SessionStart` groups to `.gemini/settings.json`. `writeUserHooks` (`src/lib/user-hooks.ts`) is
-the one writer for the Codex and Copilot CLI files and adds their session entry beside the edit
-check, so `align mcp --remove` takes both out together. A Codex or Copilot session entry you edited is kept, and
+the one writer for the Codex, Cursor and Copilot CLI files and adds their session entry beside the edit
+check, so `align mcp --remove` takes both out together. A Codex, Cursor or Copilot session entry you edited is kept, and
 setup says so, the same rule as the edit-check entries. The Gemini groups are rewritten on every
 setup run, and `align use --undo` is what takes them out.
 

@@ -172,7 +172,7 @@ export function registerContextCommand(program: Command): void {
     .description(
       'Print the decisions file as SessionStart hook output (written by `align`, not meant to be run by hand)',
     )
-    .option('--format <host>', 'Hook output shape: claude (default), codex, gemini or copilot')
+    .option('--format <host>', 'Hook output shape: claude (default), codex, gemini, copilot or cursor')
     .action(async (opts: { format?: string }) => {
       // The read-path counterpart to `align check --advisory`. A SessionStart
       // hook shells out to this on every new/resumed/compacted session; whatever it
@@ -191,7 +191,7 @@ export function registerContextCommand(program: Command): void {
       // write a USER-level file, which does not run in the project, so for those the workspace
       // comes from the payload's `cwd` (a path that does not exist is ignored).
       const format = opts.format ?? 'claude';
-      if (!['claude', 'codex', 'gemini', 'copilot'].includes(format)) return;
+      if (!['claude', 'codex', 'gemini', 'copilot', 'cursor'].includes(format)) return;
       let root = process.cwd();
       if (format !== 'claude') {
         const named = await readSessionStartCwd();
@@ -209,8 +209,12 @@ export function registerContextCommand(program: Command): void {
       // confirmed for SessionStart specifically against code.claude.com/docs/en/hooks.
       // Copilot CLI reads additionalContext as a TOP-LEVEL key for sessionStart (docs.github.com
       // Copilot hooks reference, read 2026-11-18). The other three read it under hookSpecificOutput.
+      // Cursor documents a top-level snake_case `additional_context` for sessionStart
+      // (cursor.com/docs/hooks, read 2026-11-18). Whether it reaches the model is unverified.
       const output = format === 'copilot'
         ? { additionalContext: content }
+        : format === 'cursor'
+        ? { additional_context: content }
         : { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: content } };
       process.stdout.write(`${JSON.stringify(output)}\n`);
     });
