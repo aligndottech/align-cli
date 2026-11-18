@@ -219,6 +219,7 @@ align context                 Manage the decisions file agents read (.align/deci
 align context sync            Write current decisions to .align/decisions.md and import it from CLAUDE.md
                               flags: --env --limit
 align context inject          Print the decisions file as SessionStart hook output (written by `align`, not meant to be run by hand)
+                              flags: --format
 
 # Answer a check the judge declined to rule on
 

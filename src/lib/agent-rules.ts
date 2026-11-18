@@ -444,6 +444,30 @@ function isAlignGeminiHook(group: unknown): boolean {
   return Array.isArray(hooks) && hooks.some((h) => String(h?.command ?? '').includes('align check --advisory'));
 }
 
+// Gemini CLI SessionStart: `source` is startup, resume or clear (geminicli.com/docs/hooks/reference,
+// read 2026-11-18) and lifecycle matchers are exact strings, so one group per source. Its reference
+// page says hookSpecificOutput.additionalContext is injected as the first history turn. There is no
+// compact source and PreCompress cannot inject, so a compaction is not covered here. Not confirmed
+// against a running Gemini CLI: the machine this was written on had no Gemini auth.
+const GEMINI_SESSION_SOURCES = ['startup', 'resume', 'clear'] as const;
+
+function geminiSessionGroups(): Array<Record<string, unknown>> {
+  return GEMINI_SESSION_SOURCES.map((source) => ({
+    matcher: source,
+    hooks: [{
+      type: 'command',
+      name: 'align-decision-graph-session',
+      description: 'Align: put the synced decisions in front of the agent at session start',
+      command: `${SESSION_INJECT_COMMAND} --format gemini`,
+    }],
+  }));
+}
+
+function isAlignGeminiSessionHook(group: unknown): boolean {
+  const hooks = (group as { hooks?: Array<{ command?: unknown }> })?.hooks;
+  return Array.isArray(hooks) && hooks.some((h) => String(h?.command ?? '').includes(SESSION_INJECT_COMMAND));
+}
+
 export function writeGeminiHooks(cwd: string, env?: string, onForeign?: OnForeign): boolean {
   const status = safeWriteJson(path.join(cwd, '.gemini', 'settings.json'), (settings) => {
     const hooks = (settings['hooks'] ?? {}) as Record<string, unknown>;
@@ -459,6 +483,8 @@ export function writeGeminiHooks(cwd: string, env?: string, onForeign?: OnForeig
       preserved.push(geminiHookGroup(event, env));
       hooks[event] = preserved;
     }
+    const sessionExisting = (Array.isArray(hooks['SessionStart']) ? hooks['SessionStart'] : []) as unknown[];
+    hooks['SessionStart'] = [...sessionExisting.filter((g) => !isAlignGeminiSessionHook(g)), ...geminiSessionGroups()];
     settings['hooks'] = hooks;
     return settings;
   }, projectWrite(cwd));

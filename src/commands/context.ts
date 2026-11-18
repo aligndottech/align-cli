@@ -29,6 +29,7 @@ import path from 'node:path';
 import { createConfigStore } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { resolveEnv } from '../lib/resolve-env.js';
+import { readSessionStartCwd } from '../lib/hook-payload.js';
 import { localCitationFor } from '../lib/commit-cite.js';
 import { ensureGitignored, isTrackedByGit } from '../lib/context-local-only.js';
 import { navigableSourceUrl } from '../lib/decision-links.js';
@@ -135,7 +136,8 @@ export function registerContextCommand(program: Command): void {
     .description(
       'Print the decisions file as SessionStart hook output (written by `align`, not meant to be run by hand)',
     )
-    .action(() => {
+    .option('--format <host>', 'Hook output shape: claude (default), codex, gemini or copilot')
+    .action(async (opts: { format?: string }) => {
       // The read-path counterpart to `align check --advisory`. A SessionStart
       // hook shells out to this on every new/resumed/compacted session; whatever it
       // prints lands in the model's context WITHOUT the model choosing to open a file or
@@ -148,9 +150,20 @@ export function registerContextCommand(program: Command): void {
       // Fail-open on every branch, matching every other host shim in agent-rules.ts: no
       // decisions synced yet, an unreadable file, or a file with nothing but whitespace
       // in it all print nothing rather than error or inject an empty additionalContext.
+      //
+      // Claude Code's project hook runs in the project and sends nothing we need. The other hosts
+      // write a USER-level file, which does not run in the project, so for those the workspace
+      // comes from the payload's `cwd` (a path that does not exist is ignored).
+      const format = opts.format ?? 'claude';
+      if (!['claude', 'codex', 'gemini', 'copilot'].includes(format)) return;
+      let root = process.cwd();
+      if (format !== 'claude') {
+        const named = await readSessionStartCwd();
+        if (named && fs.existsSync(named)) root = named;
+      }
       let raw: string;
       try {
-        raw = fs.readFileSync(path.join(process.cwd(), ALIGN_CONTEXT_PATH), 'utf8');
+        raw = fs.readFileSync(path.join(root, ALIGN_CONTEXT_PATH), 'utf8');
       } catch {
         return;
       }
@@ -163,8 +176,11 @@ export function registerContextCommand(program: Command): void {
       // Same shape Claude Code's own hooks already emit elsewhere in this codebase
       // (check.ts's buildAdvisoryOutput default case) - hookSpecificOutput.additionalContext,
       // confirmed for SessionStart specifically against code.claude.com/docs/en/hooks.
-      process.stdout.write(
-        `${JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: content } })}\n`,
-      );
+      // Copilot CLI reads additionalContext as a TOP-LEVEL key for sessionStart (docs.github.com
+      // Copilot hooks reference, read 2026-11-18). The other three read it under hookSpecificOutput.
+      const output = format === 'copilot'
+        ? { additionalContext: content }
+        : { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: content } };
+      process.stdout.write(`${JSON.stringify(output)}\n`);
     });
 }

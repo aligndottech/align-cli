@@ -94,8 +94,27 @@ describe('writeGeminiHooks', () => {
     writeGeminiHooks(dir);
     const cfg = readJson('.gemini/settings.json');
     expect(cfg.theme).toBe('Dracula');
-    expect(cfg.hooks.SessionStart).toHaveLength(1);
+    expect(cfg.hooks.SessionStart[0]).toEqual({ matcher: 'x' });
     expect(cfg.hooks.BeforeTool).toBeDefined();
+  });
+
+  // Gemini's reference page (read 2026-11-18): SessionStart source is startup, resume or
+  // clear, lifecycle matchers are exact strings, additionalContext is injected as the first turn.
+  // There is no compact source and PreCompress cannot inject, so no compaction case exists.
+  it('registers one exact-matcher SessionStart group per source, running `align context inject --format gemini`', () => {
+    writeGeminiHooks(dir);
+    const groups = readJson('.gemini/settings.json').hooks.SessionStart;
+    expect(groups.map((g: any) => g.matcher)).toEqual(['startup', 'resume', 'clear']);
+    for (const g of groups) expect(g.hooks[0].command).toBe('align context inject --format gemini');
+  });
+
+  it('a re-run leaves the same three session groups and keeps the user\'s own', () => {
+    mkdirSync(join(dir, '.gemini'), { recursive: true });
+    writeFileSync(join(dir, '.gemini', 'settings.json'), JSON.stringify({ hooks: { SessionStart: [{ matcher: 'x' }] } }));
+    writeGeminiHooks(dir);
+    writeGeminiHooks(dir, 'preview');
+    const groups = readJson('.gemini/settings.json').hooks.SessionStart;
+    expect(groups.map((g: any) => g.matcher)).toEqual(['x', 'startup', 'resume', 'clear']);
   });
 
   it('is idempotent - a re-run leaves exactly one align hook per event', () => {

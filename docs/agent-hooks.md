@@ -118,132 +118,91 @@ keyed on it too, so a hook started somewhere else would look at the wrong tree, 
 silence because `~/.cursor` is not a repository. Every host puts the workspace in the
 payload's `cwd`; `align check --advisory` moves there first when it exists.
 
-## The read path: SessionStart injection
+## The read path: putting the decisions back in front of the agent
 
-Everything above is the write path: a hook fires when the AGENT proposes an edit. Until
-the read-path hook landed nothing fired on the READ path - the graph's content only reached the model if it
-chose to open `.align/decisions.md` or call an MCP tool. `grep -rn
-"SessionStart\|UserPromptSubmit" src --include="*.ts"` returned nothing outside this file's
-own prose before that change. So a claim like "the agent already has the answer" was true
-only of the ask-based MCP path, never of a fresh session - MCP tools and resources are both
-pull primitives, and no amount of caching that path makes it unprompted.
+Everything above is the write path: a hook fires when the agent proposes an edit. This part
+is the read path. Nothing in MCP pushes content at the model, so without a hook the graph only
+reaches it if it chooses to open `.align/decisions.md` or call a tool. A **session-start hook**
+fixes that at the start of a session. A compaction can drop those decisions from the summary,
+so the second question is whether the agent can put them back **after a compaction**.
 
-The mechanism this ticket ships is the read-path counterpart to the table above: a hook that
-fires before the model has done anything, whose return value can inject text into what it
-reads - not just approve or deny. Same method as the write-path table: read the runtime's own
-docs/source, cite what was actually found, and mark anything unconfirmed as unverified rather
-than assumed absent (verification.md, "a positive control proves your check works, not that
-your search space is right").
+`align context inject` is the command every host runs. It prints the file `align context sync`
+last wrote (`.align/decisions.md`) in the shape that host reads, and prints nothing if there is
+no file. It makes no network call, so it fits inside a hook. `align setup` writes the hook.
 
-| Host | Pre-prompt/session-start hook exists | Can inject content | Shipped here | Verified against |
+### What each agent allows (read 2026-11-18)
+
+Every cell below comes from the agent's own documentation on that date, not from the
+September list. "Wired" means `align setup` writes it and a test pins it. No hook payload in
+this table was captured from a live session; the fixtures in
+`src/__tests__/fixtures/session-start-payloads/` are the documented shapes (see its README).
+
+| Agent | Session-start hook that can inject | Hook after a compaction | What Align does | Docs read |
 |---|---|---|---|---|
-| **Claude Code** | yes - `SessionStart` | yes - `hookSpecificOutput.additionalContext` | **yes** | code.claude.com/docs/en/hooks, fetched directly, 2026-09-09 |
-| **Gemini CLI** | yes - `SessionStart` | likely, but the exact shape is disputed across Gemini's own docs pages (see below) | no - schema unresolved | geminicli.com/docs/hooks/reference/ and /writing-hooks/ |
-| **Codex CLI** | yes - `SessionStart`, `UserPromptSubmit` | yes per docs - `hookSpecificOutput.additionalContext`, same shape as Claude Code | no - no Codex session writer exists yet | learn.chatgpt.com/docs/hooks (redirected from developers.openai.com/codex/hooks) |
-| **pi** | `session_start` exists but is side-effect only (cannot inject); `before_agent_start` fires per-turn and CAN inject a message / modify the system prompt | only per-turn, not per-session | no - see "pi: real, but per-turn" below | github.com/earendil-works/pi, `packages/coding-agent/docs/extensions.md`, fetched raw |
-| **Cursor** | yes, documented - `sessionStart` + `additional_context` | documented yes, but see "Cursor: documented, unreliable" below | no | cursor.com/docs/hooks (official) + 3 open forum bug reports, Sep 2026 |
-| **OpenCode** | **no** - verified absent | - | no | opencode.ai/docs/plugins/, full hook list read; only `experimental.session.compacting` injects text, and only into the compaction prompt, not a live turn |
-| **Copilot CLI** | `sessionStart` fires, but its output is explicitly documented as ignored | **no** | no | docs.github.com Copilot CLI hooks tutorial; corroborated by github/copilot-cli#1730 and #2201 (the hook is also unreliable about firing at all) |
+| **Claude Code** | yes, `SessionStart`, sources `startup`, `resume`, `clear`, `compact`, `fork`; `additionalContext` | `PostCompact` exists but has no decision control and cannot inject. The `compact` source of `SessionStart` is what re-injects | **Wired**: `.claude/settings.json`, matcher `startup\|resume\|clear\|compact\|fork` | [code.claude.com/docs/en/hooks](https://code.claude.com/docs/en/hooks) |
+| **Codex** | yes, `SessionStart`, sources `startup`, `resume`, `clear`, `compact`, `fork`; `hookSpecificOutput.additionalContext` | `PreCompact` and `PostCompact` exist, plain-text output is ignored, no context channel. The docs say to use `SessionStart` with the `compact` matcher | **Wired**: `~/.codex/hooks.json` and the Codex plugin's `hooks/codex-hooks.json`, matcher `startup\|resume\|clear\|compact`. Codex skips a new hook until you approve it once, interactively | [learn.chatgpt.com/docs/hooks](https://learn.chatgpt.com/docs/hooks) (redirect from developers.openai.com/codex/hooks) |
+| **Gemini CLI** | yes, `SessionStart`, sources `startup`, `resume`, `clear`; `hookSpecificOutput.additionalContext`, injected as the first history turn | none that injects. `PreCompress` is advisory and can only show a message. No post-compression event | **Wired for session start**: `.gemini/settings.json`, one exact matcher per source. After a compaction: the fallback below | [geminicli.com/docs/hooks/reference](https://geminicli.com/docs/hooks/reference/) |
+| **Copilot CLI** | yes, `sessionStart`, sources `startup`, `resume`, `new`, no matcher; a top-level `additionalContext` is consumed | none that injects. `preCompact` is notification only | **Wired for session start**: `~/.copilot/hooks/align.json`. After a compaction: the fallback below | [docs.github.com/en/copilot/reference/hooks-reference](https://docs.github.com/en/copilot/reference/hooks-reference) |
+| **Cursor** | documented: `sessionStart` with `additional_context`, fire-and-forget. **Not relied on**, see below | `preCompact` exists and is observational: it cannot block, modify or inject | **Not wired.** Fallback below | [cursor.com/docs/agent/hooks](https://cursor.com/docs/agent/hooks) |
+| **pi** | none that injects. `session_start` (reasons `startup`, `reload`, `new`, `resume`, `fork`) documents no return value. `before_agent_start` can return a `message` the model sees, but it fires on every prompt | `session_compact` is for observation. `session_before_compact` can supply the summary, which is not a way to add decisions | **Not wired.** Fallback below | [pi extensions.md](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md), first 100,000 of 158,000 characters read |
+| **OpenCode** | none documented. The current plugin docs have a `session` `context` hook that can add to the system prompt on every model call, which is per call, not session start | none documented. The `compaction` hook runs before the summary, not after | **Not wired.** Fallback below | [opencode.ai/docs/build/plugins/server](https://opencode.ai/docs/build/plugins/server) |
 
-Only Claude Code shipped a real writer in this pass. The other five rows are not a shrug -
-each has a specific, cited reason it did not ship, and three of them (Gemini, Codex, pi) name
-a genuine capability that a follow-up could build on.
+Claude Code and Codex cover the compaction through `SessionStart` with a `compact` source. That
+is the only mechanism any agent documents today for putting content back after one. Gemini CLI
+and Copilot CLI get the decisions at the start of a session and have nothing for the moment
+after a compaction.
 
-### What shipped: Claude Code's SessionStart
+**What an agent without a hook for a given moment gets.** The edit check, the MCP tools and the
+PR check do not depend on the session hook, so a long session still has them:
 
-`writeClaudeCodeSessionHook` (`src/lib/agent-rules.ts`) merges a `SessionStart` hook into the
-same `.claude/settings.json` the write-path hook already owns, running `align context inject`
-(`src/commands/context.ts`) - a new, tiny command that reads whatever `align context sync`
-last wrote to `.align/decisions.md` and prints it as
-`{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"..."}}`. It does
-**not** call the gateway itself: a hook has to stay fast and offline-safe, and the
-fetch+render pipeline already has an owner (`sync`). Fails open at every branch - no
-`.align/decisions.md` yet, an unreadable file, a whitespace-only file - by printing nothing,
-exactly like the write-path shims print nothing when they find no conflict.
+1. **The per-edit check** (the write path above). Every agent in the table has a pre- or
+   post-edit hook, so `align check --advisory` surfaces related decisions on each edit,
+   whatever the context window has lost. This is the main fallback.
+2. **The MCP tools** (`align_check_alignment`, `align_ask`). The agent can ask when it
+   remembers to. Nothing prompts it to.
+3. **The PR check** (`align check --ci`, see [check.md](check.md)). It reads the diff in CI, so
+   a decision lost mid-session is still caught before merge.
 
-The matcher is `startup|resume|clear|compact|fork` - Claude Code's full documented list of
-`SessionStart` sources - rather than omitting `matcher` to mean "all". Omission is unverified
-for this event; an explicit alternation is the same idiom `writeClaudeCodeHook` already uses
-for `Write|Edit`, and it is verifiable rather than assumed.
+A pi or OpenCode user who wants the decisions in context without a hook can import
+`.align/decisions.md` from their `AGENTS.md`. `align context sync` writes that file.
 
-**Freshness caveat, stated plainly:** this only delivers whatever was last synced. A user who
-never runs `align context sync` gets nothing injected (fails open, correctly), and one who ran
-it a week ago gets a week-old snapshot. Fetching live inside the hook was considered and
-rejected for this pass - `align context sync`'s own command (`registerContextCommand`) uses a
-spinner, exits the process on failure, and needs network + auth, none of which belong inside a
-10-second hook window. Wiring `align` to also run `context sync` once, or having the
-hook trigger a background refresh, are both reasonable follow-ups this ticket does not take.
+### Why Cursor is not wired, and why Copilot CLI is now
 
-### Gemini CLI: real hook, disputed output shape
+**Cursor.** The documentation promises `sessionStart` with `additional_context`. Cursor's own
+forum has open bug reports that the hook runs, its log says the text was accepted, and the text
+never reaches the model: for the IDE
+([forum.cursor.com/t/158452](https://forum.cursor.com/t/sessionstart-hook-additional-context-is-never-injected-into-agents-initial-system-context/158452)),
+and reports on the Agents Window (3.24.9, 17 Oct 2026) and the Cursor SDK (7 Oct 2026). Search
+results on 2026-11-18 found no changelog entry saying it is fixed. Some third-party notes say
+the Cursor CLI does deliver it. A hook that runs and is swallowed reads as delivered, so it is not
+wired. These reports are from search results and the forum, not from Cursor's own documentation,
+and none was reproduced here. Revisit when those threads close as fixed.
 
-`SessionStart` is documented at geminicli.com and its reference page states the non-blocking
-output is `hookSpecificOutput.additionalContext` - identical to Claude Code's. But the
-separate `writing-hooks` tutorial page's own worked SessionStart example outputs a *different*
-field, `systemMessage`, and shows the hook group requiring an explicit `matcher` (`"startup"`)
-where the reference page implies one may not be needed. Two pages on the same docs site
-disagree with each other on the one detail that would decide whether a shim actually reaches
-the model. Shipping against either guess risks the exact failure this ticket is scoped to
-avoid: a config that is "registered but never invoked... silent" the same way a shim can be
-(see "Verifying a shim actually fires" below) - except here it would be registered, invoked,
-AND printing the wrong field, which is quieter still. Needs a live Gemini CLI install to
-settle before a shim is worth writing.
+**Copilot CLI.** The September list said its `sessionStart` output is ignored. The current
+reference says "Only `additionalContext` is consumed for `sessionStart`", so that row was
+reversed and the hook is wired. Two upstream issues (github/copilot-cli#1730, #2201) reported it
+not firing reliably. They were not re-checked on 2026-11-18, so treat delivery as unconfirmed
+until a real session is captured.
 
-### Codex CLI: real per docs, no TOML writer to build on
+**Gemini CLI.** The September note said the reference and the tutorial disagreed on the output
+field. Read again, they do not contradict each other: the reference documents `additionalContext`
+(injected) and `systemMessage` (shown to the user), and the tutorial's example only prints a
+`systemMessage`. The hook is wired on the reference page's word. It has not been run against a
+live Gemini CLI, which was installed without auth on the machine this was written on.
 
-`SessionStart` and `UserPromptSubmit` are both documented with the identical
-`hookSpecificOutput.additionalContext` shape Claude Code uses, per a single fetch of
-learn.chatgpt.com/docs/hooks (the docs.openai.com and github.com/openai/codex/docs/config.md
-copies did not surface the hooks reference directly - this is one source, not
-cross-confirmed). This is genuinely promising and contradicts nothing this file already says
-about Codex: the pre-edit row in the table above is about `PreToolUse` on
-`apply_patch`, which is tool interception, not session lifecycle. What is missing is a writer, not evidence: Codex reads
-hooks from `hooks.json` or an inline `[hooks]` table in `.codex/config.toml`. The repo now depends on
-`smol-toml`, so a TOML parser is no longer the blocker, but no Codex SessionStart writer exists
-yet. A hand-rolled TOML merge is exactly the kind of "looks fine, corrupts someone's file" risk `writeClaudeCodeHook`'s
-JSON-parse-or-throw guard exists to avoid for JSON. A real follow-up, not a shrug: write
-`writeCodexSessionHook` on top of `smol-toml`, following the same merge-and-preserve shape as the
-JSON writers, with the same "throw on unparseable existing config" guard.
+### What shipped
 
-### pi: real, but per-turn, not per-session
+`writeClaudeCodeSessionHook` (`src/lib/agent-rules.ts`) writes the Claude Code hook into the
+project's `.claude/settings.json`. `writeGeminiHooks` (same file) adds the three Gemini
+`SessionStart` groups to `.gemini/settings.json`. `writeUserHooks` (`src/lib/user-hooks.ts`) is
+the one writer for the Codex and Copilot CLI files and adds their session entry beside the edit
+check, so `align mcp --remove` takes both out together. A session entry you edited is kept, and
+setup says so, the same rule as the edit-check entries.
 
-pi's `session_start` extension event exists and fires on `/new` and `/resume`, but per
-`packages/coding-agent/docs/extensions.md` it is documented for side-effect setup
-(reconstructing extension state, opening a resource) - its return value is not described as
-feeding model context anywhere in that doc. The event that CAN inject content is
-`before_agent_start`, which "fires after user submits a prompt but before the agent loop
-begins" and can "inject a message and/or modify the system prompt" - functionally pi's
-`UserPromptSubmit` equivalent, not its `SessionStart` equivalent. Injecting the whole decisions
-file on every single turn (as opposed to once per session) is a real design problem, not a
-wiring change: it needs an in-extension dedup keyed on something that identifies "already
-injected this session", and `before_agent_start`'s documented event shape does not obviously
-carry a stable session id to key on. Worth a dedicated follow-up rather than folding into this
-one.
-
-### Cursor: documented, unreliable in the field
-
-cursor.com/docs/hooks (the official reference) documents `sessionStart` firing "when a
-composer conversation creates" with an `additional_context` output field described as
-"Additional context to add to the conversation's initial system context" - on paper, the
-closest match to Claude Code's mechanism of anything found. It is not shipped here because
-three separate, current (Sep 2026) Cursor forum bug reports describe the same failure: the
-hook fires, Cursor's own hooks log confirms the `additional_context` was accepted and merged,
-and the content still never reaches the model - "Agent ignores sessionStart hook context even
-when Hooks log says it merged successfully", "sessionStart hook additional_context is never
-injected into agent's initial system context", "sessionStart hook output is accepted and
-merged, but the injected context does not reach Agent Window". A shim that is registered,
-fires, and gets swallowed downstream is worse than no shim: it would read as delivered and
-would not be, exactly the "a control that reads as protection and isn't" trap. Revisit once
-one of those threads closes as fixed.
-
-### Copilot CLI: verified absent
-
-Not in the write-path table above at all - `align-cli#86` never covered it. For the read path:
-GitHub's own Copilot CLI hooks tutorial states the `sessionStart` hook "receives contextual
-information such as the current working directory and the initial prompt" but "any output from
-this hook is ignored by Copilot CLI, which makes it suitable for informational messages" -
-i.e. it is documented as observation-only, the same shape Cursor's `afterFileEdit` already is
-in the write-path table. Two open upstream issues (github/copilot-cli#1730, #2201) additionally
-report the hook not firing reliably at all. Confirmed absent for this purpose on both counts.
+**Freshness, stated plainly.** The hook delivers whatever `align context sync` last wrote. A user
+who never ran it gets nothing (the hook prints nothing), and one who ran it last week gets last
+week's file. Fetching inside the hook was rejected: `sync` needs the network and auth, and a hook
+has ten seconds.
 
 ## The architecture: one engine, N shims
 
