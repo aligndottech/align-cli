@@ -195,7 +195,13 @@ export function registerContextCommand(program: Command): void {
       let root = process.cwd();
       if (format !== 'claude') {
         const named = await readSessionStartCwd();
-        if (named && fs.existsSync(named)) root = named;
+        const isDir = (p: string): boolean => {
+          try { return fs.statSync(p).isDirectory(); } catch { return false; }
+        };
+        if (named && (format === 'cursor' ? isDir(named) : fs.existsSync(named))) root = named;
+        // Cursor's workspace is the only hint it gives; a user-level hook can start in any repo,
+        // so falling back to process.cwd() would send another project's decisions.
+        else if (format === 'cursor') return;
       }
       const raw = format === 'claude' ? readableDecisions(root) : findDecisions(root);
       if (raw === null || !raw.trim()) return;
