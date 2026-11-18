@@ -10,6 +10,8 @@
  *    for ssh + https, github + gitlab, and an unrecognised host - the two-writers guard.
  * 6. currentRepoIdentity: outside a git repo -> null; with an unrecognised/absent remote,
  *    falls back to the repo root path.
+ * 7. a linked worktree whose identity is a path has the MAIN checkout's identity (async and
+ *    sync readers), from its root and from a folder inside it; a main checkout is unchanged.
  */
 import { execa } from 'execa';
 import fs from 'node:fs';
@@ -17,7 +19,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildCommitUrl } from '../lib/git.js';
-import { currentRepoIdentity, repoFromRemoteUrl, repoFromSourceUrl, resolveScopeOpts } from '../lib/repo-identity.js';
+import { currentRepoIdentity, currentRepoIdentitySync, mainRootOfLinkedWorktree, repoFromRemoteUrl, repoFromSourceUrl, resolveScopeOpts } from '../lib/repo-identity.js';
 
 describe('repoFromSourceUrl', () => {
   it('parses a hosted GitHub commit URL', () => {
@@ -110,6 +112,105 @@ describe('currentRepoIdentity', () => {
     await execa('git', ['init'], { cwd: dir });
     await execa('git', ['remote', 'add', 'origin', 'git@github.com:acme/widgets.git'], { cwd: dir });
     expect(await currentRepoIdentity({ cwd: dir })).toBe('github.com/acme/widgets');
+  });
+
+  // The path fallback named the folder git was run in, so every linked worktree of one repo was
+  // a repo of its own: a scoped search there matched none of the decisions stamped from the main
+  // checkout. A self-hosted remote is the common way to reach the fallback.
+  describe('in a linked worktree, when the path is the identity', () => {
+    const commit = ['-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-q', '--allow-empty', '-m', 'init'];
+    let main: string;
+    let linked: string;
+
+    // The fixture commits, and a GIT_DIR or GIT_WORK_TREE inherited from a hook would point that
+    // commit at the invoking repo whatever the cwd, so git's own variables stay out of it.
+    const fixtureGit = (args: string[], cwd: string) =>
+      execa('git', args, { cwd, extendEnv: false, env: Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))) });
+
+    beforeEach(async () => {
+      main = path.join(dir, 'main');
+      linked = path.join(dir, 'linked');
+      fs.mkdirSync(main);
+      await fixtureGit(['init', '-q'], main);
+      await fixtureGit(commit, main);
+      await fixtureGit(['worktree', 'add', '-q', '--detach', linked], main);
+    });
+
+    it('is the main checkout, for a remoteless repo', async () => {
+      const identity = await currentRepoIdentity({ cwd: main });
+      expect(identity).not.toBeNull();
+      expect(await currentRepoIdentity({ cwd: linked })).toBe(identity);
+      expect(currentRepoIdentitySync({ cwd: linked })).toBe(identity);
+    });
+
+    it('is the main checkout, for a remote on a host that is not recognised', async () => {
+      await fixtureGit(['remote', 'add', 'origin', 'ssh://git@git.example.com:2224/acme/widgets.git'], main);
+      const identity = await currentRepoIdentity({ cwd: main });
+      expect(await currentRepoIdentity({ cwd: linked })).toBe(identity);
+      expect(currentRepoIdentitySync({ cwd: linked })).toBe(identity);
+    });
+
+    it('is the main checkout from a folder inside the linked worktree too', async () => {
+      const inner = path.join(linked, 'src');
+      fs.mkdirSync(inner);
+      expect(await currentRepoIdentity({ cwd: inner })).toBe(await currentRepoIdentity({ cwd: main }));
+      expect(currentRepoIdentitySync({ cwd: inner })).toBe(currentRepoIdentitySync({ cwd: main }));
+    });
+
+    it('leaves the main checkout itself, and a folder inside it, on the repo root', async () => {
+      const inner = path.join(main, 'src');
+      fs.mkdirSync(inner);
+      const { stdout: root } = await fixtureGit(['rev-parse', '--show-toplevel'], main);
+      expect(await currentRepoIdentity({ cwd: inner })).toBe(root.trim());
+      expect(currentRepoIdentitySync({ cwd: inner })).toBe(root.trim());
+    });
+
+    // A bare repo kept in a folder named .git, with its worktrees beside it: the shared folder looks like
+    // a checkout's .git, but the folder that holds it is not a checkout.
+    it('keeps its own root when the shared repo is bare, even one named .git', async () => {
+      const home = path.join(dir, 'home');
+      const bare = path.join(home, '.git');
+      const tree = path.join(home, 'tree');
+      fs.mkdirSync(home);
+      await fixtureGit(['clone', '-q', '--bare', main, bare], dir);
+      await fixtureGit(['worktree', 'add', '-q', '--detach', tree], bare);
+      const { stdout: root } = await fixtureGit(['rev-parse', '--show-toplevel'], tree);
+      expect(await currentRepoIdentity({ cwd: tree })).toBe(root.trim());
+      expect(currentRepoIdentitySync({ cwd: tree })).toBe(root.trim());
+    });
+
+    it('still prefers a recognised remote', async () => {
+      await fixtureGit(['remote', 'add', 'origin', 'git@github.com:acme/widgets.git'], main);
+      expect(await currentRepoIdentity({ cwd: linked })).toBe('github.com/acme/widgets');
+    });
+  });
+});
+
+describe('mainRootOfLinkedWorktree', () => {
+  it('is null in a main checkout, where the two git folders are one', () => {
+    expect(mainRootOfLinkedWorktree('/r/main/.git\n/r/main/.git', 'false')).toBeNull();
+  });
+
+  it('is the folder that holds the shared .git, in a linked worktree', () => {
+    expect(mainRootOfLinkedWorktree('/r/main/.git/worktrees/linked\n/r/main/.git', 'false')).toBe('/r/main');
+    expect(mainRootOfLinkedWorktree('C:/r/main/.git/worktrees/linked\r\nC:/r/main/.git', 'false')).toBe('C:/r/main');
+    // core.bare unset reads as not bare, which is git's own default.
+    expect(mainRootOfLinkedWorktree('/r/main/.git/worktrees/linked\n/r/main/.git', null)).toBe('/r/main');
+  });
+
+  it('is null for a bare repo, whatever its folder is called: there is no main checkout to name', () => {
+    expect(mainRootOfLinkedWorktree('/r/bare.git/worktrees/linked\n/r/bare.git', 'true')).toBeNull();
+    expect(mainRootOfLinkedWorktree('/r/.git/worktrees/linked\n/r/.git', 'true')).toBeNull();
+  });
+
+  it('is null when the shared folder is not a checkout\'s .git (a submodule)', () => {
+    expect(mainRootOfLinkedWorktree('/r/super/.git/modules/sub/worktrees/linked\n/r/super/.git/modules/sub', 'false')).toBeNull();
+  });
+
+  it('is null when git gave no answer (not a repo, or a git too old for --path-format)', () => {
+    expect(mainRootOfLinkedWorktree(null, null)).toBeNull();
+    expect(mainRootOfLinkedWorktree('', 'false')).toBeNull();
+    expect(mainRootOfLinkedWorktree('/r/main/.git', 'false')).toBeNull();
   });
 });
 

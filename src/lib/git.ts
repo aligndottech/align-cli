@@ -463,6 +463,25 @@ export async function getRepoRoot(opts: { cwd?: string } = {}): Promise<string |
   }
 }
 
+/**
+ * `rev-parse` for this folder's own git folder and the one its repo shares, absolute and one per
+ * line. The two differ only in a linked worktree. A git older than 2.31 has no `--path-format` and fails.
+ */
+export const GIT_DIRS_ARGS = ['rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir'];
+
+/** Whether the shared repo is bare: `true` for a worktree of a bare repo too, where `--is-bare-repository` says false. */
+export const CORE_BARE_ARGS = ['config', '--bool', 'core.bare'];
+
+/** One git read: its trimmed output, or null when git fails or prints nothing. */
+export async function gitOutput(args: string[], opts: { cwd?: string } = {}): Promise<string | null> {
+  try {
+    const { stdout } = await execa('git', args, opts.cwd ? { cwd: opts.cwd } : {});
+    return stdout.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 /** GitHub/GitLab web base parsed from a remote, or null for anything else (bitbucket,
  *  self-hosted, no remote). Shared by buildCommitUrl and buildBlobUrl so the two web
  *  link builders can't drift on what counts as "a known host" (code-style.md, two
