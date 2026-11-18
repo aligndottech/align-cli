@@ -169,6 +169,8 @@ Inside a repo, the choice is kept for that repo only, so two repos can read diff
 or Notion pages. Inside a repo, each picker also offers "None, skip <source> in this repo", which is
 kept per repo too.
 
+What a repo sees follows the same choice. A Jira ticket records its project, a Linear issue its team and a Confluence page its space, and a repo that chose other projects, teams or spaces does not list or search those rows (a repo that skipped the source sees none of them). Repos that chose the same project all see it. Where a repo made no choice, or chose "yours", it sees every row of that source, as before. Slack, Teams, Zoom and Notion rows name no unit, so they show in every repo. A row stored by an older version has no unit until a sync reads it again, and shows everywhere until then.
+
 The first time a source is read as a particular team scope (each repo, project set or space set counts separately, so widening later says it again), one line says what that means: "Importing items from
 everyone in ... that your token can read. They stay on this machine." Nothing leaves your machine
 unless you share a decision yourself. A repo your token cannot see (a private repo, a token with no

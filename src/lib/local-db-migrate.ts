@@ -541,6 +541,24 @@ export function migrate(db: DatabaseSync): void {
       throw err;
     }
   }
+  // Additive: `scope_unit`, the part of a connector a row came from (jira:ALI). Nullable with no default, and an older CLI never
+  // reads or writes it, so a row it stores has none and stays visible everywhere, which is the fail direction. See scope-unit.ts.
+  // The purge and merge backups mirror `decisions` column for column (backup-copy.ts), so they take it too, appended in the same order.
+  const unitTables = ['decisions', 'decisions_merged_backup', 'decisions_purged_backup'];
+  const lacksUnit = (t: string) => {
+    const cols = db.prepare(`PRAGMA table_info(${t})`).all() as Array<{ name: string }>;
+    return cols.length > 0 && !cols.some((c) => c.name === 'scope_unit'); // no columns: the table does not exist yet
+  };
+  if (unitTables.some(lacksUnit)) {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      for (const t of unitTables) if (lacksUnit(t)) db.exec(`ALTER TABLE ${t} ADD COLUMN scope_unit TEXT`); // re-checked inside the lock
+      db.exec('COMMIT');
+    } catch (err) {
+      if (db.isTransaction) db.exec('ROLLBACK');
+      throw err;
+    }
+  }
   if (version < SCHEMA_VERSION) {
     db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   }
