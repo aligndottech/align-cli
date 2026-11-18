@@ -89,7 +89,7 @@ export interface AdrCandidate { title: string; sourceUrl?: string | null; reason
 function linkedFromAdrs(dir: string): string {
   let text = '';
   try {
-    for (const f of fs.readdirSync(dir)) if (f.toLowerCase().endsWith('.md')) text += fs.readFileSync(path.join(dir, f), 'utf8') + '\n';
+    for (const f of fs.readdirSync(dir)) if (f.toLowerCase().endsWith('.md')) text += `${fs.readFileSync(path.join(dir, f), 'utf8')  }\n`;
   } catch { /* no folder yet */ }
   return text;
 }

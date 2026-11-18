@@ -11,7 +11,7 @@ import { createGatewayClient } from '../lib/gateway-client.js';
 import { resolveEnv } from '../lib/resolve-env.js';
 import { getRepoRoot } from '../lib/git.js';
 import { decisionShapedRows, LOCAL_SCAN } from '../lib/context-from-graph.js';
-import { adrCandidates, adrDirFor, writeAdr, type AdrRow } from '../lib/adr-writer.js';
+import { adrCandidates, adrDirFor, type AdrRow, writeAdr } from '../lib/adr-writer.js';
 import type { EnvName } from '../lib/config.js';
 
 export interface AdrDeps {
