@@ -51,4 +51,9 @@ describe('selectForFile', () => {
     expect(decisions).toHaveLength(3);
     expect(leftOut).toBe(2);
   });
+
+  it('a feat: prefix does not hide a fix: "feat: fix retry policy" is left out, "feat: use Postgres instead of MySQL" is kept', () => {
+    const { decisions } = selectForFile([row('feat: fix retry policy instead of failing'), row('feat: use Postgres instead of MySQL')], 30);
+    expect(decisions.map((d) => d.title)).toEqual(['use Postgres instead of MySQL']);
+  });
 });
