@@ -97,7 +97,7 @@ const DECISION_SHAPED = /\b(?:adopt|switch(?:ed)? to|move to|migrate|replace[sd]
  * and in an active repo most of those are fixes (1,317 of 1,817 on objectionary/eo), which is not what an agent should
  * read as "what was decided". A hosted graph is already curated by the model, so this is never applied to it.
  */
-export function selectForFile(rows: ListedDecision[], limit: number): { decisions: ContextDecision[]; leftOut: number } {
+export function selectForFile(rows: ListedDecision[], limit: number): { decisions: ContextDecision[]; leftOut: number; selected: ListedDecision[] } {
   const rules = rows.filter((r) => r.platform === 'docs');
   const choices = rows.filter((r) => r.platform !== 'docs').filter((r) => {
     // Chat and ticket importers already choose decision-shaped items; only commits and PRs are every reasoned change.
@@ -106,10 +106,13 @@ export function selectForFile(rows: ListedDecision[], limit: number): { decision
     const title = r.title.replace(FEAT_PREFIX, '');
     return !FIX_SHAPED.test(title) && DECISION_SHAPED.test(title);
   });
-  const kept = [...rules.slice(0, limit).map((r) => ({ ...contextDecisionOf(r), kind: 'rule' as const })),
-    ...choices.slice(0, Math.max(0, limit - Math.min(rules.length, limit))).map((r) => {
+  const keptRules = rules.slice(0, limit);
+  const keptChoices = choices.slice(0, Math.max(0, limit - Math.min(rules.length, limit)));
+  const kept = [...keptRules.map((r) => ({ ...contextDecisionOf(r), kind: 'rule' as const })),
+    ...keptChoices.map((r) => {
       const reason = extractReason(r.title, r.summary ?? '');
       return { ...contextDecisionOf({ ...r, title: r.title.replace(FEAT_PREFIX, '') }), kind: 'decision' as const, ...(reason ? { reason } : {}) };
     })];
-  return { decisions: kept, leftOut: rows.length - kept.length };
+  // The source rows of what is written, so a caller can judge those and not the ones left out.
+  return { decisions: kept, leftOut: rows.length - kept.length, selected: [...keptRules, ...keptChoices] };
 }

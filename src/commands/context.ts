@@ -153,14 +153,16 @@ export function registerContextCommand(program: Command): void {
         // A local graph is every commit that states a reason, so it is read whole and the file is SELECTED from it
         // (selectForFile); a team graph is already curated, so it is listed as it is.
         const rows = await client.listDecisions({ limit: localGraph ? LOCAL_SCAN : given ?? 200, status: 'active' });
-        // Committability is judged on EVERY row read, not only the ones selected: stricter, and a private item anywhere keeps it out.
-        sources = rows.map((r) => ({ platform: r.platform, title: r.title, source_url: r.source_url }));
+        // Committability is judged on the rows the file is written from: a row left out puts nothing into it.
         if (localGraph) {
           const picked = selectForFile(rows, given ?? LOCAL_FILE_CAP);
           decisions = picked.decisions;
           leftOut = picked.leftOut;
+          // An unnamed platform is not a repo's own, so it counts as private.
+          sources = picked.selected.map((r) => ({ platform: r.platform ?? '', title: r.title, source_url: r.source_url }));
         } else {
           decisions = rows.map(contextDecisionOf);
+          sources = rows.map((r) => ({ platform: r.platform, title: r.title, source_url: r.source_url }));
         }
       } catch (err) {
         spinner.fail(chalk.red(`Could not fetch decisions: ${(err as Error).message}`));

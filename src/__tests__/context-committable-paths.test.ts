@@ -83,6 +83,22 @@ describe('with no hosted remote', () => {
     expect(committableFromRepo([{ platform: 'git', source_url: `git://commit/${sha}` }], repo)).toBe(true);
     expect(committableFromRepo([{ platform: 'git', source_url: 'git://commit/0123456789abcdef0123456789abcdef01234567' }], repo)).toBe(false);
   });
+
+  it('refuses a commit that exists in the object store but is not in the checked-out history (an unmerged branch, a deleted one)', () => {
+    put('a.md'); git('add', '.'); commit();
+    git('checkout', '-q', '-b', 'side'); put('private.md', 'secret\n'); git('add', '.'); commit();
+    const onSide = git('rev-parse', 'HEAD');
+    git('checkout', '-q', 'main');
+    const row = [{ platform: 'git', source_url: `git://commit/${onSide}` }];
+    expect(committableFromRepo(row, repo)).toBe(false);
+    // The commit is still there after its branch is deleted (until git prunes it), and still not in history.
+    git('branch', '-D', 'side');
+    expect(git('cat-file', '-t', onSide)).toBe('commit');
+    expect(committableFromRepo(row, repo)).toBe(false);
+    // Control: the same commit counts once HEAD contains it.
+    git('merge', '-q', '--ff-only', onSide);
+    expect(committableFromRepo(row, repo)).toBe(true);
+  });
 });
 
 describe('a failed write leaves no temporary file behind to be committed', () => {
