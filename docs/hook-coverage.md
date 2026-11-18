@@ -73,12 +73,13 @@ the payload turns into proposed text. They do not run the model-backed check.
 ## Filling in a "not tested" cell
 
 1. Read the host's current hook documentation first.
-2. Capture one payload, following
-   [the fixtures README](../src/__tests__/fixtures/hook-payloads/README.md), for exactly that
-   cell: that actor, in that run mode.
-3. Save it under `by-cell/` with a name of the form `<host>-<mode>-<actor>-pre.json`, and add a
-   test block to `hook-coverage.test.ts` that replays it through the plugin or hook align writes.
-   For an interactive capture, also change the "keeps each capture under its own column" check,
-   which today requires that column to hold none.
-4. Change the cell here to "fires", citing the file. If the capture shows the hook was not
-   called, write "does not fire" and say what you ran.
+2. Run exactly that cell: that actor, in that run mode, with the host's hook pointed at `tee` (see
+   [the fixtures README](../src/__tests__/fixtures/hook-payloads/README.md)).
+3. If a payload arrives, save it under `by-cell/` as `<host>-<mode>-<actor>-pre.json`, add a test
+   block to `hook-coverage.test.ts` that replays it through the plugin or hook align writes, and
+   change the cell to "fires" citing the file. For an interactive capture, also change the "keeps
+   each capture under its own column" check, which today requires that column to hold none.
+4. If the edit completed and no payload arrived, change the cell to "does not fire". There is no
+   payload to save, so do not add a file under `by-cell/`. Put the command you ran, the hook
+   configuration and the evidence that the edit landed in the cell's notes on this page, and
+   name the PR check as the fallback.

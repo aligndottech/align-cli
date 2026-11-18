@@ -24,22 +24,32 @@ const dir = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'hook-payl
 const load = (name: string): Record<string, unknown> => JSON.parse(readFileSync(join(dir, `${name}.json`), 'utf8')) as Record<string, unknown>;
 const matches = (matcher: string, tool: string): boolean => new RegExp(`^(?:${matcher})$`).test(tool);
 
-// Every "fires" test records the capture it replayed, so the docs guard below can require that
-// a cited capture was actually replayed and not merely present on disk.
-const replayed = new Set<string>();
+// One replay per capture a docs cell may cite. The docs guard at the bottom runs the cited
+// replays itself, so it does not depend on the other blocks having run first (a `-t` filter
+// would otherwise leave it checking an empty registry).
+const REPLAYS: Record<string, () => Promise<void>> = {};
+const register = (names: string[], replay: () => Promise<void>): (() => Promise<void>) => {
+  for (const n of names) REPLAYS[n] = replay;
+  return replay;
+};
 
 /**
  * Run the plugin or extension align really writes against a capture, with a stand-in `align`
- * on PATH that records the stdin it is given. This reads what the generated handler SENDS,
- * so a handler that stops forwarding the tool arguments fails here. POSIX only: on Windows the
- * handler spawns `cmd /c align`, which a PATH stub cannot stand in for.
+ * on PATH that records its arguments and the stdin it is given. This reads what the generated
+ * handler SENDS, so a handler that stops forwarding the tool arguments, or runs another
+ * command, fails here. The stub finds its record files from its own location, so no path is
+ * interpolated into shell source. POSIX only: on Windows the handler spawns `cmd /c align`,
+ * which a PATH stub cannot stand in for.
  */
-async function sentByHandler(file: string, source: string, call: (mod: Record<string, unknown>) => Promise<void>): Promise<unknown> {
+async function sentByHandler(
+  file: string,
+  source: string,
+  call: (mod: Record<string, unknown>) => Promise<void>,
+): Promise<{ stdin: unknown; args: string[] }> {
   const work = mkdtempSync(join(tmpdir(), 'align-hook-coverage-'));
   const bin = join(work, 'bin');
   mkdirSync(bin);
-  const record = join(work, 'stdin.json');
-  writeFileSync(join(bin, 'align'), `#!/bin/sh\ncat > '${record}'\n`);
+  writeFileSync(join(bin, 'align'), '#!/bin/sh\nd=$(dirname "$0")\nprintf \'%s\\n\' "$@" > "$d/args.txt"\ncat > "$d/stdin.json"\n');
   chmodSync(join(bin, 'align'), 0o755);
   const plugin = join(work, file);
   writeFileSync(plugin, source);
@@ -50,9 +60,19 @@ async function sentByHandler(file: string, source: string, call: (mod: Record<st
   } finally {
     process.env['PATH'] = savedPath;
   }
-  return JSON.parse(readFileSync(record, 'utf8'));
+  return {
+    stdin: JSON.parse(readFileSync(join(bin, 'stdin.json'), 'utf8')),
+    args: readFileSync(join(bin, 'args.txt'), 'utf8').trim().split('\n'),
+  };
 }
 const posix = process.platform !== 'win32';
+
+// What reaches the check, in the form the check reads: a pre-edit event with the proposed text.
+const expectPreEdit = (sent: unknown, text: string): void => {
+  const got = normalizeHookPayload(sent);
+  expect(got?.hook_event_name).toBe('PreToolUse');
+  expect(proposedChangeText(got?.tool_input)).toBe(text);
+};
 
 describe('Claude Code, headless main agent (claude -p, 2.1.326)', () => {
   const p = load('claude-code-headless-main-pre');
@@ -61,14 +81,11 @@ describe('Claude Code, headless main agent (claude -p, 2.1.326)', () => {
     expect(p['tool_name']).toBe('Edit');
     expect(p).not.toHaveProperty('agent_id');
   });
-  it("the matcher align installs accepts the tool", () => {
+  it('the matcher align installs accepts the tool, and the payload normalises to the proposed text', register(['claude-code-headless-main-pre'], async () => {
     const group = alignClaudeHooks().PreToolUse[0] as { matcher: string };
     expect(matches(group.matcher, p['tool_name'] as string)).toBe(true);
-  });
-  it('normalises to the proposed text', () => {
-    expect(proposedChangeText(normalizeHookPayload(p)?.tool_input)).toBe('export const A = 2;');
-    replayed.add('claude-code-headless-main-pre');
-  });
+    expectPreEdit(p, 'export const A = 2;');
+  }));
 });
 
 describe('Claude Code, subagent edit in a headless run (claude -p, 2.1.326)', () => {
@@ -77,41 +94,36 @@ describe('Claude Code, subagent edit in a headless run (claude -p, 2.1.326)', ()
     expect(p['hook_event_name']).toBe('PreToolUse');
     expect(p['tool_name']).toBe('Edit');
     expect(p['agent_id']).toMatch(/^a[0-9a-f]{8,}$/);
-    expect(p['agent_id']).not.toBe((load('claude-code-headless-main-pre'))['agent_id']);
+    expect(p['agent_id']).not.toBe(load('claude-code-headless-main-pre')['agent_id']);
     expect(p['agent_type']).toBe('general-purpose');
   });
-  it('the matcher align installs accepts the tool', () => {
+  it('the matcher align installs accepts the tool, and the payload normalises to the proposed text', register(['claude-code-headless-subagent-pre'], async () => {
     const group = alignClaudeHooks().PreToolUse[0] as { matcher: string };
     expect(matches(group.matcher, p['tool_name'] as string)).toBe(true);
-  });
-  it('normalises to the proposed text', () => {
-    expect(proposedChangeText(normalizeHookPayload(p)?.tool_input)).toBe('export const B = 2;');
-    replayed.add('claude-code-headless-subagent-pre');
-  });
+    expectPreEdit(p, 'export const B = 2;');
+  }));
 });
 
 // The plugin hook receives (input, output): the tool name and ids in `input`, the tool's own
 // arguments in `output.args`. The captures are of that pair, so each is replayed through the
 // plugin align writes.
 type OcCapture = { event: string; input: { tool: string; sessionID: string; callID: string }; output: { args: Record<string, unknown> } };
-const replayOpenCode = async (file: string, p: OcCapture): Promise<unknown> =>
-  sentByHandler('align.mjs', openCodePluginBody(), async (mod) => {
+const replayOpenCode = async (p: OcCapture, text: string): Promise<void> => {
+  const sent = await sentByHandler('align.mjs', openCodePluginBody(), async (mod) => {
     const hooks = await (mod['AlignPlugin'] as () => Promise<Record<string, (i: unknown, o: unknown) => Promise<void>>>)();
     await hooks['tool.execute.before']!(p.input, p.output);
-  }).then((sent) => {
-    replayed.add(file);
-    return sent;
   });
+  expect(sent.args.slice(0, 3)).toEqual(['check', '--advisory', '--format']);
+  expect(sent.args[3]).toBe('opencode');
+  expectPreEdit(sent.stdin, text);
+};
 
 describe.skipIf(!posix)('OpenCode, headless main agent (opencode run, 1.18.27)', () => {
   const p = load('opencode-headless-main-pre') as unknown as OcCapture;
   it('was captured at tool.execute.before, the pre-edit event', () => {
     expect(p.event).toBe('tool.execute.before');
   });
-  it('the plugin sends the edit to align, and it normalises to the proposed text', async () => {
-    const sent = await replayOpenCode('opencode-headless-main-pre', p);
-    expect(proposedChangeText(normalizeHookPayload(sent)?.tool_input)).toBe('export const A = 2;');
-  });
+  it('the plugin sends the edit to align, and it normalises to the proposed text', register(['opencode-headless-main-pre'], () => replayOpenCode(p, 'export const A = 2;')));
 });
 
 describe.skipIf(!posix)('OpenCode, subagent edit in a headless run (opencode run, 1.18.27)', () => {
@@ -130,11 +142,10 @@ describe.skipIf(!posix)('OpenCode, subagent edit in a headless run (opencode run
     expect(edit.input.sessionID).not.toBe('');
     expect(edit.input.sessionID).not.toBe(task.input.sessionID);
   });
-  it('the plugin sends the edit to align, and it normalises to the proposed text', async () => {
-    const sent = await replayOpenCode('opencode-headless-subagent-edit-pre', edit);
-    expect(proposedChangeText(normalizeHookPayload(sent)?.tool_input)).toBe('export const B = 2;');
-    replayed.add('opencode-headless-subagent-task-pre');
-  });
+  it('the plugin sends the edit to align, and it normalises to the proposed text', register(
+    ['opencode-headless-subagent-edit-pre', 'opencode-headless-subagent-task-pre'],
+    () => replayOpenCode(edit, 'export const B = 2;'),
+  ));
 });
 
 describe.skipIf(!posix)('pi, headless main agent (pi -p, 1.2.0)', () => {
@@ -144,15 +155,16 @@ describe.skipIf(!posix)('pi, headless main agent (pi -p, 1.2.0)', () => {
     const ctx = (p['_capture'] as { ctx: { mode: string; hasUI: boolean } }).ctx;
     expect(ctx).toEqual({ mode: 'print', hasUI: false });
   });
-  it('the extension sends the edit to align, and it normalises to the proposed text', async () => {
+  it('the extension sends the edit to align, and it normalises to the proposed text', register(['pi-headless-main-pre'], async () => {
     const sent = await sentByHandler('align.ts', piExtensionBody(), async (mod) => {
       const handlers = new Map<string, (e: unknown) => Promise<unknown>>();
       (mod['default'] as (pi: { on: (n: string, h: (e: unknown) => Promise<unknown>) => void }) => void)({ on: (n, h) => handlers.set(n, h) });
       await handlers.get('tool_call')!(p);
     });
-    expect(proposedChangeText(normalizeHookPayload(sent)?.tool_input)).toBe('export const A = 2;');
-    replayed.add('pi-headless-main-pre');
-  });
+    expect(sent.args.slice(0, 3)).toEqual(['check', '--advisory', '--format']);
+    expect(sent.args[3]).toBe('pi');
+    expectPreEdit(sent.stdin, 'export const A = 2;');
+  }));
 });
 
 describe('docs/hook-coverage.md only claims what a capture proves', () => {
@@ -207,10 +219,14 @@ describe('docs/hook-coverage.md only claims what a capture proves', () => {
     }
   });
 
-  // Skipped on Windows with the handler replays, so only assert it where they ran.
-  it.skipIf(!posix)('replayed every capture a cell cites', () => {
+  // Runs the cited replays itself rather than reading what other tests did. The OpenCode and pi
+  // replays need a POSIX shell for the stub, so Windows only checks that each one is registered.
+  it('has a replay for every capture a cell cites, and the replay passes', async () => {
     const cited = rows.flatMap((r) => cellsOf(r).slice(1).flatMap(namesIn));
-    for (const n of cited) expect(replayed.has(n), `${n} is cited but no test replayed it`).toBe(true);
+    for (const n of cited) {
+      expect(REPLAYS[n], `${n} is cited but no test replays it`).toBeDefined();
+      if (posix || n.startsWith('claude-code')) await REPLAYS[n]!();
+    }
   });
 
   it('cites every capture file in a table cell, so none sits unexplained', () => {
