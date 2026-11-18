@@ -76,12 +76,14 @@ const expectPreEdit = (sent: unknown, text: string): void => {
 
 describe('Claude Code, headless main agent (claude -p, 2.1.326)', () => {
   const p = load('claude-code-headless-main-pre');
-  it('sent a PreToolUse for the Edit, with no subagent identity', () => {
+  const evidence = (): void => {
     expect(p['hook_event_name']).toBe('PreToolUse');
     expect(p['tool_name']).toBe('Edit');
     expect(p).not.toHaveProperty('agent_id');
-  });
+  };
+  it('sent a PreToolUse for the Edit, with no subagent identity', evidence);
   it('the matcher align installs accepts the tool, and the payload normalises to the proposed text', register(['claude-code-headless-main-pre'], async () => {
+    evidence();
     const group = alignClaudeHooks().PreToolUse[0] as { matcher: string };
     expect(matches(group.matcher, p['tool_name'] as string)).toBe(true);
     expectPreEdit(p, 'export const A = 2;');
@@ -90,14 +92,16 @@ describe('Claude Code, headless main agent (claude -p, 2.1.326)', () => {
 
 describe('Claude Code, subagent edit in a headless run (claude -p, 2.1.326)', () => {
   const p = load('claude-code-headless-subagent-pre');
-  it('sent a PreToolUse that names the subagent that made the edit', () => {
+  const evidence = (): void => {
     expect(p['hook_event_name']).toBe('PreToolUse');
     expect(p['tool_name']).toBe('Edit');
     expect(p['agent_id']).toMatch(/^a[0-9a-f]{8,}$/);
     expect(p['agent_id']).not.toBe(load('claude-code-headless-main-pre')['agent_id']);
     expect(p['agent_type']).toBe('general-purpose');
-  });
+  };
+  it('sent a PreToolUse that names the subagent that made the edit', evidence);
   it('the matcher align installs accepts the tool, and the payload normalises to the proposed text', register(['claude-code-headless-subagent-pre'], async () => {
+    evidence();
     const group = alignClaudeHooks().PreToolUse[0] as { matcher: string };
     expect(matches(group.matcher, p['tool_name'] as string)).toBe(true);
     expectPreEdit(p, 'export const B = 2;');
@@ -113,56 +117,65 @@ const replayOpenCode = async (p: OcCapture, text: string): Promise<void> => {
     const hooks = await (mod['AlignPlugin'] as () => Promise<Record<string, (i: unknown, o: unknown) => Promise<void>>>)();
     await hooks['tool.execute.before']!(p.input, p.output);
   });
-  expect(sent.args.slice(0, 3)).toEqual(['check', '--advisory', '--format']);
-  expect(sent.args[3]).toBe('opencode');
+  expect(sent.args).toEqual(['check', '--advisory', '--format', 'opencode']);
   expectPreEdit(sent.stdin, text);
 };
 
 describe.skipIf(!posix)('OpenCode, headless main agent (opencode run, 1.18.27)', () => {
   const p = load('opencode-headless-main-pre') as unknown as OcCapture;
-  it('was captured at tool.execute.before, the pre-edit event', () => {
+  const evidence = (): void => {
     expect(p.event).toBe('tool.execute.before');
-  });
-  it('the plugin sends the edit to align, and it normalises to the proposed text', register(['opencode-headless-main-pre'], () => replayOpenCode(p, 'export const A = 2;')));
+    expect(p.input.tool).toBe('edit');
+  };
+  it('was captured at tool.execute.before, the pre-edit event', evidence);
+  it('the plugin sends the edit to align, and it normalises to the proposed text', register(['opencode-headless-main-pre'], async () => {
+    evidence();
+    await replayOpenCode(p, 'export const A = 2;');
+  }));
 });
 
 describe.skipIf(!posix)('OpenCode, subagent edit in a headless run (opencode run, 1.18.27)', () => {
   const task = load('opencode-headless-subagent-task-pre') as unknown as OcCapture;
   const edit = load('opencode-headless-subagent-edit-pre') as unknown as OcCapture;
-  it('both were captured at tool.execute.before', () => {
-    expect(task.event).toBe('tool.execute.before');
-    expect(edit.event).toBe('tool.execute.before');
-  });
   // The capture is of the before-hook only, so it does not record which child session the task
   // call started. What it does show is an edit that reached the hook from a session other than
   // the one that called the task tool, which is what a subagent's edit looks like.
-  it('the edit came from a session other than the one that called the task tool', () => {
+  const evidence = (): void => {
+    expect(task.event).toBe('tool.execute.before');
+    expect(edit.event).toBe('tool.execute.before');
     expect(task.input.tool).toBe('task');
+    expect(edit.input.tool).toBe('edit');
     expect(task.input.sessionID).not.toBe('');
     expect(edit.input.sessionID).not.toBe('');
     expect(edit.input.sessionID).not.toBe(task.input.sessionID);
-  });
+  };
+  it('both were captured at tool.execute.before, and the edit came from a session other than the one that called the task tool', evidence);
   it('the plugin sends the edit to align, and it normalises to the proposed text', register(
     ['opencode-headless-subagent-edit-pre', 'opencode-headless-subagent-task-pre'],
-    () => replayOpenCode(edit, 'export const B = 2;'),
+    async () => {
+      evidence();
+      await replayOpenCode(edit, 'export const B = 2;');
+    },
   ));
 });
 
 describe.skipIf(!posix)('pi, headless main agent (pi -p, 1.2.0)', () => {
   const p = load('pi-headless-main-pre');
-  it('was captured at tool_call, the pre-edit event, and records print mode with no UI', () => {
+  const evidence = (): void => {
     expect(p['type']).toBe('tool_call');
+    expect(p['toolName']).toBe('edit');
     const ctx = (p['_capture'] as { ctx: { mode: string; hasUI: boolean } }).ctx;
     expect(ctx).toEqual({ mode: 'print', hasUI: false });
-  });
+  };
+  it('was captured at tool_call, the pre-edit event, and records print mode with no UI', evidence);
   it('the extension sends the edit to align, and it normalises to the proposed text', register(['pi-headless-main-pre'], async () => {
+    evidence();
     const sent = await sentByHandler('align.ts', piExtensionBody(), async (mod) => {
       const handlers = new Map<string, (e: unknown) => Promise<unknown>>();
       (mod['default'] as (pi: { on: (n: string, h: (e: unknown) => Promise<unknown>) => void }) => void)({ on: (n, h) => handlers.set(n, h) });
       await handlers.get('tool_call')!(p);
     });
-    expect(sent.args.slice(0, 3)).toEqual(['check', '--advisory', '--format']);
-    expect(sent.args[3]).toBe('pi');
+    expect(sent.args).toEqual(['check', '--advisory', '--format', 'pi']);
     expectPreEdit(sent.stdin, 'export const A = 2;');
   }));
 });
@@ -215,7 +228,7 @@ describe('docs/hook-coverage.md only claims what a capture proves', () => {
       const [, interactive, subagent, headless] = cellsOf(r);
       expect(namesIn(interactive!), 'no interactive capture exists yet').toEqual([]);
       for (const n of namesIn(subagent!)) expect(n).toContain('-subagent-');
-      for (const n of namesIn(headless!)) expect(n).toContain('-headless-main-');
+      for (const n of namesIn(headless!)) expect(n).toMatch(/-(headless|sdk)-main-/);
     }
   });
 

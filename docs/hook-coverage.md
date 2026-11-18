@@ -73,13 +73,24 @@ the payload turns into proposed text. They do not run the model-backed check.
 ## Filling in a "not tested" cell
 
 1. Read the host's current hook documentation first.
-2. Run exactly that cell: that actor, in that run mode, with the host's hook pointed at `tee` (see
-   [the fixtures README](../src/__tests__/fixtures/hook-payloads/README.md)).
-3. If a payload arrives, save it under `by-cell/` as `<host>-<mode>-<actor>-pre.json`, add a test
-   block to `hook-coverage.test.ts` that replays it through the plugin or hook align writes, and
-   change the cell to "fires" citing the file. For an interactive capture, also change the "keeps
-   each capture under its own column" check, which today requires that column to hold none.
-4. If the edit completed and no payload arrived, change the cell to "does not fire". There is no
-   payload to save, so do not add a file under `by-cell/`. Put the command you ran, the hook
-   configuration and the evidence that the edit landed in the cell's notes on this page, and
-   name the PR check as the fallback.
+2. Run exactly that cell: that actor, in that run mode. Record what the host sends with the
+   recorder that fits its hook interface. A host with command hooks (Claude Code, Codex, Cursor,
+   Gemini CLI) can point its hook at `tee`, as in
+   [the fixtures README](../src/__tests__/fixtures/hook-payloads/README.md). pi and OpenCode have
+   no command hook here, so use a recording extension or plugin, as in the list above.
+3. If a payload arrives, save it under `by-cell/`. Name it `<host>-headless-main-pre.json` or
+   `<host>-sdk-main-pre.json` for the headless column, and `<host>-<mode>-subagent-pre.json` for
+   the subagent column. Add a `_capture` block with `host` set to the exact label in the first
+   column of the table (for example `Claude Code`), plus the version, the mode and the date.
+   Add a test block to `hook-coverage.test.ts` that replays the capture through the plugin or
+   hook align writes, with the raw evidence checks (which actor sent it, which event) inside the
+   function the guard runs. Then change the cell to "fires" and cite the file. For an interactive
+   capture, also change the "keeps each capture under its own column" check, which today requires
+   that column to hold none.
+4. If the edit completed and no payload arrived, first prove the recorder was live: show that it
+   loaded (pi, for instance, ignores a project extension until the project is trusted) and that
+   its output file can be written. If you cannot show both, the run proves nothing, so leave the
+   cell "not tested". If you can, change the cell to "does not fire". There is no payload to
+   save, so do not add a file under `by-cell/`. Put the command you ran, the hook configuration
+   and the evidence that the edit landed in the cell's notes on this page, and name the PR check
+   as the fallback.
