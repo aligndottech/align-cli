@@ -1,0 +1,26 @@
+{
+  "_capture": {
+    "host": "pi",
+    "piVersion": "1.2.0",
+    "mode": "headless main agent (pi -p, ctx.mode print, ctx.hasUI false)",
+    "how": "pi -p -e <extension> with a tool_call handler that appends the event to a file; toolCallId redacted",
+    "capturedAt": "2026-11-18",
+    "ctx": {
+      "mode": "print",
+      "hasUI": false
+    },
+    "note": "ctx is what the extension API reported alongside the event (the second handler argument); the event itself is the rest of the file."
+  },
+  "type": "tool_call",
+  "toolName": "edit",
+  "toolCallId": "redacted",
+  "input": {
+    "path": "a.ts",
+    "edits": [
+      {
+        "oldText": "export const A = 1;",
+        "newText": "export const A = 2;"
+      }
+    ]
+  }
+}
