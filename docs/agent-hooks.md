@@ -135,8 +135,10 @@ fixes that at the start of a session. A compaction can drop those decisions from
 so the second question is whether the agent can put them back **after a compaction**.
 
 `align context inject` is the command every host runs. It prints the file `align context sync`
-last wrote (`.align/decisions.md`) in the shape that host reads, and prints nothing if there is
-no file. It makes no network call, so it fits inside a hook. `align setup` writes the hook.
+last wrote (`.align/decisions.md`) in the shape that host reads. With no file, and a local graph
+on this machine, it reads the active decisions for this repo straight from the local graph
+instead, so a fresh setup starts every session with them. With neither it prints nothing. It
+makes no network call, so it fits inside a hook. `align setup` writes the hook.
 
 ### What each agent allows (read 2026-11-18)
 
