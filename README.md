@@ -7,9 +7,13 @@
 
 **Your AI agents know the code. They don't know the company.**
 
-Align collects your team's decisions from commits, tickets, chat and meetings into one graph.
-Your coding agent can look up the decisions behind the code, and where each one came from,
-before it changes it.
+Align collects your team's decisions from commits, tickets, chat and meetings into one graph, and
+re-reads those sources in the background. Nobody updates it by hand.
+
+Where your agent supports hooks, an edit hook then checks every edit against that graph before it
+lands. It runs outside the model, so the agent doesn't have to remember to ask, and it shows the
+decision behind the code and where it came from. It warns by default, and blocking is opt-in. The
+agent can also query the graph itself over MCP.
 
 See it catch a decision in a few seconds, with nothing installed and no account or AI key:
 
