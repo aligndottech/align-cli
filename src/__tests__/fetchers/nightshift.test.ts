@@ -162,6 +162,42 @@ describe('parseParkingLot', () => {
     expect(items[0]!.raw_text).toContain("Agent's default: kept off");
   });
 
+  // Second real run on AdaptTable (Orwa Mahmoud, 18 Nov): 22 of 22 imported, then these.
+  it('a leading item number and "vs." do not end the title', () => {
+    const { items } = parseParkingLot(lot(
+      '- **14.** Keep the CSV export for field teams · kept it · offline sites · answered: yes',
+      '- Postgres vs. SQLite for the local cache · SQLite · one file · answered: SQLite',
+    ));
+    expect(items.map((i) => i.title)).toEqual(['Keep the CSV export for field teams', 'Postgres vs. SQLite for the local cache']);
+  });
+
+  it('a wrapped entry keeps its whole question in the title', () => {
+    const { items } = parseParkingLot(lot(
+      '- Keep the retry queue on disk so a restart',
+      '  does not lose jobs? · kept it on disk · survives a restart · answered: yes',
+    ));
+    expect(items[0]!.title).toBe('Keep the retry queue on disk so a restart does not lose jobs?');
+    expect(items[0]!.raw_text).toContain('Answered: yes');
+  });
+
+  it('labelled segments go under their own label, never twice', () => {
+    const { items } = parseParkingLot(lot('- Drop the v1 API? · Default: keep it · Why: two clients still call it · Rollback: re-enable the route · answered: keep it'));
+    const text = items[0]!.raw_text;
+    expect(text).not.toMatch(/Why:\s*Why:/);
+    expect(text).toContain("Agent's default: keep it");
+    expect(text).toContain('Why: two clients still call it');
+    expect(text).toContain('Rollback: re-enable the route');
+    expect(text).not.toMatch(/Why:[^\n]*Rollback/);
+  });
+
+  it('a "stalled, needs human" note is status, not a decision', () => {
+    const { items } = parseParkingLot(lot(
+      '- stalled - needs human: the deploy key expired · answered: rotated it',
+      '- Keep the cache? · answered: yes',
+    ));
+    expect(items.map((i) => i.title)).toEqual(['Keep the cache?']);
+  });
+
   it('the template above the rule, a Filed: pointer and a paragraph are not entries', () => {
     const { items } = parseParkingLot(lot(
       '- Keep the cache? · answered: yes',
