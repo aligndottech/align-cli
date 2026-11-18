@@ -123,6 +123,15 @@ describe('recordInvocationUsage - genuinely local-only user, bare command', () =
 
   // Bare `align` is the primary first-run path, and the hook handed
   // it over as '' - so a set-up local user typing the tool's name was never counted.
+  // `align up` runs connect, sync and context as children, and each sends its own ping. The gateway does not accept `up` yet,
+  // so its own ping would be dropped with a silent 400: it sends nothing, and the steps are the measurement.
+  it('`align up` sends no ping of its own (its steps send theirs); a sibling command still sends', async () => {
+    await recordInvocationUsage(undefined, 'up');
+    expect(mockFetch).not.toHaveBeenCalled();
+    await recordInvocationUsage(undefined, 'sync');
+    expect(mockFetch).toHaveBeenCalledTimes(1); // positive control: the path that would send is live
+  });
+
   it('bare `align` on a set-up local install sends one anonymous ping naming the command', async () => {
     await recordInvocationUsage(undefined, 'align');
 

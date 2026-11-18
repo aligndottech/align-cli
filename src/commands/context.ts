@@ -31,7 +31,7 @@ import { createGatewayClient } from '../lib/gateway-client.js';
 import { resolveEnv } from '../lib/resolve-env.js';
 import { readSessionStartCwd } from '../lib/hook-payload.js';
 import { alignConfigDir } from '../lib/private-files.js';
-import { ensureGitignored, isTrackedByGit, onlyFromTheRepo, removeGitignoreLine } from '../lib/context-local-only.js';
+import { committableFromRepo, ensureGitignored, isTrackedByGit, removeGitignoreLine } from '../lib/context-local-only.js';
 import { contextDecisionOf, decisionsFromLocalGraph, LOCAL_FILE_CAP, LOCAL_SCAN, selectForFile } from '../lib/context-from-graph.js';
 import {
   ALIGN_CONTEXT_PATH,
@@ -99,7 +99,7 @@ export function registerContextCommand(program: Command): void {
       // plausible-looking "no decisions" file behind. An empty file and an
       // unreachable graph are different claims (the rule, new surface).
       let decisions: ContextDecision[];
-      let platforms: string[] = [];
+      let sources: Array<{ platform: string; source_url?: string | null }> = [];
       let leftOut = 0;
       try {
         // A malformed --limit must not become NaN: locally slice(0, NaN) is []
@@ -113,7 +113,8 @@ export function registerContextCommand(program: Command): void {
         // A local graph is every commit that states a reason, so it is read whole and the file is SELECTED from it
         // (selectForFile); a team graph is already curated, so it is listed as it is.
         const rows = await client.listDecisions({ limit: localGraph ? LOCAL_SCAN : given ?? 200, status: 'active' });
-        platforms = rows.map((r) => r.platform);
+        // Committability is judged on EVERY row read, not only the ones selected: stricter, and a private item anywhere keeps it out.
+        sources = rows.map((r) => ({ platform: r.platform, source_url: r.source_url }));
         if (localGraph) {
           const picked = selectForFile(rows, given ?? LOCAL_FILE_CAP);
           decisions = picked.decisions;
@@ -133,7 +134,7 @@ export function registerContextCommand(program: Command): void {
       // left at ALIGN_CONTEXT_PATH, so every read below (and align context inject) is unchanged.
       const local = syncEnv.mode === 'local-embedded';
       // A local graph built only from this repo holds nothing a clone does not: its file can be committed.
-      const committable = local && onlyFromTheRepo(platforms);
+      const committable = local && committableFromRepo(sources, repoRoot);
       const result = await writeDecisionsContext(repoRoot, decisions, { external: local && !committable, leftOut });
 
       console.log(`${chalk.green('Wrote')} ${result.contextPath} (${decisions.length} decision${decisions.length === 1 ? '' : 's'})`);

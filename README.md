@@ -97,8 +97,10 @@ MIT, no account needed. Beta, pre-1.0.
 **Prefer a file you control, and no MCP?** Run `align up` in the repo. It reads the commits and docs, refreshes any
 connected source, and writes the decisions to `.align/decisions.md`, imported from your CLAUDE.md. When every decision
 in it comes from the repo itself (its commits, docs and pull requests), it is a normal file you commit. Run `align up`
-again whenever you want it current. If you connect a chat or ticket tool, the file stays out of git, because it then
-holds your team's private discussions.
+again whenever you want it current. Your CLAUDE.md needs to exist for the import line to be added; without one,
+`align up` prints the line to add. If you connect a chat or ticket tool, or a decision comes from another repo or a doc
+that is not committed, the file stays out of git, because it then holds private content. A file you already committed
+stays tracked until you run `git rm --cached .align/decisions.md`, and `align up` tells you when that applies.
 
 Imported decisions show `ratified: false`. That is expected, and you don't have to ratify them.
 Ratifying is a person saying "this governs", and it only applies to a claim an agent made, such as
