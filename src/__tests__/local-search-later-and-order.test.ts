@@ -50,7 +50,8 @@ describe('local search: later_on_topic, order and merge duplicates', () => {
   let client: ReturnType<typeof createLocalGatewayClient>;
   beforeEach(() => {
     dbPath = path.join(os.tmpdir(), `align-later-order-${Date.now()}-${Math.random()}.db`);
-    client = createLocalGatewayClient(dbPath);
+    // Run from outside any git repo: the check is scoped to the folder's repo, and these fixtures name repos of their own.
+    client = createLocalGatewayClient(dbPath, { cwd: os.tmpdir() });
     DENSE = {}; PAIR = {};
     const vec = (t: string) => { const v = new Float32Array(384).fill(0.1); v[0] = slotOf(t) || 9; return v; };
     vi.mocked(getEmbedding).mockImplementation(async (t: string) => vec(t));

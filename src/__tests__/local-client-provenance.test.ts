@@ -60,7 +60,8 @@ afterEach(() => {
 });
 
 function client() {
-  const c = createLocalGatewayClient(dbPath);
+  // Run from outside any git repo: the check is scoped to the folder's repo, and these fixtures name repos of their own.
+  const c = createLocalGatewayClient(dbPath, { cwd: dir });
   opened.push(c);
   return c;
 }

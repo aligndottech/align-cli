@@ -49,7 +49,8 @@ afterEach(() => {
 });
 
 async function seeded() {
-  const c = createLocalGatewayClient(dbPath);
+  // Run from outside any git repo: the check is scoped to the folder's repo, and these fixtures name repos of their own.
+  const c = createLocalGatewayClient(dbPath, { cwd: dir });
   opened.push(c);
   const { snapshots } = await c.ingestBatch([
     { source_url: `https://github.com/acme/api/commit/${SHA}`, platform: 'git', raw_text: 'Use sqlite for the cache because it is embedded', title: 'Use sqlite for the cache', created_at: DECIDED },

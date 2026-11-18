@@ -59,7 +59,8 @@ beforeEach(() => {
   vi.stubEnv('ANTHROPIC_API_KEY', 'x'.repeat(40));
   setSavedLlmSource(() => ({ keys: {} }));
   dbPath = path.join(scratch, 'local.db');
-  client = createLocalGatewayClient(dbPath);
+  // Run from outside any git repo: the check is scoped to the folder's repo, and these fixtures name repos of their own.
+  client = createLocalGatewayClient(dbPath, { cwd: scratch });
 });
 afterEach(() => {
   client.close();
