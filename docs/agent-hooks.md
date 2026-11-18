@@ -122,6 +122,10 @@ The exception is Cursor's `sessionStart` payload, which has no `cwd` and names t
 `workspace_roots`. `align context inject --format cursor` reads the first root only, so in a
 multi-root workspace it finds decisions only if the first root has them.
 
+For `align context inject`, a payload that names a path that is not a directory (a stale or deleted
+workspace) prints nothing, on every host except Claude Code. Codex, Gemini and Copilot payloads that
+name no `cwd` at all still fall back to the process directory.
+
 ## The read path: putting the decisions back in front of the agent
 
 Everything above is the write path: a hook fires when the agent proposes an edit. This part
