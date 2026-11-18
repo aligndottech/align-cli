@@ -124,6 +124,16 @@ export function registerContextCommand(program: Command): void {
       const local = syncEnv.mode === 'local-embedded';
       // A local graph built only from this repo holds nothing a clone does not: its file can be committed.
       const committable = local && committableFromRepo(sources, repoRoot);
+      // .gitignore cannot protect a file git already tracks: one ordinary commit would publish what is written into it.
+      if (local && !committable && isTrackedByGit(repoRoot, ALIGN_CONTEXT_PATH)) {
+        console.error(
+          `align context sync: not writing ${ALIGN_CONTEXT_PATH}: it is tracked by git, and this graph now holds decisions that are not from this repo ` +
+          `(a chat, a ticket, another repo, or an uncommitted doc). Writing them there would put them in your next commit. Nothing was written. ` +
+          `Stop tracking it, then run this again: git rm --cached ${ALIGN_CONTEXT_PATH}`,
+        );
+        process.exitCode = 1;
+        return;
+      }
       const result = await writeDecisionsContext(repoRoot, decisions, { external: local && !committable });
 
       console.log(`${chalk.green('Wrote')} ${result.contextPath} (${decisions.length} decision${decisions.length === 1 ? '' : 's'})`);
@@ -153,9 +163,6 @@ export function registerContextCommand(program: Command): void {
           `${status === 'added' ? 'Kept out of git (added to .gitignore)' : 'Kept out of git'}: this comes from your local graph, which stays on this machine. ` +
           `To bring decisions to your team, run ${chalk.bold('align share')}.`,
         ));
-        if (isTrackedByGit(repoRoot, ALIGN_CONTEXT_PATH)) {
-          console.log(chalk.yellow(`${ALIGN_CONTEXT_PATH} is already tracked by git, so it can reach your team. Stop tracking it: git rm --cached ${ALIGN_CONTEXT_PATH}`));
-        }
       }
       console.log(chalk.dim('Bring it up to date after new decisions land: align up'));
     });
