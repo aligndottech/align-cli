@@ -32,9 +32,11 @@ agent was run.
 
 ## Where the hook may not run
 
-Use the PR check. `align check` runs on the pull request against the diff, so an edit that no
-hook saw still gets checked before it merges. Every "not tested" cell above falls back to it.
-The PR check runs after the edit is written, so it flags a conflict later than the hook does.
+Use the PR check. When a repository runs `align check` in CI against the pull request diff (see
+[In CI](check.md#in-ci)), an edit that no hook saw still gets checked before it merges. Every
+"not tested" cell falls back to it. If a repository has no such CI step there is no fallback,
+and an edit the hook missed is not checked at all. The PR check runs after the edit is written,
+so it flags a conflict later than the hook does.
 
 ## Evidence and documentation, per cell
 
@@ -75,6 +77,8 @@ the payload turns into proposed text. They do not run the model-backed check.
    [the fixtures README](../src/__tests__/fixtures/hook-payloads/README.md), for exactly that
    cell: that actor, in that run mode.
 3. Save it under `by-cell/` with a name of the form `<host>-<mode>-<actor>-pre.json`, and add a
-   test block to `hook-coverage.test.ts`.
+   test block to `hook-coverage.test.ts` that replays it through the plugin or hook align writes.
+   For an interactive capture, also change the "keeps each capture under its own column" check,
+   which today requires that column to hold none.
 4. Change the cell here to "fires", citing the file. If the capture shows the hook was not
    called, write "does not fire" and say what you ran.
