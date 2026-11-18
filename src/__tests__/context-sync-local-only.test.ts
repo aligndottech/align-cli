@@ -108,7 +108,7 @@ describe('align context sync, local graph built only from the repo', () => {
   });
 
   it('a pull request from ANOTHER repo keeps the file out of git', async () => {
-    mockListDecisions.mockResolvedValue([...REPO_ONLY, { id: '5', title: 'Rotate the client keys', summary: '', platform: 'github', status: 'active', source_url: 'https://github.com/acme/billing-private/pull/3' }]);
+    mockListDecisions.mockResolvedValue([...REPO_ONLY, { id: '5', title: 'Rotate the client keys instead of sharing one', summary: '', platform: 'github', status: 'active', source_url: 'https://github.com/acme/billing-private/pull/3' }]);
     await run();
     expect(gitignore()).toContain('.align/decisions.md');
     expect(logs.join('\n')).toMatch(/Kept out of git/);
@@ -131,6 +131,32 @@ describe('align context sync, local graph built only from the repo', () => {
     expect(gitignore()).toBeNull();
     expect(logs.join('\n')).toMatch(/comes from this repo.*commit it/s);
     expect(logs.join('\n')).not.toMatch(/Kept out of git/);
+  });
+
+  it('judges the decisions that are written, not the ones left out: a private row past the limit does not block a tracked file', async () => {
+    const chat = { id: '4', title: 'Freeze deploys on Fridays', summary: '', platform: 'slack', status: 'active', source_url: 'https://acme.slack.com/archives/C1/p1' };
+    mockListDecisions.mockResolvedValue([...REPO_ONLY, chat]);
+    fs.mkdirSync(path.join(repo, '.align'));
+    fs.writeFileSync(path.join(repo, '.align/decisions.md'), 'old');
+    execFileSync('git', ['add', '-f', '.align/decisions.md'], { cwd: repo });
+    execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'file'], { cwd: repo });
+    const errs: string[] = [];
+    vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => { errs.push(a.join(' ')); });
+    const runWith = (limit: string) => { const p = new Command(); p.exitOverride(); registerContextCommand(p); return p.parseAsync(['node', 'align', 'context', 'sync', '--limit', limit]); };
+    // Room for the rule and two decisions: the chat row is left out, so nothing private is written.
+    process.exitCode = undefined;
+    await runWith('3');
+    const written = fs.readFileSync(path.join(repo, '.align/decisions.md'), 'utf8');
+    expect(errs.join('\n')).toBe('');
+    expect(process.exitCode).toBeUndefined();
+    expect(written).toContain('Use Postgres 16');
+    expect(written).not.toContain('Freeze deploys');
+    // Control: with room for the chat row it IS written, so the tracked file is refused and stays as it was.
+    fs.writeFileSync(path.join(repo, '.align/decisions.md'), 'old');
+    await runWith('4');
+    expect(process.exitCode).toBe(1);
+    expect(fs.readFileSync(path.join(repo, '.align/decisions.md'), 'utf8')).toBe('old');
+    process.exitCode = undefined;
   });
 
   it('one decision from outside the repo keeps the file out of git', async () => {

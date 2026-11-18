@@ -157,9 +157,15 @@ function unchangedFromHead(repoRoot: string, relPath: string): boolean {
   } catch { return false; }
 }
 
+/**
+ * The commit is in the history HEAD has: cat-file alone says only that the object exists, and a commit from an
+ * unmerged or deleted branch stays in the object store until git prunes it, so its text would be published with the file.
+ */
 function commitInRepo(repoRoot: string, sha: string): boolean {
   try {
     execFileSync('git', ['-C', repoRoot, 'cat-file', '-e', `${sha}^{commit}`], { stdio: 'pipe' });
+    // Exit 0 is an ancestor; 1 is not; any other failure throws too. Both read as private.
+    execFileSync('git', ['-C', repoRoot, 'merge-base', '--is-ancestor', sha, 'HEAD'], { stdio: 'pipe' });
     return true;
   } catch { return false; }
 }
