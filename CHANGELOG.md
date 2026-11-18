@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.85.0](https://github.com/aligndottech/align-cli/compare/cli-v0.84.0...cli-v0.85.0) (2026-11-18)
+
+
+### Features
+
+* **docs:** read code-conductor's team memory (.claude/memory/project.md) ([#652](https://github.com/aligndottech/align-cli/issues/652)) ([ab74b2e](https://github.com/aligndottech/align-cli/commit/ab74b2e92a5ab29a468f0b7baf68570a06bc4383))
+
+
+### Bug Fixes
+
+* **context:** the session-start hook reads the local graph when no decisions file exists ([#650](https://github.com/aligndottech/align-cli/issues/650)) ([722d412](https://github.com/aligndottech/align-cli/commit/722d412588e24ce3697e35820d8bbf1d6272ec6c))
+
 ## [0.84.0](https://github.com/aligndottech/align-cli/compare/cli-v0.83.2...cli-v0.84.0) (2026-11-18)
 
 
