@@ -72,27 +72,59 @@ export function committableFromRepo(rows: ReadonlyArray<{ platform: string; sour
   return rows.every((r) => {
     if (!REPO_PLATFORMS.has(r.platform) || !r.source_url) return false;
     const url = r.source_url;
-    let path: string | undefined;
+    let refAndPath: string | undefined;
     if (url.startsWith('git://')) {
-      // A repo with no hosted remote: its own items carry a git:// URL, and nothing else does.
+      // A repo with no hosted remote: a git:// URL names no repository, so it is only accepted when this repo can
+      // prove it is its own. A commit can (the sha is in this repo's history); a document cannot, so it stays private.
       if (repo !== null && /^(github|gitlab)\.com\//.test(repo)) return false;
-      path = /^git:\/\/blob\/[^/]+\/([^#]+)/.exec(url)?.[1];
+      const sha = /^git:\/\/commit\/([0-9a-f]{7,40})$/i.exec(url)?.[1];
+      return r.platform === 'git' && sha !== undefined && commitInRepo(repoRoot, sha);
     } else {
       let parsed: URL;
       try { parsed = new URL(url); } catch { return false; }
       const hostPath = `${parsed.host}${parsed.pathname}`.toLowerCase();
       if (!repo || !hostPath.startsWith(`${repo}/`)) return false;
-      path = /\/(?:-\/)?blob\/[^/]+\/(.+)$/.exec(parsed.pathname)?.[1];
+      refAndPath = /\/(?:-\/)?blob\/(.+)$/.exec(parsed.pathname)?.[1];
     }
     if (r.platform !== 'docs') return true;
-    return path !== undefined && isTrackedByGit(repoRoot, decodeURIComponent(path));
+    if (refAndPath === undefined) return false;
+    let decoded: string;
+    try { decoded = decodeURIComponent(refAndPath); } catch { return false; }
+    const relPath = stripRef(decoded, currentBranch(repoRoot));
+    return relPath !== undefined && isTrackedByGit(repoRoot, relPath);
   });
+}
+
+/**
+ * The document path inside `<ref>/<path>`. A branch name can contain slashes, so the current branch is stripped
+ * when it prefixes the string; otherwise the ref is taken as one segment. A wrong split only ever names a path
+ * that is not tracked, which keeps the file private.
+ */
+export function stripRef(refAndPath: string, branch: string | null): string | undefined {
+  if (branch && refAndPath.startsWith(`${branch}/`)) return refAndPath.slice(branch.length + 1) || undefined;
+  const i = refAndPath.indexOf('/');
+  return i > 0 ? refAndPath.slice(i + 1) || undefined : undefined;
+}
+
+function currentBranch(repoRoot: string): string | null {
+  try {
+    const b = execFileSync('git', ['-C', repoRoot, 'rev-parse', '--abbrev-ref', 'HEAD'], { stdio: 'pipe' }).toString().trim();
+    return b && b !== 'HEAD' ? b : null;
+  } catch { return null; }
+}
+
+function commitInRepo(repoRoot: string, sha: string): boolean {
+  try {
+    execFileSync('git', ['-C', repoRoot, 'cat-file', '-e', `${sha}^{commit}`], { stdio: 'pipe' });
+    return true;
+  } catch { return false; }
 }
 
 /** Is `relPath` already tracked by git? False outside a repo, and never throws. */
 export function isTrackedByGit(repoRoot: string, relPath: string): boolean {
   try {
-    execFileSync('git', ['-C', repoRoot, 'ls-files', '--error-unmatch', '--', relPath], { stdio: 'pipe' });
+    // --literal-pathspecs: a filename like `[ab].md` must not match a tracked `a.md`.
+    execFileSync('git', ['--literal-pathspecs', '-C', repoRoot, 'ls-files', '--error-unmatch', '--', relPath], { stdio: 'pipe' });
     return true;
   } catch {
     return false;
