@@ -49,7 +49,8 @@ describe('Claude Code, subagent edit in a headless run (claude -p, 2.1.326)', ()
   it('sent a PreToolUse that names the subagent that made the edit', () => {
     expect(p['hook_event_name']).toBe('PreToolUse');
     expect(p['tool_name']).toBe('Edit');
-    expect(typeof p['agent_id']).toBe('string');
+    expect(p['agent_id']).toMatch(/^a[0-9a-f]{8,}$/);
+    expect(p['agent_id']).not.toBe((load('claude-code-headless-main-pre'))['agent_id']);
     expect(p['agent_type']).toBe('general-purpose');
   });
   it('the matcher align installs accepts the tool', () => {
@@ -131,6 +132,17 @@ describe('docs/hook-coverage.md only claims what a capture proves', () => {
           expect(cited, `${c} cites a capture but is not a fires cell`).toEqual([]);
         }
       }
+    }
+  });
+
+  // The columns are actors and run modes, so a capture has to sit under the column it proves.
+  it('keeps each capture under its own column', () => {
+    for (const r of rows) {
+      const [, interactive, subagent, headless] = cellsOf(r);
+      const names = (c: string): string[] => [...c.matchAll(/by-cell\/([a-z0-9-]+)\.json/g)].map((m) => m[1]!);
+      expect(names(interactive!), 'no interactive capture exists').toEqual([]);
+      for (const n of names(subagent!)) expect(n).toContain('-subagent-');
+      for (const n of names(headless!)) expect(n).toContain('-headless-main-');
     }
   });
 

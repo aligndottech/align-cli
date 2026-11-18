@@ -21,17 +21,16 @@ agent was run.
 
 | Host | Main agent, interactive session | Subagent | Headless or SDK run |
 |---|---|---|---|
-| **Claude Code** | not tested. No interactive capture was made. | fires, in a headless run: `by-cell/claude-code-headless-subagent-pre.json` | fires: `by-cell/claude-code-headless-main-pre.json` |
+| **Claude Code** | not tested. No interactive capture was made. | fires, headless only: `by-cell/claude-code-headless-subagent-pre.json` | fires: `by-cell/claude-code-headless-main-pre.json` |
 | **Codex** | not tested. `codex-pre.json` is a real payload, but it did not record whether the session was interactive. | not tested | not tested |
 | **Cursor** | not tested. Cursor was not installed where this was written. | not tested | not tested |
 | **Gemini CLI** | not tested. No model credentials were available to run a session. | not tested | not tested |
 | **pi** | not tested. `pi-pre.json` is a real payload, but it did not record the run mode. | not tested. pi has no subagents in core. | fires: `by-cell/pi-headless-main-pre.json` |
-| **OpenCode** | not tested. No interactive session was captured. | fires, in a headless run: `by-cell/opencode-headless-subagent-task-pre.json` and `by-cell/opencode-headless-subagent-edit-pre.json` | fires: `by-cell/opencode-headless-main-pre.json` |
+| **OpenCode** | not tested. No interactive session was captured. | fires, headless only: `by-cell/opencode-headless-subagent-task-pre.json` and `by-cell/opencode-headless-subagent-edit-pre.json` | fires: `by-cell/opencode-headless-main-pre.json` |
 
-Where a cell says "fires, in a headless run", it is the subagent and headless cells in one: the
-capture was a headless run in which a subagent made the edit.
+"Headless only" means the subagent capture came from a headless run. A subagent edit in an interactive session is not tested.
 
-## Where it does not fire, or is not known to
+## Where the hook may not run
 
 Use the PR check. `align check` runs on the pull request against the diff, so an edit that no
 hook saw still gets checked before it merges. Every "not tested" cell above falls back to it.
@@ -43,7 +42,7 @@ The captures are in `src/__tests__/fixtures/hook-payloads/by-cell/`. Each file h
 `_capture` block with the host version, how it was captured and the date. Session ids,
 transcript paths and working directories are redacted. Every other field is as the host sent it.
 `src/__tests__/hook-coverage.test.ts` runs one block per "fires" cell, and a final block fails
-the build if this page says "fires" without a capture, or leaves a capture file uncited.
+the build if this page says "fires" without a capture, cites a capture under the wrong column, or leaves a capture file uncited.
 
 | Host | Documentation read | What it says about these cells |
 |---|---|---|
@@ -51,7 +50,7 @@ the build if this page says "fires" without a capture, or leaves a capture file 
 | Codex | [hooks](https://learn.chatgpt.com/docs/hooks) (moved from developers.openai.com/codex/hooks) | `PreToolUse` covers `apply_patch`. Hooks must be reviewed and trusted before they run. It lists `SubagentStart` and `SubagentStop` but does not say whether `PreToolUse` runs for a subagent's tool calls, and does not address `codex exec`. |
 | Cursor | [hooks](https://cursor.com/docs/agent/hooks) | `preToolUse` fires for all tool types, including `Task`. There are `subagentStart` and `subagentStop` events. It does not say whether `preToolUse` fires for a subagent's own edits, or in `cursor-agent -p`. |
 | Gemini CLI | [hooks](https://geminicli.com/docs/hooks/) and [reference](https://geminicli.com/docs/hooks/reference/) | Silent on subagents and on `-p` mode for `BeforeTool`. |
-| pi | [README](https://github.com/earendil-works/pi) and [extensions](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md) | pi "skips features like sub-agents and plan mode". Extensions see `ctx.mode` as `tui`, `rpc`, `json` or `print`. The docs imply extensions run in print mode and do not say so outright. The capture settles it. |
+| pi | [README](https://github.com/earendil-works/pi) and [extensions](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md) | pi "skips features like sub-agents and plan mode". Extensions see `ctx.mode` as `tui`, `rpc`, `json` or `print`. The docs imply extensions run in print mode and do not say so outright. The capture records `ctx.mode` as `print`, noted beside the event by whoever captured it. |
 | OpenCode | [plugins](https://opencode.ai/docs/plugins/), [build a plugin](https://opencode.ai/docs/build/plugins) and [server plugins](https://opencode.ai/docs/build/plugins/server) | Silent on child sessions and on `opencode run`. Only the capture shows the hook ran for the child session's edit. |
 
 ## How a cell was captured
@@ -66,8 +65,8 @@ the build if this page says "fires" without a capture, or leaves a capture file 
   `ctx.mode` to a file. pi only loads a project extension after the project is trusted, so the
   extension was passed with `-e`. That is the same extension API align's own extension uses.
 
-Both tests and captures cover the part align controls: whether the matcher accepts the tool and
-whether the payload turns into proposed text. They do not run the model-backed check itself.
+The tests check only the part align controls: whether the matcher accepts the tool and whether
+the payload turns into proposed text. They do not run the model-backed check.
 
 ## Filling in a "not tested" cell
 

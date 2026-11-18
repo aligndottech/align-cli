@@ -2,15 +2,15 @@
   "_capture": {
     "host": "OpenCode",
     "opencodeVersion": "1.18.27",
-    "how": "opencode run with a project plugin that appends its tool.execute.before (input, output) arguments to a file; sessionID and callID redacted but kept distinct",
+    "how": "opencode run with a project plugin that appends its tool.execute.before (input, output) arguments to a file; ids are as sent",
     "mode": "headless run, the parent session calling the task tool",
     "capturedAt": "2026-11-18"
   },
   "event": "tool.execute.before",
   "input": {
     "tool": "task",
-    "sessionID": "ses_PARENT",
-    "callID": "call_2"
+    "sessionID": "ses_e11a7689affeTpz1wzNnuAoJuP",
+    "callID": "call-92c54e45-02a2-4d2a-b7f6-956ca91bcb04"
   },
   "output": {
     "args": {
