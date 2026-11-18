@@ -35,6 +35,7 @@ import { decisionLinkFor } from '../lib/decision-links.js';
 import { isoDay, isoInstant } from '../lib/decision-render.js';
 import type { ChangeSource } from '../lib/co-change-check.js';
 import type { CoChangeViolation } from '../lib/co-change.js';
+import type { FileDecision } from '../lib/decisions-file.js';
 
 // The hook budget on EVERY host is <=10s (Claude Code HOOK_TIMEOUT_SECONDS, and the 10s
 // execFile timeout in the pi and OpenCode shims). Adjudication measured ~11s whenever
@@ -115,9 +116,10 @@ export function registerCheckCommand(program: Command): void {
     .option('--json', 'Same output and exit codes as --ci: one JSON document on stdout')
     .option('--title <text>', 'The decision being proposed, in words (e.g. the PR title). Without it the gateway adjudicates on the first 200 characters of the diff, which is a file header and a few + lines')
     .option('--base <ref>', 'Diff against the merge base with <ref> (e.g. origin/main). Required in CI: a clean checkout has no staged or unstaged changes, so without it there is nothing to check and the command passes without looking')
+    .option('--decisions-file <file>', 'Judge the change against the decisions in this file (e.g. DECISIONS.md, written by `align up --out`) instead of a graph, with your own provider key (OPENAI_API_KEY, ANTHROPIC_API_KEY, ...). No account, no graph. A file that is unreadable or holds no decisions is exit 2, never a pass')
     .option('--depth <depth>', `How deep an answer to request: ${CHECK_DEPTHS.join(', ')} - related is retrieval only, full (the gateway default) adjudicates behind its similarity cost gate, exhaustive adjudicates whatever was retrieved (for strict CI gates whose fail-on treats unknown as failure). Ignored in --advisory mode, which sets its own: retrieval, then one full check inside the hook's time budget`)
     .option('--resolve <resolution>', 'Record resolution for a conflict: <decision_id>:<type> where type is honored|overridden|context_changed')
-    .action(async (opts: { env: EnvName; all: boolean; hook: boolean; advisory: boolean; blockOnCritical: boolean; adjudicateDeferred?: string; format?: AdvisoryFormat; ci: boolean; json?: boolean; base?: string; title?: string; depth?: string; resolve?: string }) => {
+    .action(async (opts: { env: EnvName; all: boolean; hook: boolean; advisory: boolean; blockOnCritical: boolean; adjudicateDeferred?: string; format?: AdvisoryFormat; ci: boolean; json?: boolean; base?: string; title?: string; depth?: string; resolve?: string; decisionsFile?: string }) => {
       // `--json` is the machine contract `--ci` already is - same document, same exit
       // codes (1 conflict, 2 unknown). One flag in the rest of this function, not two.
       if (opts.json) opts.ci = true;
@@ -143,6 +145,31 @@ export function registerCheckCommand(program: Command): void {
         process.exit(EXIT_UNKNOWN);
       }
       const depth = opts.depth as CheckDepth | undefined;
+
+      // --decisions-file: the decisions come from a committed file and the judge is the user's own provider,
+      // so nothing below that needs a graph, a hook payload or a gateway applies. Read BEFORE the diff, so a bad
+      // file fails the check even on a PR with no changes. Every way this cannot run is EXIT_UNKNOWN: a gate
+      // that did not look must not read as one that found nothing.
+      let fileDecisions: FileDecision[] | null = null;
+      if (opts.decisionsFile !== undefined) {
+        const couldNotRun = (reason: string, message: string): never => {
+          if (opts.ci) {
+            process.stdout.write(`${JSON.stringify({ status: 'unknown', reason, message })}\n`);
+          } else {
+            console.error(chalk.red(message));
+          }
+          return process.exit(EXIT_UNKNOWN);
+        };
+        const clash = opts.hook ? '--hook' : opts.advisory ? '--advisory' : opts.resolve ? '--resolve' : opts.adjudicateDeferred ? '--adjudicate-deferred' : null;
+        if (clash) couldNotRun('invalid_combination', `${clash} cannot be combined with --decisions-file: a decisions file has no hook, advisory or resolution path.`);
+        const { readDecisionsFile, DecisionsFileError } = await import('../lib/decisions-file.js');
+        try {
+          fileDecisions = readDecisionsFile(opts.decisionsFile);
+        } catch (err) {
+          if (err instanceof DecisionsFileError) couldNotRun(err.reason, err.message);
+          couldNotRun('decisions_file_unreadable', `Could not read the decisions file ${opts.decisionsFile}: ${(err as Error).message}`);
+        }
+      }
 
       // The spawned adjudicator. Dispatched before advisory: it is the child the
       // advisory hook launched, doing the slow full check after the hook window closed.
@@ -180,7 +207,9 @@ export function registerCheckCommand(program: Command): void {
       const envName: EnvName = resolveEnv(opts.env, { preferLocalEmbedded: true });
 
       const config = createConfigStore();
-      const client = createGatewayClient(config.getEnvironment(envName));
+      // Not for --decisions-file: building it opens the local database in local mode, and a file check needs no graph.
+      let client!: ReturnType<typeof createGatewayClient>;
+      if (!fileDecisions) client = createGatewayClient(config.getEnvironment(envName));
 
       let diff: string;
       let autoBase: string | null = null;
@@ -257,7 +286,7 @@ export function registerCheckCommand(program: Command): void {
       // so they are computed here from the file list and need no model. Not in --hook: that runs on one
       // commit, and a same-PR rule cannot be judged from one commit of a PR.
       let violations: CoChangeViolation[] = [];
-      if (!opts.hook) {
+      if (!opts.hook && !fileDecisions) {
         const envConfig = config.getEnvironment(envName);
         if (envConfig.mode === 'local-embedded') {
           try {
@@ -274,6 +303,9 @@ export function registerCheckCommand(program: Command): void {
         }
       }
       const judge = async (): Promise<AlignmentResult> => {
+        if (fileDecisions) {
+          return (await import('../lib/decisions-file-check.js')).judgeAgainstDecisionsFile(diff, fileDecisions, { title: opts.title, file: opts.decisionsFile! });
+        }
         const call = () => client.checkAlignment(diff, branch, checkOpts);
         return violations.length === 0 ? call() : (await import('../lib/co-change-check.js')).judgeWithCoChange(call, violations);
       };

@@ -57,7 +57,7 @@ align connect nightshift      Import the decisions you answered in nightshift's 
                               flags: --dir --limit --approve --env
 
 align check                   Check current changes against the decision graph (exit 1 = conflict found)
-                              flags: --env --all --hook --advisory --format --block-on-critical --adjudicate-deferred --ci --json --title --base --depth --resolve
+                              flags: --env --all --hook --advisory --format --block-on-critical --adjudicate-deferred --ci --json --title --base --decisions-file --depth --resolve
 align review                  same as align check
 
 align backlog <decision>      Turn a decision into one issue per task, created straight away in Linear, GitHub Issues or Jira (the first run asks where; later runs reuse it)

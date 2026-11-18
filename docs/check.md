@@ -126,6 +126,74 @@ Or use the published GitHub Action, which always passes `--base`, writes the ver
 summary and annotates the changed files:
 [`aligndottech/decision-check`](https://github.com/aligndottech/decision-check).
 
+## In CI with a decisions file, no account
+
+A team that keeps its decisions in the repo can fail a pull request that goes against them, with
+its own AI provider key and nothing else. Commit the file `align up --out DECISIONS.md` writes,
+then check each PR against it:
+
+```bash
+align check --ci --base origin/main --decisions-file DECISIONS.md
+```
+
+The decisions come from the file, not a graph. No account, no MCP server and no local graph are
+needed. The only network call is the one to your provider (the first key it finds: `OPENAI_API_KEY`,
+`ANTHROPIC_API_KEY`, `GEMINI_API_KEY` and the others in [Configuration](configuration.md)). It sends
+the diff, cut to fit your model's context window, and the decisions in the file. By default that is
+one call per check.
+
+Every decision in the file is judged, not only the ones that look similar to the diff. The file is
+the short list, so there is nothing to retrieve. A conflict is a decision the change contradicts or
+reverses.
+
+| Exit | Meaning |
+|---|---|
+| `0` | Checked against the file, no conflict. Also when `--base` finds no changes at all. |
+| `1` | The diff goes against a decision. The JSON on stdout names it and gives the reason. |
+| `2` | The check could not run: no provider key, a rejected key, a provider answer it could not read, a file that is missing, and a file with no decisions in it. |
+
+Exit `2` is never a pass. That includes a non-empty file that holds no decisions: a check against
+nothing would pass every change, so it fails instead. The `Agent-decided, not yet ratified` section
+of the file is not checked against, because the file itself says not to treat those as governing.
+
+Put this in `.github/workflows/align.yml`:
+
+```yaml
+name: Align
+on:
+  pull_request:
+
+jobs:
+  decisions:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the check diffs against origin/<base>, which needs history
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --global @aligndottech/cli
+      - name: Check the pull request against DECISIONS.md
+        run: align check --ci --base "origin/$BASE_REF" --decisions-file DECISIONS.md --title "$PR_TITLE"
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # Through env, never pasted into the script: a PR title is text anyone can write.
+          BASE_REF: ${{ github.base_ref }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+```
+
+Add `OPENAI_API_KEY` under the repository's Settings, Secrets and variables, Actions.
+`--title` is optional. It tells the judge what the change decides, which a bare diff does not.
+
+GitHub does not give secrets to pull requests from forks, so on those the job has no key and
+fails with exit `2`. That is the safe direction. Do not switch to `pull_request_target` to get
+around it: that runs with your secrets against code from the fork.
+
+`--decisions-file` cannot be combined with `--hook`, `--advisory` or `--resolve`. They stop with exit `2`.
+
 ## Answering a check
 
 When a check flags a conflict, resolve it so it stops surfacing. This is only meaningful while
