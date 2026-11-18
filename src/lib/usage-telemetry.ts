@@ -779,6 +779,8 @@ export async function recordInvocationUsage(
   // `align up` is its steps (connect, sync, context), and each child sends its own ping. The gateway does not accept `up`,
   // so its own ping would only be dropped with a silent 400 (telemetry-server-parity.test.ts NOT_SENT).
   if (command === 'up') return;
+  // `align adr` has no count on the gateway yet (an unknown command is a silent 400): nothing is sent until it does.
+  if (command === 'adr') return;
   const { createConfigStore } = await import('./config.js');
   const { resolveEnv } = await import('./resolve-env.js');
   const config = createConfigStore();

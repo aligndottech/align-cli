@@ -132,6 +132,14 @@ describe('recordInvocationUsage - genuinely local-only user, bare command', () =
     expect(mockFetch).toHaveBeenCalledTimes(1); // positive control: the path that would send is live
   });
 
+  // The gateway does not accept `adr` yet, so its ping would be dropped with a silent 400. Until it does, it sends nothing.
+  it('`align adr` sends no ping until the gateway accepts it; a sibling command still sends', async () => {
+    await recordInvocationUsage(undefined, 'adr');
+    expect(mockFetch).not.toHaveBeenCalled();
+    await recordInvocationUsage(undefined, 'sync');
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
   it('bare `align` on a set-up local install sends one anonymous ping naming the command', async () => {
     await recordInvocationUsage(undefined, 'align');
 
