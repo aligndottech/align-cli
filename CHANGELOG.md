@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.84.0](https://github.com/aligndottech/align-cli/compare/cli-v0.83.2...cli-v0.84.0) (2026-11-18)
+
+
+### Features
+
+* **cursor:** wire sessionStart context inject per Cursor docs (ALI-2130) ([#642](https://github.com/aligndottech/align-cli/issues/642)) ([38ef581](https://github.com/aligndottech/align-cli/commit/38ef5814414af65f2935e9c16271c43f61e10f27))
+* **setup:** put the decisions back at session start on Codex, Gemini CLI and Copilot CLI (ALI-2130) ([#635](https://github.com/aligndottech/align-cli/issues/635)) ([2c5842f](https://github.com/aligndottech/align-cli/commit/2c5842f4fc0317080a50fedb89ab1b2795f759d3))
+
+
+### Bug Fixes
+
+* **cursor:** inject nothing when no workspace is named, check setup before verify (ALI-2130) ([#644](https://github.com/aligndottech/align-cli/issues/644)) ([72f84aa](https://github.com/aligndottech/align-cli/commit/72f84aa907b4e3c9fb967674a96537892fcd14cc))
+* **hooks:** drop private ticket ref from test, use a test-owned deleted dir, say workspace_roots in the docs ([#647](https://github.com/aligndottech/align-cli/issues/647)) ([162573c](https://github.com/aligndottech/align-cli/commit/162573c46614e0eb24dad2aa6b28f0fa757cf0f8))
+* **hooks:** inject nothing when a codex, gemini or copilot payload names a missing workspace (ALI-2130) ([#646](https://github.com/aligndottech/align-cli/issues/646)) ([fb984b8](https://github.com/aligndottech/align-cli/commit/fb984b8a61047fc68487ddee0076940de5271287))
+* **local:** a linked worktree has its main checkout's repo identity ([#633](https://github.com/aligndottech/align-cli/issues/633)) ([3ef4733](https://github.com/aligndottech/align-cli/commit/3ef47334b90fe9dfeea44f2263a4908e4738c579))
+* **local:** scope the check's content search to the current repo ([#634](https://github.com/aligndottech/align-cli/issues/634)) ([cbdc48b](https://github.com/aligndottech/align-cli/commit/cbdc48b9d3d241b528b825071a88dffbdd0a9bd1))
+
 ## [0.83.2](https://github.com/aligndottech/align-cli/compare/cli-v0.83.1...cli-v0.83.2) (2026-11-17)
 
 
