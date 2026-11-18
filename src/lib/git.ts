@@ -464,15 +464,18 @@ export async function getRepoRoot(opts: { cwd?: string } = {}): Promise<string |
 }
 
 /**
- * This folder's own git folder and the one its repo shares, absolute and one per line, or null when
- * git cannot say (not a repo, or a git older than 2.31, which has no `--path-format`). The two differ
- * only in a linked worktree; `mainRootOfLinkedWorktree` (repo-identity.ts) reads the answer.
+ * `rev-parse` for this folder's own git folder and the one its repo shares, absolute and one per
+ * line. The two differ only in a linked worktree. A git older than 2.31 has no `--path-format` and fails.
  */
 export const GIT_DIRS_ARGS = ['rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir'];
 
-export async function getGitDirs(opts: { cwd?: string } = {}): Promise<string | null> {
+/** Whether the shared repo is bare: `true` for a worktree of a bare repo too, where `--is-bare-repository` says false. */
+export const CORE_BARE_ARGS = ['config', '--bool', 'core.bare'];
+
+/** One git read: its trimmed output, or null when git fails or prints nothing. */
+export async function gitOutput(args: string[], opts: { cwd?: string } = {}): Promise<string | null> {
   try {
-    const { stdout } = await execa('git', GIT_DIRS_ARGS, opts.cwd ? { cwd: opts.cwd } : {});
+    const { stdout } = await execa('git', args, opts.cwd ? { cwd: opts.cwd } : {});
     return stdout.trim() || null;
   } catch {
     return null;

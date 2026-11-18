@@ -6,7 +6,7 @@
  * import-time stamp and a `--repo <name>` filter can never drift apart.
  */
 import { execFileSync } from 'node:child_process';
-import { getGitDirs, getRemoteUrl, getRepoRoot, GIT_DIRS_ARGS, isGitRepo } from './git.js';
+import { CORE_BARE_ARGS, getRemoteUrl, getRepoRoot, GIT_DIRS_ARGS, gitOutput, isGitRepo } from './git.js';
 
 /**
  * `host/owner/repo`, lowercased, parsed out of a hosted commit/pull/issue URL - or null
@@ -84,23 +84,25 @@ export async function currentRepoIdentity(opts: { cwd?: string } = {}): Promise<
   const remote = await getRemoteUrl(opts);
   const fromRemote = repoFromRemoteUrl(remote);
   if (fromRemote) return fromRemote;
-  return mainRootOfLinkedWorktree(await getGitDirs(opts)) ?? getRepoRoot(opts);
+  return mainRootOfLinkedWorktree(await gitOutput(GIT_DIRS_ARGS, opts), await gitOutput(CORE_BARE_ARGS, opts)) ?? getRepoRoot(opts);
 }
 
 const SHARED_DOT_GIT = '/.git';
 
 /**
- * The main checkout's root, read from `git rev-parse --path-format=absolute --git-dir
- * --git-common-dir` (two lines), when the folder asked about is a linked worktree of it. Null
- * everywhere else, so the caller keeps the repo root it always used: in a main checkout (the two
- * folders are one), when git gave no answer, and when the shared folder is not a checkout's
- * `.git` (a bare repo, a submodule), where there is no main checkout to name.
+ * The main checkout's root when the folder asked about is a linked worktree of it, read from two
+ * git answers: `rev-parse --path-format=absolute --git-dir --git-common-dir` (two lines) and
+ * `config --bool core.bare`. Null everywhere else, so the caller keeps the repo root it always
+ * used: in a main checkout (the two folders are one), when git gave no answer, and when there is
+ * no main checkout to name - a bare repo (whatever its folder is called, `.git` included) or a
+ * shared folder that is not a checkout's `.git` (a submodule).
  *
  * The root is the shared folder minus its `/.git`, in git's own spelling (forward slashes on
  * Windows too), which is what `--show-toplevel` prints for the main checkout - so a decision
  * stamped there and a read from a worktree agree byte for byte.
  */
-export function mainRootOfLinkedWorktree(gitDirs: string | null): string | null {
+export function mainRootOfLinkedWorktree(gitDirs: string | null, coreBare: string | null): string | null {
+  if (coreBare?.trim() === 'true') return null;
   const [own, shared] = (gitDirs ?? '').split(/\r?\n/).map((l) => l.trim());
   if (!own || !shared || own === shared || !shared.endsWith(SHARED_DOT_GIT)) return null;
   return shared.slice(0, -SHARED_DOT_GIT.length) || null;
@@ -127,7 +129,7 @@ export function currentRepoIdentitySync(opts: { cwd?: string } = {}): string | n
     }
   };
   if (git('rev-parse', '--git-dir') === null) return null;
-  return repoFromRemoteUrl(git('remote', 'get-url', 'origin')) ?? mainRootOfLinkedWorktree(git(...GIT_DIRS_ARGS)) ?? git('rev-parse', '--show-toplevel');
+  return repoFromRemoteUrl(git('remote', 'get-url', 'origin')) ?? mainRootOfLinkedWorktree(git(...GIT_DIRS_ARGS), git(...CORE_BARE_ARGS)) ?? git('rev-parse', '--show-toplevel');
 }
 
 /**
