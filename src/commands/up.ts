@@ -18,9 +18,15 @@ export const UP_STEPS: Array<{ argv: string[]; what: string; env: boolean }> = [
   { argv: ['context', 'sync'], what: 'writing .align/decisions.md', env: true },
 ];
 
-export async function runUp(o: { env?: string }, d: { run(argv: string[]): Promise<number>; out(line: string): void }): Promise<number> {
+export async function runUp(o: { env?: string; limit?: string; out?: string }, d: { run(argv: string[]): Promise<number>; out(line: string): void }): Promise<number> {
   for (const step of UP_STEPS) {
-    const code = await d.run(step.env && o.env ? [...step.argv, '--env', o.env] : step.argv);
+    const argv = step.env && o.env ? [...step.argv, '--env', o.env] : [...step.argv];
+    // Only the step that writes the file takes the file's options.
+    if (step.argv[0] === 'context') {
+      if (o.limit) argv.push('--limit', o.limit);
+      if (o.out) argv.push('--out', o.out);
+    }
+    const code = await d.run(argv);
     if (code !== 0) {
       d.out(`align up: ${step.what} failed (exit ${code}). Nothing after it ran.`);
       return code;
@@ -33,8 +39,11 @@ export function registerUpCommand(program: Command): void {
   program
     .command('up')
     .description("Bring this repo's decisions up to date and write .align/decisions.md (commits, docs, connected sources)")
+    .alias('update')
     .option('--env <env>', 'Environment')
-    .action(async (opts: { env?: string }) => {
+    .option('--limit <n>', 'Max decisions in the file (default 30)')
+    .option('--out <file>', 'Write to this markdown file in the repo, e.g. DECISIONS.md (only when every decision comes from this repo)')
+    .action(async (opts: { env?: string; limit?: string; out?: string }) => {
       const code = await runUp(opts, {
         run: async (argv) => {
           const { command, args } = backfillChildCommand(argv);

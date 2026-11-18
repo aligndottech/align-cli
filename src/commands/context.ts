@@ -35,7 +35,6 @@ import { committableFromRepo, ensureGitignored, isTrackedByGit, removeGitignoreL
 import { contextDecisionOf, decisionsFromLocalGraph, LOCAL_FILE_CAP, LOCAL_SCAN, selectForFile } from '../lib/context-from-graph.js';
 import {
   ALIGN_CONTEXT_PATH,
-  ALIGN_IMPORT_LINE,
   type ContextDecision,
   writeDecisionsContext,
 } from '../lib/decisions-context.js';
@@ -76,6 +75,13 @@ function findDecisions(start: string): string | null {
   return null;
 }
 
+/** `file` as a repo-relative .md path inside `repoRoot`, or null when it is outside it or not markdown. */
+export function repoRelativeMarkdown(repoRoot: string, file: string): string | null {
+  const rel = path.relative(repoRoot, path.resolve(repoRoot, file));
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel) || !/\.md$/i.test(rel)) return null;
+  return rel.split(path.sep).join('/');
+}
+
 export function registerContextCommand(program: Command): void {
   const context = program
     .command('context')
@@ -86,7 +92,15 @@ export function registerContextCommand(program: Command): void {
     .description(`Write current decisions to ${ALIGN_CONTEXT_PATH} and import it from CLAUDE.md`)
     .option('--env <env>', 'Environment')
     .option('--limit <n>', 'Max decisions in the file (default: 30 for a local graph, 200 for a team graph)')
-    .action(async (opts: { env: EnvName; limit?: string }) => {
+    .option('--out <file>', `Write to this markdown file in the repo (e.g. DECISIONS.md) instead of ${ALIGN_CONTEXT_PATH}; only when every decision comes from this repo`)
+    .action(async (opts: { env: EnvName; limit?: string; out?: string }) => {
+      // A named file in the repo is one \`git add\` from public, so it is checked before anything is fetched or written.
+      const outRel = opts.out === undefined ? undefined : repoRelativeMarkdown(process.cwd(), opts.out);
+      if (outRel === null) {
+        console.error(`align context sync: --out must be a .md file inside this repo, got ${opts.out}. Nothing was written.`);
+        process.exitCode = 1;
+        return;
+      }
       const config = createConfigStore();
       // preferLocalEmbedded: the launch's flagship command must work for the
       // no-account user it is pitched at - bare resolution sent them to an
@@ -135,12 +149,22 @@ export function registerContextCommand(program: Command): void {
       const local = syncEnv.mode === 'local-embedded';
       // A local graph built only from this repo holds nothing a clone does not: its file can be committed.
       const committable = local && committableFromRepo(sources, repoRoot);
-      const result = await writeDecisionsContext(repoRoot, decisions, { external: local && !committable, leftOut });
+      if (outRel !== undefined && !committable) {
+        console.error(
+          `align context sync: not writing ${outRel}: some decisions in this graph are not from this repo (a chat, a ticket, another repo, ` +
+          `or a doc that is not committed), and a file you name in the repo is one git add from public. Nothing was written. ` +
+          `Run without --out to write the private ${ALIGN_CONTEXT_PATH} instead.`,
+        );
+        process.exitCode = 1;
+        return;
+      }
+      const result = await writeDecisionsContext(repoRoot, decisions, { external: local && !committable, leftOut, ...(outRel ? { relPath: outRel } : {}) });
+      const importLine = `@${result.contextPath}`;
 
       console.log(`${chalk.green('Wrote')} ${result.contextPath} (${decisions.length} decision${decisions.length === 1 ? '' : 's'})`);
 
       if (result.importAdded) {
-        console.log(`${chalk.green('Added')} ${ALIGN_IMPORT_LINE} import to CLAUDE.md`);
+        console.log(`${chalk.green('Added')} ${importLine} import to CLAUDE.md`);
       } else if (fs.existsSync(path.join(repoRoot, 'CLAUDE.md'))) {
         console.log(chalk.dim('CLAUDE.md already imports it.'));
       } else {
@@ -148,15 +172,15 @@ export function registerContextCommand(program: Command): void {
         // the line, or the generated file sits unread by every agent.
         console.log(
           `No CLAUDE.md here - add this line to your agent's context file to load it:\n` +
-          `  ${chalk.bold(ALIGN_IMPORT_LINE)}`,
+          `  ${chalk.bold(importLine)}`,
         );
       }
       // A local graph is private to this machine, so its decisions file stays out of git. Sharing with a team
       // goes through `align share`; a team graph's file is already team content and is left alone.
       if (committable) {
-        removeGitignoreLine(repoRoot, ALIGN_CONTEXT_PATH);
+        removeGitignoreLine(repoRoot, result.contextPath);
         console.log(chalk.dim(
-          `Every decision in ${ALIGN_CONTEXT_PATH} comes from this repo (its commits, docs and pull requests), so it is a normal file: commit it, and everyone who clones the repo reads the same decisions.`,
+          `Every decision in ${result.contextPath} comes from this repo (its commits, docs and pull requests), so it is a normal file: commit it, and everyone who clones the repo reads the same decisions.`,
         ));
       } else if (local) {
         const status = ensureGitignored(repoRoot, ALIGN_CONTEXT_PATH);
@@ -168,7 +192,7 @@ export function registerContextCommand(program: Command): void {
           console.log(chalk.yellow(`${ALIGN_CONTEXT_PATH} is already tracked by git, so it can reach your team. Stop tracking it: git rm --cached ${ALIGN_CONTEXT_PATH}`));
         }
       }
-      console.log(chalk.dim('Bring it up to date after new decisions land: align up'));
+      console.log(chalk.dim(`Bring it up to date after new decisions land: align up${outRel ? ` --out ${outRel}` : ''}`));
     });
 
   context

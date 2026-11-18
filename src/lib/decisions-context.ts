@@ -143,8 +143,8 @@ export function renderDecisionsFile(decisions: ContextDecision[], opts: { leftOu
 }
 
 /** Does this file already import the generated context? */
-export function hasImportLine(claudeMd: string): boolean {
-  return claudeMd.includes(ALIGN_IMPORT_LINE);
+export function hasImportLine(claudeMd: string, line: string = ALIGN_IMPORT_LINE): boolean {
+  return claudeMd.includes(line);
 }
 
 /**
@@ -154,10 +154,10 @@ export function hasImportLine(claudeMd: string): boolean {
  * cannot reorder or delete what is already there. It does not parse, so a file that merely
  * mentions align is not mistaken for one that imports it.
  */
-export function appendImportLine(claudeMd: string): string {
-  if (hasImportLine(claudeMd)) return claudeMd;
+export function appendImportLine(claudeMd: string, line: string = ALIGN_IMPORT_LINE): string {
+  if (hasImportLine(claudeMd, line)) return claudeMd;
   const separator = claudeMd.endsWith('\n') ? '' : '\n';
-  return `${claudeMd}${separator}\n${ALIGN_IMPORT_LINE}\n`;
+  return `${claudeMd}${separator}\n${line}\n`;
 }
 
 export interface WriteResult {
@@ -218,9 +218,12 @@ function tryWriteExternalAndLink(repoRoot: string, inRepoTarget: string, rendere
 export async function writeDecisionsContext(
   repoRoot: string,
   decisions: ContextDecision[],
-  opts: { external?: boolean; leftOut?: number } = {},
+  opts: { external?: boolean; leftOut?: number; relPath?: string } = {},
 ): Promise<WriteResult> {
-  const target = path.join(repoRoot, ALIGN_CONTEXT_PATH);
+  // relPath: a file the team named (DECISIONS.md), written only for a graph whose every row is the repo's own.
+  const relPath = opts.relPath ?? ALIGN_CONTEXT_PATH;
+  const importLine = `@${relPath}`;
+  const target = path.join(repoRoot, relPath);
   await mkdir(path.dirname(target), { recursive: true });
   const rendered = renderDecisionsFile(decisions, { leftOut: opts.leftOut });
   const linked = opts.external ? tryWriteExternalAndLink(repoRoot, target, rendered) : false;
@@ -236,7 +239,7 @@ export async function writeDecisionsContext(
   let importAdded = false;
   try {
     const existing = await readFile(claudePath, 'utf8');
-    const updated = appendImportLine(existing);
+    const updated = appendImportLine(existing, importLine);
     // Only touch their file when there is something to change. Rewriting identical bytes
     // still updates mtime and shows up in tooling that watches the file.
     if (updated !== existing) {
@@ -249,5 +252,5 @@ export async function writeDecisionsContext(
     if ((err as { code?: string }).code !== 'ENOENT') throw err;
   }
 
-  return { contextPath: ALIGN_CONTEXT_PATH, importAdded };
+  return { contextPath: relPath, importAdded };
 }
