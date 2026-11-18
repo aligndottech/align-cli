@@ -56,7 +56,17 @@ const AGENT_RULES_FILES = [
   // Rule documents, read per `##` section like CLAUDE.md (they state rules to follow, not one decision).
   'tenets.md', 'TENETS.md', 'docs/tenets.md', 'docs/TENETS.md',
   'architecture.md', 'ARCHITECTURE.md', 'docs/architecture.md', 'docs/ARCHITECTURE.md',
+  // code-conductor's committed team memory: one `##` section per checkpoint, holding decisions and conventions.
+  '.claude/memory/project.md',
 ];
+
+/** Files whose untitled opening is the tool's own boilerplate ("Shared team memory..."), never a decision. */
+const NO_PREAMBLE = new Set(['.claude/memory/project.md']);
+
+/** A section's text without HTML comments. A template section holding only `<!-- ... -->` is empty, not a decision. */
+function withoutComments(body: string): string {
+  return body.replace(/<!--[\s\S]*?-->/g, '').trim();
+}
 
 /** Below this many characters a chunk is a bare heading or a one-line pointer, not a
  *  decision - the prose equivalent of git.ts's isDecisionCommit length filter. */
@@ -195,7 +205,8 @@ async function readAgentRulesItems(
     // silently dropped rather than imported.
     const seenSlugs = new Map<string, number>();
     for (const section of splitIntoSections(stripped)) {
-      if (section.body.length < MIN_CHUNK_CHARS) {
+      if (!section.heading && NO_PREAMBLE.has(candidate)) continue;
+      if (withoutComments(section.body).length < MIN_CHUNK_CHARS) {
         if (section.heading) droppedShort++;
         continue;
       }

@@ -310,7 +310,9 @@ that qualified but were not imported, and `--limit` reads further back.
 
 No auth needed, same as Git. Reads ADR directories (`docs/adr`, `doc/adr`, `docs/decisions`,
 `doc/decisions`, `adr/` - whichever convention your repo uses) and your own CLAUDE.md/AGENTS.md
-content, split by section. It never re-imports what `align` already wrote into those files
+content, split by section. It also reads code-conductor's committed team memory,
+`.claude/memory/project.md`, one item per checkpoint section, skipping its empty template
+sections. It never re-imports what `align` already wrote into those files
 (the managed nudge block and the `.align/decisions.md` import line) - that would be a feedback
 loop, not a decision.
 
