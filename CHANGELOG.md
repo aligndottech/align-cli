@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.86.0](https://github.com/aligndottech/align-cli/compare/cli-v0.85.0...cli-v0.86.0) (2026-11-18)
+
+
+### Features
+
+* **connect:** import answered decisions from nightshift's parking lot ([#654](https://github.com/aligndottech/align-cli/issues/654)) ([d52e89c](https://github.com/aligndottech/align-cli/commit/d52e89cacc303f481d124147a4f0f01ce2458dec))
+
 ## [0.85.0](https://github.com/aligndottech/align-cli/compare/cli-v0.84.0...cli-v0.85.0) (2026-11-18)
 
 
