@@ -38,8 +38,9 @@ reads the decisions Align found and judges whether the plan goes against them. A
 
 ## How do I know the check is running?
 
-When the agent edits a file, hooks check the edit against your graph, before it is written
-and again after it lands. When the check finds a related decision, the agent says so in one
+When the agent edits a file, the hook checks the edit against your graph before it is written
+and again after it lands. That is verified on Claude Code. For the other hosts see
+[hook coverage](hook-coverage.md). When the check finds a related decision, the agent says so in one
 line, such as:
 
 > Align: checked against "Every webhook verifies its signature" - this change agrees.
