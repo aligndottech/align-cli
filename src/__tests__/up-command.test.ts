@@ -78,6 +78,13 @@ describe('align up', () => {
     expect(r.ran.map((a) => a.join(' '))).toEqual(['connect git --approve --env prod', 'connect docs --approve --env prod', 'context sync --env prod']);
   });
 
+  it('an empty environment name is not a named environment: it stays local, and the refresh still runs', async () => {
+    // ALIGN_ENV= (an unset variable expanded into it) must not fall through to a cloud default in the children.
+    const r = recorder();
+    await runUp({ env: '' }, r.deps);
+    expect(r.ran.map((a) => a.join(' '))).toEqual(['connect git --approve --env local', 'connect docs --approve --env local', 'sync', 'context sync --env local']);
+  });
+
   it('skips the local refresh when --env names another graph, and says so', async () => {
     const r = recorder();
     await runUp({ env: 'prod' }, r.deps);
