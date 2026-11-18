@@ -10,8 +10,9 @@
 Align collects your team's decisions from commits, tickets, chat and meetings into one graph, and
 re-reads those sources in the background. Nobody updates it by hand.
 
-Where your agent supports hooks, an edit hook checks edits against that graph before they
-land. It is verified on Claude Code and written from the vendors' docs for the other agents
+Where your agent supports hooks, an edit hook checks edits against that graph. On Claude Code it
+runs before the edit is written, and it is recorded only in headless runs. Cursor, Copilot CLI and
+Gemini CLI hand the result to the model after the edit lands
 ([what is tested](docs/hook-coverage.md)). It runs outside the model, so the agent doesn't have to remember to ask, and it shows the
 decision behind the code and where it came from. It warns by default, and blocking is opt-in. The
 agent can also query the graph itself over MCP.
@@ -90,7 +91,7 @@ MIT, no account needed. Beta, pre-1.0.
    `AGENTS.md` and recent merged PRs, and builds the graph in `~/.align/local.db`. Nothing to fill in.
 2. **Pick your agent.** Keep Claude Code, Codex or Cursor, or use Align's own. Setup lists the files
    it will write and asks first.
-3. **Work as normal.** Edits are checked against the graph before they are written (verified on Claude Code, see [hook coverage](docs/hook-coverage.md)), and the agent
+3. **Work as normal.** On Claude Code, edits are checked against the graph before they are written. Cursor, Copilot CLI and Gemini CLI hand the result to the model after the edit lands ([hook coverage](docs/hook-coverage.md)). The agent
    can ask the graph why something is the way it is. You do nothing by hand.
 4. **Sources refresh when you start `align`**, in the background, at most every 15 minutes per source. There is no timer: if you only open your agent, nothing refreshes until you run `align` or the agent calls `align_sync` (`status` shows where it stands, `run` starts a refresh). A big GitHub repo backfills its pull-request discussions over several runs.
 5. **Add more sources when you want them:** `align connect` (Jira, Linear, Slack, Notion and more).
@@ -200,7 +201,7 @@ More in [docs/installation.md](docs/installation.md).
 | | |
 |---|---|
 | **MCP server** | Claude Code, Cursor, Claude Desktop, VS Code, Windsurf, Zed, Codex, Copilot CLI, Gemini CLI, pi, OpenCode |
-| **Edit hooks** | Edits are checked against the graph. Advisory by default. Only Claude Code is verified live ([coverage](docs/hook-coverage.md)). Claude Code, pi, Gemini CLI, OpenCode, Codex, Cursor, Copilot CLI |
+| **Edit hooks** | Edits are checked against the graph. Advisory by default. Recorded real-host payloads exist for headless runs of Claude Code, pi and OpenCode. Interactive Claude Code sessions are not tested ([coverage](docs/hook-coverage.md)). Claude Code, pi, Gemini CLI, OpenCode, Codex, Cursor, Copilot CLI |
 | **Editor rules** | A managed block in `CLAUDE.md`, `AGENTS.md` and `.cursor/rules/align.md` |
 | **Shared `.mcp.json`** | One committed file sets up the whole team |
 
