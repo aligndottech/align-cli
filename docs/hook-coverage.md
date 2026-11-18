@@ -89,8 +89,11 @@ the payload turns into proposed text. They do not run the model-backed check.
    that column to hold none.
 4. If the edit completed and no payload arrived, first prove the recorder was live: show that it
    loaded (pi, for instance, ignores a project extension until the project is trusted) and that
-   its output file can be written. If you cannot show both, the run proves nothing, so leave the
-   cell "not tested". If you can, change the cell to "does not fire". There is no payload to
+   its output file can be written. Also run a positive control with the same recorder configuration:
+   the same event for the same tool, which must produce a record. A recorder matched only to `Edit`
+   records nothing when the agent uses `Write`, and that is a recorder gap, not a host result. Keep
+   the control's output with the evidence. If you cannot show all three, the run proves nothing, so
+   leave the cell "not tested". If you can, change the cell to "does not fire". There is no payload to
    save, so do not add a file under `by-cell/`. Put the command you ran, the hook configuration
    and the evidence that the edit landed in the cell's notes on this page, and name the PR check
    as the fallback.
