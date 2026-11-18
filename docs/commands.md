@@ -227,7 +227,6 @@ align context inject          Print the decisions file as SessionStart hook outp
 
 align up                      Bring this repo's decisions up to date and write .align/decisions.md (commits, docs, connected sources)
                               flags: --env --limit --out
-align update                  same as align up
 
 # Answer a check the judge declined to rule on
 

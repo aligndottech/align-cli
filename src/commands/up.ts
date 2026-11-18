@@ -39,7 +39,6 @@ export function registerUpCommand(program: Command): void {
   program
     .command('up')
     .description("Bring this repo's decisions up to date and write .align/decisions.md (commits, docs, connected sources)")
-    .alias('update')
     .option('--env <env>', 'Environment')
     .option('--limit <n>', 'Max decisions in the file (default 30)')
     .option('--out <file>', 'Write to this markdown file in the repo, e.g. DECISIONS.md (only when every decision comes from this repo)')
