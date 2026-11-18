@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.87.0](https://github.com/aligndottech/align-cli/compare/cli-v0.86.1...cli-v0.87.0) (2026-11-18)
+
+
+### Features
+
+* **adr:** align adr drafts ADRs in the repo for decisions that have none ([#666](https://github.com/aligndottech/align-cli/issues/666)) ([9535ba3](https://github.com/aligndottech/align-cli/commit/9535ba31b46415dabb075f6dcf8d7b7d3e5bb39b))
+* align up, and a decisions file you commit when every decision comes from the repo ([#662](https://github.com/aligndottech/align-cli/issues/662)) ([8c9d4df](https://github.com/aligndottech/align-cli/commit/8c9d4df3acb2afda789e9a4d2fdb0842638e21ae))
+* **check:** --decisions-file checks a PR against a committed DECISIONS.md ([#667](https://github.com/aligndottech/align-cli/issues/667)) ([8940480](https://github.com/aligndottech/align-cli/commit/894048042a1115d449cdffbe1b7ce1206f41551e))
+* **context:** a local graph's decisions file holds the repo's rules and decisions, not its fixes ([#664](https://github.com/aligndottech/align-cli/issues/664)) ([7d5088c](https://github.com/aligndottech/align-cli/commit/7d5088c031f73d30a0e50e2a615122f69f5a9672))
+* **nightshift:** import the plan record, and follow a moved archive ([#668](https://github.com/aligndottech/align-cli/issues/668)) ([a52dbf9](https://github.com/aligndottech/align-cli/commit/a52dbf944d4ff33792de488f93a5f487c96193f6))
+* **up:** --limit and --out DECISIONS.md, and align update ([#665](https://github.com/aligndottech/align-cli/issues/665)) ([a511f36](https://github.com/aligndottech/align-cli/commit/a511f36c92b80cc8404a3677dfbc403441fa2db9))
+
+
+### Bug Fixes
+
+* **check:** --decisions-file never passes a diff or decision that was cut to fit the model's window ([#670](https://github.com/aligndottech/align-cli/issues/670)) ([c471b41](https://github.com/aligndottech/align-cli/commit/c471b412138975cc60eb120ff9e0cabe1e3fee2a))
+* **context:** Align's own import line in CLAUDE.md does not make a rerun refuse to write DECISIONS.md ([#673](https://github.com/aligndottech/align-cli/issues/673)) ([44415ca](https://github.com/aligndottech/align-cli/commit/44415ca8f52056e9a28b139682fe6ddacc0a7c23))
+* **context:** judge the decisions written, not the ones left out; a git:// commit counts only when HEAD contains it ([#671](https://github.com/aligndottech/align-cli/issues/671)) ([ea262ee](https://github.com/aligndottech/align-cli/commit/ea262eee40b9e98be7601c0ac2ce10592246a806))
+* **local:** show a connector row only in repos whose chosen scope includes it ([#663](https://github.com/aligndottech/align-cli/issues/663)) ([2910724](https://github.com/aligndottech/align-cli/commit/291072470cfe3166135e22b2485173d33c29325e))
+* **nightshift:** whole-question titles, labels in their place, status notes skipped ([#658](https://github.com/aligndottech/align-cli/issues/658)) ([96d3666](https://github.com/aligndottech/align-cli/commit/96d3666dbd70c76f20cf3f4b808d9529f093060d))
+* **open-url:** attach the opener's listeners before starting the grace timer, so no timer outlives a failed attach ([#674](https://github.com/aligndottech/align-cli/issues/674)) ([17ebb43](https://github.com/aligndottech/align-cli/commit/17ebb43ac28e59f75c3df860e60628ffb25a7714))
+* **up:** bare align up stays on the local graph unless --env or ALIGN_ENV names another ([#672](https://github.com/aligndottech/align-cli/issues/672)) ([69097af](https://github.com/aligndottech/align-cli/commit/69097af6ead9e267a8e17d7501e9b18e1d139f5b))
+
 ## [0.86.1](https://github.com/aligndottech/align-cli/compare/cli-v0.86.0...cli-v0.86.1) (2026-11-18)
 
 
