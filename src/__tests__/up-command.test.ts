@@ -8,7 +8,7 @@
  * 3. --env reaches every step that takes it (sync has no --env: it always reads the local graph)
  */
 import { describe, expect, it } from 'vitest';
-import { runUp, UP_STEPS } from '../commands/up.js';
+import { runUp, UP_STEPS, upChildCommand } from '../commands/up.js';
 
 const recorder = (codes: Record<string, number> = {}) => {
   const ran: string[][] = [];
@@ -62,5 +62,28 @@ describe('align up', () => {
       'sync',
       'context sync --limit 40 --out DECISIONS.md',
     ]);
+  });
+
+  it('a failed refresh of connected sources is reported, and the file is still written from the repo', async () => {
+    const r = recorder({ sync: 1 });
+    expect(await runUp({}, r.deps)).toBe(0);
+    expect(r.ran.map((a) => a.join(' '))).toContain('context sync');
+    expect(r.out.join('\n')).toMatch(/refreshing connected sources failed \(exit 1\).*carried on/s);
+  });
+
+  it('skips the local refresh when --env names another graph, and says so', async () => {
+    const r = recorder();
+    await runUp({ env: 'prod' }, r.deps);
+    expect(r.ran.map((a) => a.join(' '))).not.toContain('sync');
+    expect(r.out.join('\n')).toMatch(/skipped.*local/i);
+  });
+
+  it('a child keeps the loader flags the parent ran under (tsx in a source checkout)', () => {
+    const c = upChildCommand(['connect', 'git'], { execArgv: ['--import', 'tsx'], execPath: '/node', argv1: '/src/index.ts', dist: 'npm' });
+    expect(c).toEqual({ command: '/node', args: ['--import', 'tsx', '/src/index.ts', 'connect', 'git'] });
+    // An installed build runs with no loader flags: the argument shape is unchanged.
+    expect(upChildCommand(['sync'], { execArgv: [], execPath: '/node', argv1: '/bin/align', dist: 'npm' })).toEqual({ command: '/node', args: ['/bin/align', 'sync'] });
+    // A compiled binary takes no loader flags even if the runtime reports some.
+    expect(upChildCommand(['sync'], { execArgv: ['--smol'], execPath: '/usr/local/bin/align', dist: 'binary' })).toEqual({ command: '/usr/local/bin/align', args: ['sync'] });
   });
 });

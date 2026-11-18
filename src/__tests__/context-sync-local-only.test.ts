@@ -49,14 +49,22 @@ describe('align context sync, local graph', () => {
     expect(gitignore()).toBe(first);
   });
 
-  it('warns, with the command to stop tracking it, when the file is already committed', async () => {
+  it('refuses to put private decisions into a file git already tracks, leaves it as it was, and says how to stop tracking it', async () => {
     execFileSync('git', ['init', '-q'], { cwd: repo });
     fs.mkdirSync(path.join(repo, '.align'));
     fs.writeFileSync(path.join(repo, '.align/decisions.md'), 'old');
     execFileSync('git', ['add', '-f', '.align/decisions.md'], { cwd: repo });
     execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'x'], { cwd: repo });
+    const errs: string[] = [];
+    vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => { errs.push(a.join(' ')); });
+    process.exitCode = undefined;
     await run();
-    expect(logs.join('\n')).toMatch(/already tracked by git.*git rm --cached \.align\/decisions\.md/s);
+    // .gitignore cannot protect a tracked file: one ordinary commit would publish the chat decision.
+    expect(fs.lstatSync(path.join(repo, '.align/decisions.md')).isSymbolicLink()).toBe(false);
+    expect(fs.readFileSync(path.join(repo, '.align/decisions.md'), 'utf8')).toBe('old');
+    expect(process.exitCode).toBe(1);
+    expect(errs.join('\n')).toMatch(/tracked by git.*git rm --cached \.align\/decisions\.md/s);
+    process.exitCode = undefined;
   });
 
   it('a file that is not tracked gets no tracking warning', async () => {

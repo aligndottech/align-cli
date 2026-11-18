@@ -112,7 +112,11 @@ export function renderDecisionsFile(decisions: ContextDecision[], opts: { leftOu
   if (decisions.length === 0) {
     // "Nothing found" and "the fetch failed" must not look alike, so say which this is.
     // An empty section reads as a claim that no decisions exist (new surface).
-    return `${[...header, 'No decisions have been captured for this repository yet.'].join('\n')}\n`;
+    // An empty selection is not an empty graph: say which, so neither reads as the other.
+    const none = opts.leftOut
+      ? `There are ${opts.leftOut} items in the graph, and none of them read as a decision, so none are listed here. \`align ask\` still searches them.`
+      : 'No decisions have been captured for this repository yet.';
+    return `${[...header, none].join('\n')}\n`;
   }
 
   const all = ordered(decisions);
@@ -127,7 +131,7 @@ export function renderDecisionsFile(decisions: ContextDecision[], opts: { leftOu
         ...(rest.some((d) => d.kind !== 'rule') ? ['## Decisions, with the reason given where there is one', '', ...rest.filter((d) => d.kind !== 'rule').map(line)] : []),
       ]
     : rest.map(line);
-  const tail = opts.leftOut ? ['', `${opts.leftOut} more items in the graph are left out here: fixes, tests and changes that do not read as a decision. \`align ask\` still searches them.`] : [];
+  const tail = opts.leftOut ? ['', `${opts.leftOut} more items in the graph are not listed here. \`align ask\` still searches them.`] : [];
   const claimsSection = claims.length
     ? [
         '',
@@ -139,7 +143,7 @@ export function renderDecisionsFile(decisions: ContextDecision[], opts: { leftOu
       ]
     : [];
 
-  return `${[...header, ...body, ...claimsSection, ...tail].join('\n')}\n`;
+  return `${[...header, ...body, ...tail, ...claimsSection].join('\n')}\n`;
 }
 
 /** Does this file already import the generated context? */
@@ -231,8 +235,14 @@ export async function writeDecisionsContext(
     // Written beside it and renamed over it: a session-start hook reading at the same moment sees the old file or the new
     // one, never a half-written one, and a rename replaces a symlink left from a private run instead of writing through it.
     const tmp = `${target}.align-tmp-${process.pid}`;
-    await writeFile(tmp, rendered, 'utf8');
-    fs.renameSync(tmp, target);
+    try {
+      await writeFile(tmp, rendered, 'utf8');
+      fs.renameSync(tmp, target);
+    } catch (err) {
+      // In the committable case .align/ is not ignored, so a stray temp file could be committed.
+      fs.rmSync(tmp, { force: true });
+      throw err;
+    }
   }
 
   const claudePath = path.join(repoRoot, 'CLAUDE.md');
