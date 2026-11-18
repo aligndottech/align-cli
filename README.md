@@ -65,7 +65,7 @@ that agent the way `align mcp --setup` does, after listing the files and asking.
 the three installed, option 2 is preselected. Align remembers the answer for that repo, so
 later runs don't ask. `align --switch` asks again. After a "2", `align` opens Align's own
 coding agent over that graph. Either way, connected sources refresh in the
-background, at most every 15 minutes per source (`align sync --off` turns that off).
+background when you start `align`, at most every 15 minutes per source (`align sync --off` turns that off).
 
 If you choose Align's own agent, you choose what runs behind it:
 
@@ -91,7 +91,7 @@ MIT, no account needed. Beta, pre-1.0.
    it will write and asks first.
 3. **Work as normal.** Each edit is checked against the graph before it is written, and the agent
    can ask the graph why something is the way it is. You do nothing by hand.
-4. **The graph refreshes itself** in the background, at most every 15 minutes per source.
+4. **Sources refresh when you start `align`**, in the background, at most every 15 minutes per source. There is no timer: if you only open your agent, nothing refreshes until you run `align` or the agent calls `align_sync` (`status` shows where it stands, `run` starts a refresh). A big GitHub repo backfills its pull-request discussions over several runs.
 5. **Add more sources when you want them:** `align connect` (Jira, Linear, Slack, Notion and more).
 
 Imported decisions show `ratified: false`. That is expected, and you don't have to ratify them.
