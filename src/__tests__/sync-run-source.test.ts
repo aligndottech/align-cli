@@ -202,7 +202,9 @@ describe('a refused token', () => {
 
 describe('who may run', () => {
   it('a held lock with a live pid: locked, no fetch; a dead pid: taken over', async () => {
-    const held = acquireLock('sync-github', { dir: h.lockDir, pid: 4242, alive: () => true });
+    // Never a fixed number: the "dead" holder is whatever pid is not ours, and a runner can hand this process any pid, 4242 included.
+    const holderPid = process.pid + 1;
+    const held = acquireLock('sync-github', { dir: h.lockDir, pid: holderPid, alive: () => true });
     expect(held.ok).toBe(true);
     h.script({ items: [] });
     const out = await syncSource('github', h.env);
@@ -210,7 +212,7 @@ describe('who may run', () => {
     expect(h.fetchCalls).toHaveLength(0);
     const dead = harness({}, { alive: (pid) => pid === process.pid });
     try {
-      acquireLock('sync-github', { dir: dead.lockDir, pid: 4242, alive: () => true });
+      acquireLock('sync-github', { dir: dead.lockDir, pid: holderPid, alive: () => true });
       dead.script({ items: [] });
       expect((await syncSource('github', dead.env)).state).toBe('ok');
     } finally { dead.cleanup(); }
