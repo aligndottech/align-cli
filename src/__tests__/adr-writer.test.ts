@@ -13,7 +13,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { adrCandidates, adrDirFor, nextAdrNumber, renderAdr, writeAdr } from '../lib/adr-writer.js';
+import { execFileSync } from 'node:child_process';
+import { adrCandidates, adrDirFor, nextAdrNumber, renderAdr, rowsOfThisRepo, writeAdr } from '../lib/adr-writer.js';
 
 let repo: string;
 beforeEach(() => { repo = fs.mkdtempSync(path.join(os.tmpdir(), 'align-adr-')); });
@@ -82,5 +83,53 @@ describe('writeAdr', () => {
     fs.writeFileSync(path.join(repo, 'docs/adr/0003-require-an-argument-on-alias.md'), 'mine');
     expect(() => writeAdr(repo, { ...c, title: 'Require an argument on +alias' }, '2026-11-18', { number: '0003' })).toThrow();
     expect(fs.readFileSync(path.join(repo, 'docs/adr/0003-require-an-argument-on-alias.md'), 'utf8')).toBe('mine');
+  });
+});
+
+describe('adrDirFor with an empty folder', () => {
+  it('uses an existing but empty ADR folder rather than creating docs/adr beside it', () => {
+    fs.mkdirSync(path.join(repo, 'adr'));
+    expect(adrDirFor(repo)).toBe('adr');
+  });
+  it('does not take a plain file named like a candidate for a folder', () => {
+    put('adr', 'not a folder');
+    expect(adrDirFor(repo)).toBe('docs/adr');
+  });
+});
+
+describe('adrCandidates duplicate check', () => {
+  const row = (n: string) => ({ title: `Decision ${n}`, platform: 'git', source_url: `https://github.com/o/r/issues/${n}` });
+  it('sees a link in any ADR convention folder, not only the output one', () => {
+    put('docs/adr/0001-a.md', 'Decided in https://github.com/o/r/issues/5\n');
+    put('adr/0001-b.md', 'Decided in https://github.com/o/r/issues/7\n');
+    expect(adrCandidates([row('7')], repo)).toEqual([]);
+    expect(adrCandidates([row('5')], repo)).toEqual([]);
+  });
+  it('compares whole URLs, so a link to issues/123 does not hide issues/12', () => {
+    put('docs/adr/0001-a.md', 'Decided in https://github.com/o/r/issues/123.\n');
+    expect(adrCandidates([row('12'), row('123')], repo).map((c) => c.title)).toEqual(['Decision 12']);
+  });
+  it('still matches a link written inside markdown or angle brackets', () => {
+    put('docs/adr/0001-a.md', 'See [it](https://github.com/o/r/issues/9) and <https://github.com/o/r/issues/10>\n');
+    expect(adrCandidates([row('9'), row('10')], repo)).toEqual([]);
+  });
+});
+
+describe('rowsOfThisRepo', () => {
+  const git = (...a: string[]) => execFileSync('git', ['-C', repo, ...a], { stdio: 'ignore' });
+  it('keeps this repo\'s decisions and drops other repos\' and ticket rows', () => {
+    git('init', '-q'); git('remote', 'add', 'origin', 'https://github.com/o/r.git');
+    const rows = [
+      { title: 'mine', source_url: 'https://github.com/o/r/commit/abc1234' },
+      { title: 'theirs', source_url: 'https://github.com/o/other/commit/abc1234' },
+      { title: 'ticket', source_url: 'https://acme.atlassian.net/browse/X-1' },
+      { title: 'none', source_url: null },
+    ];
+    expect(rowsOfThisRepo(rows, repo).map((r) => r.title)).toEqual(['mine']);
+  });
+  it('in a repo with no hosted remote keeps git:// rows only', () => {
+    git('init', '-q');
+    const rows = [{ title: 'local', source_url: 'git://commit/abc1234' }, { title: 'hosted', source_url: 'https://github.com/o/r/commit/abc1234' }];
+    expect(rowsOfThisRepo(rows, repo).map((r) => r.title)).toEqual(['local']);
   });
 });

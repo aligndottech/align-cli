@@ -11,7 +11,7 @@ import { createGatewayClient } from '../lib/gateway-client.js';
 import { resolveEnv } from '../lib/resolve-env.js';
 import { getRepoRoot } from '../lib/git.js';
 import { decisionShapedRows, LOCAL_SCAN } from '../lib/context-from-graph.js';
-import { adrCandidates, adrDirFor, type AdrRow, writeAdr } from '../lib/adr-writer.js';
+import { adrCandidates, adrDirFor, type AdrRow, rowsOfThisRepo, writeAdr } from '../lib/adr-writer.js';
 import type { EnvName } from '../lib/config.js';
 
 export interface AdrDeps {
@@ -58,11 +58,13 @@ export function registerAdrCommand(program: Command): void {
       const root = await getRepoRoot();
       if (!root) { console.error('align adr: run this inside a git repo.'); process.exitCode = 1; return; }
       const env = createConfigStore().getEnvironment(resolveEnv(opts.env, { preferLocalEmbedded: true }));
-      const rows = await createGatewayClient(env).listDecisions({ limit: LOCAL_SCAN, status: 'active' });
+      const fetched = (await createGatewayClient(env).listDecisions({ limit: LOCAL_SCAN, status: 'active' })) as AdrRow[];
+      // A cloud tenant holds every repo's decisions and listDecisions has no repo filter there, so narrow to this repo.
+      const rows = rowsOfThisRepo(fetched, root);
       const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
       const rl = interactive ? readline.createInterface({ input: process.stdin, output: process.stdout }) : null;
       try {
-        await runAdr(rows as AdrRow[], root, {
+        await runAdr(rows, root, {
           interactive, write: action === 'write', today: new Date().toISOString().slice(0, 10),
           ask: (q) => (rl ? rl.question(q) : Promise.resolve('n')), out: (l) => console.log(l),
         });

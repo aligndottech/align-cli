@@ -8,20 +8,21 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { ADR_DIR_CANDIDATES } from './fetchers/docs.js';
+import { currentRepoIdentitySync, repoFromSourceUrl } from './repo-identity.js';
 import { extractReason, stripImporterMetadata } from './reason-extract.js';
 
 const NUMBERED = /^(\d+)-.*\.md$/i;
 
-/** The repo's own ADR folder (the first candidate that holds a markdown file), else docs/adr. */
+const isDir = (dir: string) => { try { return fs.statSync(dir).isDirectory(); } catch { return false; } };
+const hasMarkdown = (dir: string) => { try { return fs.readdirSync(dir).some((f) => f.toLowerCase().endsWith('.md')); } catch { return false; } };
+const adrCandidateDirs = () => ADR_DIR_CANDIDATES.filter((rel) => !rel.includes('rfc'));
+
+/** The repo's own ADR folder: the first candidate holding a markdown file, else the first that exists even if empty, else docs/adr. */
 export function adrDirFor(repoRoot: string): string {
-  for (const rel of ADR_DIR_CANDIDATES) {
-    if (rel.includes('rfc')) continue;
-    const dir = path.join(repoRoot, rel);
-    try {
-      if (fs.readdirSync(dir).some((f) => f.toLowerCase().endsWith('.md'))) return rel;
-    } catch { /* not there */ }
-  }
-  return 'docs/adr';
+  const dirs = adrCandidateDirs();
+  return dirs.find((rel) => hasMarkdown(path.join(repoRoot, rel)))
+    ?? dirs.find((rel) => isDir(path.join(repoRoot, rel)))
+    ?? 'docs/adr';
 }
 
 /** The number after the highest existing ADR, padded to the width the folder already uses (4 when empty). */
@@ -85,26 +86,49 @@ export function renderAdr(a: AdrInput): string {
 export interface AdrRow { title: string; platform?: string; summary?: string | null; source_url?: string | null; body?: string | null; created_at?: string | null }
 export interface AdrCandidate { title: string; sourceUrl?: string | null; reason?: string | null; excerpt?: string | null; date?: string | null }
 
-/** Every source URL any existing ADR in the folder already links to. */
-function linkedFromAdrs(dir: string): string {
-  let text = '';
-  try {
-    for (const f of fs.readdirSync(dir)) if (f.toLowerCase().endsWith('.md')) text += `${fs.readFileSync(path.join(dir, f), 'utf8')  }\n`;
-  } catch { /* no folder yet */ }
-  return text;
+/** Every complete URL that any ADR in any convention folder mentions (trailing sentence punctuation dropped). */
+function linkedFromAdrs(repoRoot: string): Set<string> {
+  const urls = new Set<string>();
+  for (const rel of adrCandidateDirs()) {
+    const dir = path.join(repoRoot, rel);
+    let files: string[] = [];
+    try { files = fs.readdirSync(dir); } catch { continue; }
+    for (const f of files) {
+      if (!f.toLowerCase().endsWith('.md')) continue;
+      let text = '';
+      try { text = fs.readFileSync(path.join(dir, f), 'utf8'); } catch { continue; }
+      for (const m of text.matchAll(/https?:\/\/[^\s<>()[\]"'`]+/g)) urls.add(m[0].replace(/[.,;:!?]+$/, ''));
+    }
+  }
+  return urls;
 }
 
 /** Decisions that are not ADRs already (docs rows) and that no existing ADR links to. */
 export function adrCandidates(rows: AdrRow[], repoRoot: string): AdrCandidate[] {
-  const existing = linkedFromAdrs(path.join(repoRoot, adrDirFor(repoRoot)));
+  const existing = linkedFromAdrs(repoRoot);
   const out: AdrCandidate[] = [];
   for (const r of rows) {
     if (r.platform === 'docs') continue;
-    if (r.source_url && existing.includes(r.source_url)) continue;
+    if (r.source_url && existing.has(r.source_url)) continue;
     const body = stripImporterMetadata(r.body ?? r.summary ?? '');
     out.push({ title: r.title, sourceUrl: r.source_url, reason: extractReason(r.title, body), excerpt: body.slice(0, 1200), date: r.created_at?.slice(0, 10) ?? null });
   }
   return out;
+}
+
+/**
+ * Only the rows whose source is this repo. A cloud graph holds every repo in the tenant and listDecisions has no repo filter there,
+ * so without this another repo's decision could be drafted into this repo's ADR folder. Ticket and unlinked rows carry no repo identity and are dropped.
+ */
+export function rowsOfThisRepo<T extends { source_url?: string | null }>(rows: T[], repoRoot: string): T[] {
+  const repo = currentRepoIdentitySync({ cwd: repoRoot });
+  const hosted = repo !== null && /^(github|gitlab)\.com\//.test(repo);
+  return rows.filter((r) => {
+    const url = r.source_url;
+    if (!url) return false;
+    if (url.startsWith('git://')) return !hosted;
+    return repo !== null && repoFromSourceUrl(url) === repo;
+  });
 }
 
 const slug = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60).replace(/-+$/, '');
