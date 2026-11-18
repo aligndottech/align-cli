@@ -112,7 +112,11 @@ export function renderDecisionsFile(decisions: ContextDecision[], opts: { leftOu
   if (decisions.length === 0) {
     // "Nothing found" and "the fetch failed" must not look alike, so say which this is.
     // An empty section reads as a claim that no decisions exist (new surface).
-    return `${[...header, 'No decisions have been captured for this repository yet.'].join('\n')}\n`;
+    // An empty selection is not an empty graph: say which, so neither reads as the other.
+    const none = opts.leftOut
+      ? `There are ${opts.leftOut} items in the graph, and none of them read as a decision, so none are listed here. \`align ask\` still searches them.`
+      : 'No decisions have been captured for this repository yet.';
+    return `${[...header, none].join('\n')}\n`;
   }
 
   const all = ordered(decisions);

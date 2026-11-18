@@ -24,4 +24,14 @@ describe('the left-out note', () => {
     expect(claims).toBeGreaterThan(-1);
     expect(note).toBeLessThan(claims);
   });
+
+  it('an empty selection from a non-empty graph says so, rather than that nothing was captured', () => {
+    const text = renderDecisionsFile([], { leftOut: 12 });
+    expect(text).not.toContain('No decisions have been captured');
+    expect(text).toContain('12 items in the graph, and none of them read as a decision');
+  });
+
+  it('an empty graph still says nothing was captured', () => {
+    expect(renderDecisionsFile([], { leftOut: 0 })).toContain('No decisions have been captured');
+  });
 });
