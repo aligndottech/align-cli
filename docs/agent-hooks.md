@@ -118,6 +118,10 @@ keyed on it too, so a hook started somewhere else would look at the wrong tree, 
 silence because `~/.cursor` is not a repository. Every host puts the workspace in the
 payload's `cwd`; `align check --advisory` moves there first when it exists.
 
+The exception is Cursor's `sessionStart` payload, which has no `cwd` and names the workspace in
+`workspace_roots`. `align context inject --format cursor` reads the first root only, so in a
+multi-root workspace it finds decisions only if the first root has them.
+
 ## The read path: putting the decisions back in front of the agent
 
 Everything above is the write path: a hook fires when the agent proposes an edit. This part
