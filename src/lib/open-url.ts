@@ -21,8 +21,10 @@ export async function tryOpenUrl(
 ): Promise<boolean> {
   try {
     const child = await opener(url);
+    // No process to watch (a test double, an opener with no child): nothing says the browser opened, and a false
+    // success costs more than a false warning (see below), so it reads as not opened - as it did before, via the catch.
+    if (typeof child?.once !== 'function') return false;
     return await new Promise<boolean>((resolve) => {
-      const timer = setTimeout(() => { cleanup(); resolve(true); }, graceMs);
       const onExit = (code: number | null): void => {
         cleanup();
         // Only a clean 0 is success. code === null means terminated by signal, which
@@ -37,8 +39,10 @@ export async function tryOpenUrl(
         child.removeListener('exit', onExit);
         child.removeListener('error', onError);
       };
+      // Listeners first, timer last: if attaching throws, no timer is left to fire cleanup on a half-built child.
       child.once('exit', onExit);
       child.once('error', onError);
+      const timer = setTimeout(() => { cleanup(); resolve(true); }, graceMs);
     });
   } catch {
     return false;
