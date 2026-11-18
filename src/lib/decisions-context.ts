@@ -214,8 +214,14 @@ export async function writeDecisionsContext(
     // Written beside it and renamed over it: a session-start hook reading at the same moment sees the old file or the new
     // one, never a half-written one, and a rename replaces a symlink left from a private run instead of writing through it.
     const tmp = `${target}.align-tmp-${process.pid}`;
-    await writeFile(tmp, rendered, 'utf8');
-    fs.renameSync(tmp, target);
+    try {
+      await writeFile(tmp, rendered, 'utf8');
+      fs.renameSync(tmp, target);
+    } catch (err) {
+      // In the committable case .align/ is not ignored, so a stray temp file could be committed.
+      fs.rmSync(tmp, { force: true });
+      throw err;
+    }
   }
 
   const claudePath = path.join(repoRoot, 'CLAUDE.md');

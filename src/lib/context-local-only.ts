@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { humanizeFilename } from './fetchers/docs.js';
 import { currentRepoIdentitySync } from './repo-identity.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -46,8 +47,14 @@ export function removeGitignoreLine(repoRoot: string, relPath: string): 'removed
   if (kept.length === lines.length) return 'absent';
   // Written beside it and renamed over it, so no reader sees a half-written .gitignore and an interruption loses nothing.
   const tmp = `${file}.align-tmp-${process.pid}`;
-  fs.writeFileSync(tmp, kept.join('\n'));
-  fs.renameSync(tmp, file);
+  try {
+    fs.writeFileSync(tmp, kept.join('\n'));
+    fs.renameSync(tmp, file);
+  } catch (err) {
+    // A stray temp file in the repo root is one `git add .` from being committed.
+    fs.rmSync(tmp, { force: true });
+    throw err;
+  }
   return 'removed';
 }
 
@@ -66,7 +73,7 @@ export const REPO_PLATFORMS: ReadonlySet<string> = new Set(['git', 'docs', 'gith
  *  - a docs row's file is tracked by git, so a gitignored or never-committed CLAUDE.md or notes file stays private.
  * Anything it cannot establish counts as private.
  */
-export function committableFromRepo(rows: ReadonlyArray<{ platform: string; source_url?: string | null }>, repoRoot: string): boolean {
+export function committableFromRepo(rows: ReadonlyArray<{ platform: string; title?: string | null; source_url?: string | null }>, repoRoot: string): boolean {
   if (rows.length === 0) return false;
   const repo = currentRepoIdentitySync({ cwd: repoRoot });
   return rows.every((r) => {
@@ -91,7 +98,11 @@ export function committableFromRepo(rows: ReadonlyArray<{ platform: string; sour
     let decoded: string;
     try { decoded = decodeURIComponent(refAndPath); } catch { return false; }
     const relPath = stripRef(decoded, currentBranch(repoRoot));
-    return relPath !== undefined && isTrackedByGit(repoRoot, relPath);
+    // Tracked AND unchanged: the docs reader reads the working tree, so an uncommitted edit is private text.
+    // The path a URL names can be reinterpreted (a renamed branch, a %-escape, a file committed after the import), so the
+    // path alone proves nothing. What has to be true is that the text this row renders is already in the committed file.
+    return relPath !== undefined && isTrackedByGit(repoRoot, relPath) && unchangedFromHead(repoRoot, relPath)
+      && titleIsInCommittedFile(repoRoot, relPath, r.title);
   });
 }
 
@@ -111,6 +122,25 @@ function currentBranch(repoRoot: string): string | null {
     const b = execFileSync('git', ['-C', repoRoot, 'rev-parse', '--abbrev-ref', 'HEAD'], { stdio: 'pipe' }).toString().trim();
     return b && b !== 'HEAD' ? b : null;
   } catch { return null; }
+}
+
+const squash = (t: string) => t.replace(/\s+/g, ' ').trim().toLowerCase();
+
+/** The row's title is in HEAD's copy of the file, or is the name the docs reader derives from that file's name. */
+function titleIsInCommittedFile(repoRoot: string, relPath: string, title: string | null | undefined): boolean {
+  if (!title?.trim()) return false;
+  if (title === humanizeFilename(relPath)) return true;
+  try {
+    const committed = execFileSync('git', ['-C', repoRoot, 'show', `HEAD:${relPath}`], { stdio: 'pipe' }).toString();
+    return squash(committed).includes(squash(title));
+  } catch { return false; }
+}
+
+function unchangedFromHead(repoRoot: string, relPath: string): boolean {
+  try {
+    execFileSync('git', ['--literal-pathspecs', '-C', repoRoot, 'diff', '--quiet', 'HEAD', '--', relPath], { stdio: 'pipe' });
+    return true;
+  } catch { return false; }
 }
 
 function commitInRepo(repoRoot: string, sha: string): boolean {

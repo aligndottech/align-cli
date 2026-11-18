@@ -99,7 +99,7 @@ export function registerContextCommand(program: Command): void {
       // plausible-looking "no decisions" file behind. An empty file and an
       // unreachable graph are different claims (the rule, new surface).
       let decisions: ContextDecision[];
-      let sources: Array<{ platform: string; source_url?: string | null }> = [];
+      let sources: Array<{ platform: string; title?: string | null; source_url?: string | null }> = [];
       try {
         // A malformed --limit must not become NaN: locally slice(0, NaN) is []
         // and the command would write a plausible-looking EMPTY decisions file -
@@ -110,7 +110,7 @@ export function registerContextCommand(program: Command): void {
         // archived decisions are history, and history is the graph's job.
         const rows = await client.listDecisions({ limit, status: 'active' });
         decisions = rows.map(contextDecisionOf);
-        sources = rows.map((r) => ({ platform: r.platform, source_url: r.source_url }));
+        sources = rows.map((r) => ({ platform: r.platform, title: r.title, source_url: r.source_url }));
       } catch (err) {
         spinner.fail(chalk.red(`Could not fetch decisions: ${(err as Error).message}`));
         process.exit(1);
