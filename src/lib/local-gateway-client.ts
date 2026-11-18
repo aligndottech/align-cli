@@ -3,6 +3,8 @@ import { createLocalDb, type DecisionRow, identifyingSourceUrl, type LinkRow, no
 import { deriveDeciderKind } from './decider-kind.js';
 import { datesOf, provenanceOf } from './local-provenance.js';
 import { currentRepoIdentity, repoFromSourceUrl } from './repo-identity.js';
+import { createConfigStore } from './config.js';
+import { restrictFrom, type ScopeRestrict, scopeUnitOf, unitVisible } from './scope-unit.js';
 import { cosineSimilarity, EMBEDDING_MODEL_ID, getEmbedding } from './local-embeddings.js';
 import { classifyCandidates } from './local-candidate-classify.js';
 import { noProviderHintInline, RECOMMENDED_OLLAMA_PULL } from './local-llm.js';
@@ -51,7 +53,7 @@ const MAX_BLAME_CANDIDATES = 4;
 
 type CheckOpts = { depth?: CheckDepth; title?: string };
 
-export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: string; matrixMaxRows?: number; judgeId?: string } = {}) {
+export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: string; matrixMaxRows?: number; judgeId?: string; scopeConfig?: Pick<ReturnType<typeof createConfigStore>, 'getConnectorScope'> } = {}) {
   const db = createLocalDb(dbPath);
 
   // Memoized: every retrieval call in one command invocation (a single `align ask`, one
@@ -106,15 +108,31 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
    */
   async function resolveScope(
     scope?: { repo?: string; all?: boolean },
-  ): Promise<{ dbFilter: { repo?: string; includeUnattributed?: boolean }; effectiveRepo: string | null }> {
+  ): Promise<{ dbFilter: { repo?: string; includeUnattributed?: boolean; scopeRestrict?: ScopeRestrict }; effectiveRepo: string | null }> {
     if (scope?.all) return { dbFilter: {}, effectiveRepo: null };
     if (scope?.repo !== undefined) {
       const repo = resolveRepoArg(scope.repo);
-      return { dbFilter: { repo, includeUnattributed: true }, effectiveRepo: repo };
+      return { dbFilter: { repo, includeUnattributed: true, ...restrictionFor(repo) }, effectiveRepo: repo };
     }
     const current = await getCurrentRepo();
     if (current === null) return { dbFilter: {}, effectiveRepo: null };
-    return { dbFilter: { repo: current, includeUnattributed: true }, effectiveRepo: current };
+    return { dbFilter: { repo: current, includeUnattributed: true, ...restrictionFor(current) }, effectiveRepo: current };
+  }
+
+  /**
+   * What the repo's own chosen scope per connector lets it see (scope-unit.ts). Read from the config store each call: a choice
+   * made while a long-lived process (the MCP server) is running must apply to the next query. A config that cannot be read
+   * restricts nothing, the fail direction. Empty is omitted, so an unrestricted repo carries no extra filter.
+   */
+  function restrictionFor(repo: string): { scopeRestrict?: ScopeRestrict } {
+    let restrict: ScopeRestrict;
+    try {
+      const config = (clientOpts.scopeConfig ??= createConfigStore());
+      restrict = restrictFrom((source) => config.getConnectorScope('local', source, repo));
+    } catch {
+      return {};
+    }
+    return Object.keys(restrict).length ? { scopeRestrict: restrict } : {};
   }
 
   async function findSimilar(
@@ -128,7 +146,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     // Scoping HERE rather than after ranking is what keeps `topK` honest: filtering
     // post-rank could silently return fewer than topK whenever some of the best global
     // matches fall outside the scope.
-    scopeFilter?: { repo?: string; includeUnattributed?: boolean; createdBefore?: string },
+    scopeFilter?: { repo?: string; includeUnattributed?: boolean; createdBefore?: string; scopeRestrict?: ScopeRestrict },
   ): Promise<Array<{ decisionId: string; score: number }>> {
     // Unconditional, not opt-in. `embedding` is always current-model (getEmbedding's
     // one production path), so a stored vector tagged with a DIFFERENT model would produce a
@@ -188,7 +206,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
    * cloud's `ORDER BY dl.created_at DESC` - the first one whose OWN counterpart also
    * predates the cutoff wins.
    */
-  function relationFieldsFor(decisionId: string, createdBefore?: string): {
+  function relationFieldsFor(decisionId: string, createdBefore?: string, restrict?: ScopeRestrict): {
     status?: 'superseded' | 'conflicted';
     successor?: { id: string; title: string; source_url?: string; relation: string };
     conflicts_with?: { id: string; title: string; source_url?: string; relation: string };
@@ -200,7 +218,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     for (const conflict of conflictCandidates) {
       const otherId = conflict.sourceId === decisionId ? conflict.targetId : conflict.sourceId;
       const row = db.getDecisionById(otherId);
-      if (row && (createdBefore === undefined || isBeforeCutoff(row.createdAt, createdBefore))) {
+      if (row && unitVisible(row.scopeUnit, restrict) && (createdBefore === undefined || isBeforeCutoff(row.createdAt, createdBefore))) {
         return {
           status: 'conflicted',
           conflicts_with: {
@@ -220,7 +238,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       .sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0));
     for (const supersession of supersessionCandidates) {
       const row = db.getDecisionById(supersession.sourceId);
-      if (row && (createdBefore === undefined || isBeforeCutoff(row.createdAt, createdBefore))) {
+      if (row && unitVisible(row.scopeUnit, restrict) && (createdBefore === undefined || isBeforeCutoff(row.createdAt, createdBefore))) {
         return {
           status: 'superseded',
           successor: {
@@ -238,7 +256,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
   function laterOnTopicFor(
     row: NonNullable<ReturnType<typeof db.getDecisionById>>,
     vectors: Map<string, Float32Array>,
-    { dbFilter, createdBefore, hidden }: { dbFilter: { repo?: string; includeUnattributed?: boolean }; createdBefore: string | undefined; hidden: Map<string, unknown> },
+    { dbFilter, createdBefore, hidden }: { dbFilter: { repo?: string; includeUnattributed?: boolean; scopeRestrict?: ScopeRestrict }; createdBefore: string | undefined; hidden: Map<string, unknown> },
   ) {
       const own = vectors.get(row.id);
       const neighbours = own ? [...vectors].filter(([id]) => id !== row.id).map(([id, v]) => ({ decisionId: id, score: cosineSimilarity(own, v) })) : [];
@@ -258,6 +276,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
           if (!r || (createdBefore !== undefined && !isBeforeCutoff(r.createdAt, createdBefore))) return null;
           // A typed edge can cross repos; the search's scope still holds for what it reveals.
           if (dbFilter.repo !== undefined && r.repo !== dbFilter.repo && !(r.repo === null && dbFilter.includeUnattributed)) return null;
+          if (!unitVisible(r.scopeUnit, dbFilter.scopeRestrict)) return null;
           return r;
         },
       });
@@ -354,7 +373,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
           id: row.id,
           title: row.title,
           summary: row.summary,
-          ...relationFieldsFor(row.id, createdBefore),
+          ...relationFieldsFor(row.id, createdBefore, dbFilter.scopeRestrict),
           similarity: s.score,
           created_at: row.createdAt,
           ...(later.length ? { later_on_topic: later } : {}),
@@ -446,6 +465,8 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     // Jira ticket or Slack thread imported from inside a repo is not that repo's, and
     // widening the fallback to every platform would misattribute them.
     const repo = repoFromSourceUrl(sourceUrl) ?? (platform === 'git' ? await getCurrentRepo() : null);
+    // The part of a connector it came from (a Jira project, a Linear team, a Confluence space), so a repo that chose other parts does not see it.
+    const scopeUnit = scopeUnitOf(platform, sourceUrl);
 
     // BEFORE the upsert: insertDecision returns the surviving id whether it inserted or
     // refreshed, so this is the only moment the difference is visible. Without it a
@@ -479,6 +500,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     // row whose ingest died after storing its embedding. Refs stay current and citations INTO
     // the row resolve either way: both are local and cheap.
     if (opts.classify === false && existingId !== null) {
+      db.fillScopeUnit(existingId, scopeUnit); // a row stored before units existed gets its unit on the next read of it
       const step = ingestStep(db.getDecisionById(existingId), { title, summary, platform, repo, decidedAt },
         db.getEmbeddingModel(existingId), EMBEDDING_MODEL_ID, db.getEnrichedAt(existingId));
       const stored = step === 'full' ? null : db.getEmbedding(existingId);
@@ -498,7 +520,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     const embedding = await getEmbedding(embedText);
     // Origin, from the platform - the same rule the cloud applies on insert.
     const deciderKind = deriveDeciderKind(platform);
-    const id = db.insertDecision({ title, summary, sourceUrl, platform, repo, decidedAt, dateSource: decidedAt ? opts.dateSource : undefined, deciderKind, keyed: opts.keyed, detailPending: pending });
+    const id = db.insertDecision({ title, summary, sourceUrl, platform, repo, decidedAt, dateSource: decidedAt ? opts.dateSource : undefined, deciderKind, keyed: opts.keyed, detailPending: pending, scopeUnit });
     db.replaceRefs(id, refs);
     // The payoff: if some earlier decision already cited THIS one (a git commit
     // citing a Jira key before Jira was ever connected), resolve that gap into a real
@@ -727,7 +749,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
             ...(row.sourceUrl ? { source_url: row.sourceUrl } : {}),
             ...(cite ? { cite } : {}),
             ...provenanceOf(row),
-            ...relationFieldsFor(row.id),
+            ...relationFieldsFor(row.id, undefined, filter.scopeRestrict),
           };
         })
         // Both filters run before the slice, so a match past the limit is still returned.
@@ -962,7 +984,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
 
       // LM: a decision a person said was replaced is named as replaced, with its successor.
       const replacedBy = (id: string) => {
-        const r = relationFieldsFor(id);
+        const r = relationFieldsFor(id, undefined, dbFilter.scopeRestrict);
         return r.status === 'superseded' ? { status: r.status, successor: r.successor } : {};
       };
       const relevant_decisions = typed.map(t => ({ id: t.id, title: t.title, summary: t.summary, similarity: t.similarity, url: t.url, found_by: t.found_by, ...t.dates, ...t.provenance, ...replacedBy(t.id), ...laterOf(t.id) }));
