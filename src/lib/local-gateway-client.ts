@@ -206,7 +206,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
    * cloud's `ORDER BY dl.created_at DESC` - the first one whose OWN counterpart also
    * predates the cutoff wins.
    */
-  function relationFieldsFor(decisionId: string, createdBefore?: string): {
+  function relationFieldsFor(decisionId: string, createdBefore?: string, restrict?: ScopeRestrict): {
     status?: 'superseded' | 'conflicted';
     successor?: { id: string; title: string; source_url?: string; relation: string };
     conflicts_with?: { id: string; title: string; source_url?: string; relation: string };
@@ -218,7 +218,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     for (const conflict of conflictCandidates) {
       const otherId = conflict.sourceId === decisionId ? conflict.targetId : conflict.sourceId;
       const row = db.getDecisionById(otherId);
-      if (row && (createdBefore === undefined || isBeforeCutoff(row.createdAt, createdBefore))) {
+      if (row && unitVisible(row.scopeUnit, restrict) && (createdBefore === undefined || isBeforeCutoff(row.createdAt, createdBefore))) {
         return {
           status: 'conflicted',
           conflicts_with: {
@@ -238,7 +238,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       .sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0));
     for (const supersession of supersessionCandidates) {
       const row = db.getDecisionById(supersession.sourceId);
-      if (row && (createdBefore === undefined || isBeforeCutoff(row.createdAt, createdBefore))) {
+      if (row && unitVisible(row.scopeUnit, restrict) && (createdBefore === undefined || isBeforeCutoff(row.createdAt, createdBefore))) {
         return {
           status: 'superseded',
           successor: {
@@ -373,7 +373,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
           id: row.id,
           title: row.title,
           summary: row.summary,
-          ...relationFieldsFor(row.id, createdBefore),
+          ...relationFieldsFor(row.id, createdBefore, dbFilter.scopeRestrict),
           similarity: s.score,
           created_at: row.createdAt,
           ...(later.length ? { later_on_topic: later } : {}),
@@ -749,7 +749,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
             ...(row.sourceUrl ? { source_url: row.sourceUrl } : {}),
             ...(cite ? { cite } : {}),
             ...provenanceOf(row),
-            ...relationFieldsFor(row.id),
+            ...relationFieldsFor(row.id, undefined, filter.scopeRestrict),
           };
         })
         // Both filters run before the slice, so a match past the limit is still returned.
@@ -984,7 +984,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
 
       // LM: a decision a person said was replaced is named as replaced, with its successor.
       const replacedBy = (id: string) => {
-        const r = relationFieldsFor(id);
+        const r = relationFieldsFor(id, undefined, dbFilter.scopeRestrict);
         return r.status === 'superseded' ? { status: r.status, successor: r.successor } : {};
       };
       const relevant_decisions = typed.map(t => ({ id: t.id, title: t.title, summary: t.summary, similarity: t.similarity, url: t.url, found_by: t.found_by, ...t.dates, ...t.provenance, ...replacedBy(t.id), ...laterOf(t.id) }));

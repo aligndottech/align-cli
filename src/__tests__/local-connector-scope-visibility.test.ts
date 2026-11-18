@@ -141,6 +141,46 @@ describe('connector rows follow the repo\'s chosen scope', () => {
   });
 });
 
+describe('a relation does not reveal a row the repo cannot see', () => {
+  async function seed() {
+    choose('client-a', 'jira', ['ALPHA']);
+    const c = open(dirs['client-a']);
+    await c.ingestBatch([jira('ALPHA', 1), jira('ALPHA', 2), jira('BETA', 1), jira('BETA', 2)], imp);
+    const raw = createLocalDb(dbPath);
+    const id = (title: string) => raw.listDecisions().find((r) => r.title === title)!.id;
+    // ALPHA-1 conflicts with BETA-1; ALPHA-2 was replaced by BETA-2.
+    raw.insertLink({ sourceId: id('ALPHA-1'), targetId: id('BETA-1'), relation: 'conflicts_with', confidence: 0.9 });
+    raw.insertLink({ sourceId: id('BETA-2'), targetId: id('ALPHA-2'), relation: 'supersedes', confidence: 0.9 });
+    raw.close();
+    return c;
+  }
+
+  it('listing: neither the conflict counterpart nor the successor is named, and the row stays active', async () => {
+    const c = await seed();
+    const rows = await c.listDecisions({});
+    expect(rows.map((r) => r.title).sort()).toEqual(['ALPHA-1', 'ALPHA-2']);
+    for (const r of rows) {
+      expect(r.conflicts_with).toBeUndefined();
+      expect(r.successor).toBeUndefined();
+      expect(r.status).toBeUndefined();
+    }
+    expect((await c.listDecisions({ status: 'active' })).map((r) => r.title).sort()).toEqual(['ALPHA-1', 'ALPHA-2']);
+  });
+
+  it('search: the same', async () => {
+    const c = await seed();
+    const res = await c.searchDecisions('item', 10);
+    expect(JSON.stringify(res)).not.toContain('BETA');
+  });
+
+  it('--all still shows the relations', async () => {
+    const c = await seed();
+    const rows = await c.listDecisions({ all: true });
+    expect(rows.find((r) => r.title === 'ALPHA-1')?.conflicts_with?.title).toBe('BETA-1');
+    expect(rows.find((r) => r.title === 'ALPHA-2')?.successor?.title).toBe('BETA-2');
+  });
+});
+
 describe('the scope_unit column', () => {
   it('is added to a graph that predates it, without losing the row, which stays unit-less', () => {
     createLocalDb(dbPath).close();
