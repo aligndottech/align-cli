@@ -211,9 +211,11 @@ export async function writeDecisionsContext(
   const rendered = renderDecisionsFile(decisions);
   const linked = opts.external ? tryWriteExternalAndLink(repoRoot, target, rendered) : false;
   if (!linked) {
-    // A file that was kept out of git before is a symlink into ~/.align: replace the link, never write through it.
-    try { if (fs.lstatSync(target).isSymbolicLink()) fs.rmSync(target, { force: true }); } catch { /* not there yet */ }
-    await writeFile(target, rendered, 'utf8');
+    // Written beside it and renamed over it: a session-start hook reading at the same moment sees the old file or the new
+    // one, never a half-written one, and a rename replaces a symlink left from a private run instead of writing through it.
+    const tmp = `${target}.align-tmp-${process.pid}`;
+    await writeFile(tmp, rendered, 'utf8');
+    fs.renameSync(tmp, target);
   }
 
   const claudePath = path.join(repoRoot, 'CLAUDE.md');

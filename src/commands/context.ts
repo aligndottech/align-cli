@@ -31,7 +31,7 @@ import { createGatewayClient } from '../lib/gateway-client.js';
 import { resolveEnv } from '../lib/resolve-env.js';
 import { readSessionStartCwd } from '../lib/hook-payload.js';
 import { alignConfigDir } from '../lib/private-files.js';
-import { ensureGitignored, isTrackedByGit, onlyFromTheRepo, removeGitignoreLine } from '../lib/context-local-only.js';
+import { committableFromRepo, ensureGitignored, isTrackedByGit, removeGitignoreLine } from '../lib/context-local-only.js';
 import { contextDecisionOf, decisionsFromLocalGraph } from '../lib/context-from-graph.js';
 import {
   ALIGN_CONTEXT_PATH,
@@ -99,7 +99,7 @@ export function registerContextCommand(program: Command): void {
       // plausible-looking "no decisions" file behind. An empty file and an
       // unreachable graph are different claims (the rule, new surface).
       let decisions: ContextDecision[];
-      let platforms: string[] = [];
+      let sources: Array<{ platform: string; source_url?: string | null }> = [];
       try {
         // A malformed --limit must not become NaN: locally slice(0, NaN) is []
         // and the command would write a plausible-looking EMPTY decisions file -
@@ -110,7 +110,7 @@ export function registerContextCommand(program: Command): void {
         // archived decisions are history, and history is the graph's job.
         const rows = await client.listDecisions({ limit, status: 'active' });
         decisions = rows.map(contextDecisionOf);
-        platforms = rows.map((r) => r.platform);
+        sources = rows.map((r) => ({ platform: r.platform, source_url: r.source_url }));
       } catch (err) {
         spinner.fail(chalk.red(`Could not fetch decisions: ${(err as Error).message}`));
         process.exit(1);
@@ -123,7 +123,7 @@ export function registerContextCommand(program: Command): void {
       // left at ALIGN_CONTEXT_PATH, so every read below (and align context inject) is unchanged.
       const local = syncEnv.mode === 'local-embedded';
       // A local graph built only from this repo holds nothing a clone does not: its file can be committed.
-      const committable = local && onlyFromTheRepo(platforms);
+      const committable = local && committableFromRepo(sources, repoRoot);
       const result = await writeDecisionsContext(repoRoot, decisions, { external: local && !committable });
 
       console.log(`${chalk.green('Wrote')} ${result.contextPath} (${decisions.length} decision${decisions.length === 1 ? '' : 's'})`);

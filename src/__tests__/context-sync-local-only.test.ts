@@ -89,6 +89,31 @@ describe('align context sync, local graph built only from the repo', () => {
     { id: '3', title: 'Retry webhooks with backoff', summary: '', platform: 'github', status: 'active', source_url: 'https://github.com/acme/api/pull/7' },
   ];
 
+  // The repo IS acme/api, and the doc the docs row came from is committed: that is what "from this repo" has to mean.
+  beforeEach(() => {
+    execFileSync('git', ['init', '-q'], { cwd: repo });
+    execFileSync('git', ['remote', 'add', 'origin', 'https://github.com/acme/api.git'], { cwd: repo });
+    fs.mkdirSync(path.join(repo, 'docs/adr'), { recursive: true });
+    fs.writeFileSync(path.join(repo, 'docs/adr/1.md'), '# ADRs live in docs/adr\n');
+    execFileSync('git', ['add', 'docs/adr/1.md'], { cwd: repo });
+    execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'adr'], { cwd: repo });
+  });
+
+  it('a pull request from ANOTHER repo keeps the file out of git', async () => {
+    mockListDecisions.mockResolvedValue([...REPO_ONLY, { id: '5', title: 'Rotate the client keys', summary: '', platform: 'github', status: 'active', source_url: 'https://github.com/acme/billing-private/pull/3' }]);
+    await run();
+    expect(gitignore()).toContain('.align/decisions.md');
+    expect(logs.join('\n')).toMatch(/Kept out of git/);
+  });
+
+  it('a doc that is not committed (untracked or ignored) keeps the file out of git', async () => {
+    fs.writeFileSync(path.join(repo, 'NOTES.md'), '# private\n');
+    mockListDecisions.mockResolvedValue([...REPO_ONLY, { id: '6', title: 'Private notes', summary: '', platform: 'docs', status: 'active', source_url: 'https://github.com/acme/api/blob/main/NOTES.md#private' }]);
+    await run();
+    expect(gitignore()).toContain('.align/decisions.md');
+    expect(logs.join('\n')).toMatch(/Kept out of git/);
+  });
+
   it('writes a real file, adds nothing to .gitignore, and says it can be committed', async () => {
     mockListDecisions.mockResolvedValue(REPO_ONLY);
     await run();
