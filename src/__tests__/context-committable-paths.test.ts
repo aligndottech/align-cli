@@ -39,6 +39,15 @@ describe('with a hosted remote', () => {
     expect(committableFromRepo(row, repo)).toBe(false);
   });
 
+  it("Align's own import line in CLAUDE.md is not an uncommitted edit, so a rerun before committing still writes the file", () => {
+    put('CLAUDE.md', '# Rules\n\n## Tests for EO objects\n\nKeep the test inside the object.\n'); git('add', '.'); commit();
+    const row = [{ platform: 'docs', title: 'Tests for EO objects', source_url: 'https://github.com/acme/api/blob/main/CLAUDE.md#tests-for-eo-objects' }];
+    fs.appendFileSync(path.join(repo, 'CLAUDE.md'), '\n@DECISIONS.md\n');
+    expect(committableFromRepo(row, repo)).toBe(true);
+    fs.appendFileSync(path.join(repo, 'CLAUDE.md'), 'A private note about the acquisition\n');
+    expect(committableFromRepo(row, repo)).toBe(false);
+  });
+
   it('keeps a row private, rather than throwing, when its path has a bare %', () => {
     put('docs/adr/100%-coverage.md'); git('add', '.'); commit();
     expect(() => committableFromRepo([{ platform: 'docs', title: 'x', source_url: 'https://github.com/acme/api/blob/main/docs/adr/100%-coverage.md' }], repo)).not.toThrow();

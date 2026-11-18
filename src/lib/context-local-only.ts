@@ -150,10 +150,22 @@ function titleIsInCommittedFile(repoRoot: string, relPath: string, title: string
   } catch { return false; }
 }
 
+/** Text with import lines (`@x.md`, which is what Align itself appends to CLAUDE.md) and blank lines set aside. */
+const withoutImports = (t: string): string => t.split('\n').map((l) => l.trimEnd()).filter((l) => l !== '' && !/^@\S+\.md$/.test(l)).join('\n');
+
+/**
+ * The working copy says nothing HEAD's copy does not. Align's own `@DECISIONS.md` line in CLAUDE.md does not count,
+ * or the first run's edit would make every rerun before a commit refuse; any other edit does.
+ */
 function unchangedFromHead(repoRoot: string, relPath: string): boolean {
   try {
     execFileSync('git', ['--literal-pathspecs', '-C', repoRoot, 'diff', '--quiet', 'HEAD', '--', relPath], { stdio: 'pipe' });
     return true;
+  } catch { /* changed, or git could not say: compare the text itself */ }
+  try {
+    const committed = execFileSync('git', ['-C', repoRoot, 'show', `HEAD:${relPath}`], { stdio: 'pipe' }).toString();
+    const working = fs.readFileSync(path.join(repoRoot, relPath), 'utf8');
+    return withoutImports(committed) === withoutImports(working);
   } catch { return false; }
 }
 
