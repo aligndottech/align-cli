@@ -35,6 +35,29 @@ export function ensureGitignored(repoRoot: string, relPath: string): 'added' | '
   return 'added';
 }
 
+/** Removes the exact line ensureGitignored adds for `relPath`, and nothing else. Idempotent. */
+export function removeGitignoreLine(repoRoot: string, relPath: string): 'removed' | 'absent' {
+  const file = path.join(repoRoot, '.gitignore');
+  let existing: string;
+  try { existing = fs.readFileSync(file, 'utf8'); } catch { return 'absent'; }
+  const lines = existing.split('\n');
+  const kept = lines.filter((l) => l.trim() !== relPath);
+  if (kept.length === lines.length) return 'absent';
+  fs.writeFileSync(file, kept.join('\n'));
+  return 'removed';
+}
+
+/**
+ * Platforms whose decisions the repo already holds: its own commits, its committed docs and its pull requests. A
+ * decisions file made only of these says nothing a clone does not, so it may be committed. Anything else (a chat, a
+ * ticket, an agent session, a hand capture, a local tool's notes) is the person's own and keeps the file out of git.
+ */
+export const REPO_PLATFORMS: ReadonlySet<string> = new Set(['git', 'docs', 'github', 'gitlab']);
+
+export function onlyFromTheRepo(platforms: readonly string[]): boolean {
+  return platforms.length > 0 && platforms.every((p) => REPO_PLATFORMS.has(p));
+}
+
 /** Is `relPath` already tracked by git? False outside a repo, and never throws. */
 export function isTrackedByGit(repoRoot: string, relPath: string): boolean {
   try {

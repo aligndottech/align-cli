@@ -210,7 +210,11 @@ export async function writeDecisionsContext(
   await mkdir(path.dirname(target), { recursive: true });
   const rendered = renderDecisionsFile(decisions);
   const linked = opts.external ? tryWriteExternalAndLink(repoRoot, target, rendered) : false;
-  if (!linked) await writeFile(target, rendered, 'utf8');
+  if (!linked) {
+    // A file that was kept out of git before is a symlink into ~/.align: replace the link, never write through it.
+    try { if (fs.lstatSync(target).isSymbolicLink()) fs.rmSync(target, { force: true }); } catch { /* not there yet */ }
+    await writeFile(target, rendered, 'utf8');
+  }
 
   const claudePath = path.join(repoRoot, 'CLAUDE.md');
   let importAdded = false;

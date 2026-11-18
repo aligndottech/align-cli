@@ -223,6 +223,11 @@ align context sync            Write current decisions to .align/decisions.md and
 align context inject          Print the decisions file as SessionStart hook output (written by `align`, not meant to be run by hand)
                               flags: --format
 
+# Bring this repo's decisions up to date and write .align/decisions.md
+
+align up                      Bring this repo's decisions up to date and write .align/decisions.md (commits, docs, connected sources)
+                              flags: --env
+
 # Answer a check the judge declined to rule on
 
 align adjudicate <event-id>   Answer an alignment check that reached the judge and declined to rule. The event id is printed by the failing check.

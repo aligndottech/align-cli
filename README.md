@@ -94,6 +94,12 @@ MIT, no account needed. Beta, pre-1.0.
 4. **Sources refresh when you start `align`**, in the background, at most every 15 minutes per source. There is no timer: if you only open your agent, nothing refreshes until you run `align` or the agent calls `align_sync` (`status` shows where it stands, `run` starts a refresh). A big GitHub repo backfills its pull-request discussions over several runs.
 5. **Add more sources when you want them:** `align connect` (Jira, Linear, Slack, Notion and more).
 
+**Prefer a file you control, and no MCP?** Run `align up` in the repo. It reads the commits and docs, refreshes any
+connected source, and writes the decisions to `.align/decisions.md`, imported from your CLAUDE.md. When every decision
+in it comes from the repo itself (its commits, docs and pull requests), it is a normal file you commit. Run `align up`
+again whenever you want it current. If you connect a chat or ticket tool, the file stays out of git, because it then
+holds your team's private discussions.
+
 Imported decisions show `ratified: false`. That is expected, and you don't have to ratify them.
 Ratifying is a person saying "this governs", and it only applies to a claim an agent made, such as
 one from `align connect sessions` (`align decisions list --unratified` lists them). A rule your team
