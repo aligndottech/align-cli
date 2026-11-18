@@ -776,6 +776,9 @@ export async function recordInvocationUsage(
   // running a command (its per-source `source_synced` pings are the measurement). Decided from the
   // command's own flag, the way hook invocations are, so one place says so.
   if (opts.background === true) return;
+  // `align up` is its steps (connect, sync, context), and each child sends its own ping. The gateway does not accept `up`,
+  // so its own ping would only be dropped with a silent 400 (telemetry-server-parity.test.ts NOT_SENT).
+  if (command === 'up') return;
   const { createConfigStore } = await import('./config.js');
   const { resolveEnv } = await import('./resolve-env.js');
   const config = createConfigStore();

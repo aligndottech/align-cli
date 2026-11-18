@@ -31,7 +31,7 @@ import { createGatewayClient } from '../lib/gateway-client.js';
 import { resolveEnv } from '../lib/resolve-env.js';
 import { readSessionStartCwd } from '../lib/hook-payload.js';
 import { alignConfigDir } from '../lib/private-files.js';
-import { ensureGitignored, isTrackedByGit } from '../lib/context-local-only.js';
+import { committableFromRepo, ensureGitignored, isTrackedByGit, removeGitignoreLine } from '../lib/context-local-only.js';
 import { contextDecisionOf, decisionsFromLocalGraph } from '../lib/context-from-graph.js';
 import {
   ALIGN_CONTEXT_PATH,
@@ -99,6 +99,7 @@ export function registerContextCommand(program: Command): void {
       // plausible-looking "no decisions" file behind. An empty file and an
       // unreachable graph are different claims (the rule, new surface).
       let decisions: ContextDecision[];
+      let sources: Array<{ platform: string; title?: string | null; source_url?: string | null }> = [];
       try {
         // A malformed --limit must not become NaN: locally slice(0, NaN) is []
         // and the command would write a plausible-looking EMPTY decisions file -
@@ -109,6 +110,7 @@ export function registerContextCommand(program: Command): void {
         // archived decisions are history, and history is the graph's job.
         const rows = await client.listDecisions({ limit, status: 'active' });
         decisions = rows.map(contextDecisionOf);
+        sources = rows.map((r) => ({ platform: r.platform, title: r.title, source_url: r.source_url }));
       } catch (err) {
         spinner.fail(chalk.red(`Could not fetch decisions: ${(err as Error).message}`));
         process.exit(1);
@@ -119,7 +121,20 @@ export function registerContextCommand(program: Command): void {
       const repoRoot = process.cwd();
       // external: true moves the LOCAL case's real bytes to ~/.align - a symlink is
       // left at ALIGN_CONTEXT_PATH, so every read below (and align context inject) is unchanged.
-      const result = await writeDecisionsContext(repoRoot, decisions, { external: syncEnv.mode === 'local-embedded' });
+      const local = syncEnv.mode === 'local-embedded';
+      // A local graph built only from this repo holds nothing a clone does not: its file can be committed.
+      const committable = local && committableFromRepo(sources, repoRoot);
+      // .gitignore cannot protect a file git already tracks: one ordinary commit would publish what is written into it.
+      if (local && !committable && isTrackedByGit(repoRoot, ALIGN_CONTEXT_PATH)) {
+        console.error(
+          `align context sync: not writing ${ALIGN_CONTEXT_PATH}: it is tracked by git, and this graph now holds decisions that are not from this repo ` +
+          `(a chat, a ticket, another repo, or an uncommitted doc). Writing them there would put them in your next commit. Nothing was written. ` +
+          `Stop tracking it, then run this again: git rm --cached ${ALIGN_CONTEXT_PATH}`,
+        );
+        process.exitCode = 1;
+        return;
+      }
+      const result = await writeDecisionsContext(repoRoot, decisions, { external: local && !committable });
 
       console.log(`${chalk.green('Wrote')} ${result.contextPath} (${decisions.length} decision${decisions.length === 1 ? '' : 's'})`);
 
@@ -137,17 +152,19 @@ export function registerContextCommand(program: Command): void {
       }
       // A local graph is private to this machine, so its decisions file stays out of git. Sharing with a team
       // goes through `align share`; a team graph's file is already team content and is left alone.
-      if (syncEnv.mode === 'local-embedded') {
+      if (committable) {
+        removeGitignoreLine(repoRoot, ALIGN_CONTEXT_PATH);
+        console.log(chalk.dim(
+          `Every decision in ${ALIGN_CONTEXT_PATH} comes from this repo (its commits, docs and pull requests), so it is a normal file: commit it, and everyone who clones the repo reads the same decisions.`,
+        ));
+      } else if (local) {
         const status = ensureGitignored(repoRoot, ALIGN_CONTEXT_PATH);
         console.log(chalk.dim(
           `${status === 'added' ? 'Kept out of git (added to .gitignore)' : 'Kept out of git'}: this comes from your local graph, which stays on this machine. ` +
           `To bring decisions to your team, run ${chalk.bold('align share')}.`,
         ));
-        if (isTrackedByGit(repoRoot, ALIGN_CONTEXT_PATH)) {
-          console.log(chalk.yellow(`${ALIGN_CONTEXT_PATH} is already tracked by git, so it can reach your team. Stop tracking it: git rm --cached ${ALIGN_CONTEXT_PATH}`));
-        }
       }
-      console.log(chalk.dim('Re-run `align context sync` after new decisions land.'));
+      console.log(chalk.dim('Bring it up to date after new decisions land: align up'));
     });
 
   context

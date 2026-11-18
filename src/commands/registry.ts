@@ -22,6 +22,7 @@ import { registerStatusCommand } from './status.js';
 import { registerDoctorCommand } from './doctor.js';
 import { registerConfigCommand } from './config.js';
 import { registerContextCommand } from './context.js';
+import { registerUpCommand } from './up.js';
 import { registerEnvCommand } from './env.js';
 import { registerTelemetryCommand } from './telemetry.js';
 import { registerAskCommand } from './why.js';
@@ -114,6 +115,7 @@ export const COMMAND_REGISTRY: readonly CommandEntry[] = [
   { names: ['status'], visible: false, summary: 'What your graph has done for you', register: registerStatusCommand },
   { names: ['doctor'], visible: false, summary: 'Check this install end to end, with one real tool call', register: registerDoctorCommand },
   { names: ['context'], visible: false, summary: 'Write decisions to .align/decisions.md', register: registerContextCommand },
+  { names: ['up'], visible: false, summary: "Bring this repo's decisions up to date and write .align/decisions.md", register: registerUpCommand },
 
   // Customer: CI/alignment check
   // `names` is the commands this register function ADDS, each looked up by the docs renderer -
