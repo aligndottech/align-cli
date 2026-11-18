@@ -110,11 +110,14 @@ describe.skipIf(process.platform === 'win32')('a real detached child', () => {
     const { execFileSync } = require('node:child_process');
     // \`ps\` keywords differ: macOS has no \`sid\`. A column it cannot print is '' and is not asserted; the child never dies for want of one.
     const ps = (c) => { try { return execFileSync('ps', ['-o', c + '=', '-p', String(process.pid)], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { return ''; } };
-    fs.writeFileSync(${JSON.stringify(out)}, JSON.stringify({
+    // Written to a temp name and renamed: the test waits for the file to EXIST, and a rename is atomic, so it never
+    // reads a half-written dump (a 0.86.1 publish failed on "Unexpected end of JSON input").
+    fs.writeFileSync(${JSON.stringify(out)} + '.tmp', JSON.stringify({
       pid: process.pid, sid: ps('sid'), pgid: ps('pgid'), tty: ps('tty'), cwd: process.cwd(),
       stdinTty: require('node:tty').isatty(0), stdoutTty: require('node:tty').isatty(1),
       env: process.env,
-    }));`;
+    }));
+    fs.renameSync(${JSON.stringify(out)} + '.tmp', ${JSON.stringify(out)});`;
   type Seen = { pid: number; sid: string; pgid: string; tty: string; cwd: string; stdinTty: boolean; stdoutTty: boolean; env: Record<string, string> };
   const spawnReal = async (env: Record<string, string | undefined>, o: { caller?: 'mcp' | 'launcher'; cwd?: string } = {}): Promise<Seen> => {
     const out = path.join(dir, 'seen.json');
