@@ -199,12 +199,20 @@ failed setup step says nothing about Cursor.
 1. Run `align context sync` in a project, then `align setup`.
 2. Check that `.align/decisions.md` exists and that `~/.cursor/hooks.json` has a `sessionStart`
    entry running `align context inject --format cursor`.
-3. Check the hook prints the text: `echo '{"workspace_roots":["'"$PWD"'"]}' | align context inject --format cursor`
-   must print a JSON line with `additional_context`.
-4. Only then open a new Agent chat in that project and ask "Quote the first line of
-   .align/decisions.md without opening any file or calling a tool." If the model quotes it, the text
-   reached the model. If it cannot, and steps 1 to 3 passed, the forum reports hold on your Cursor
-   version. Update this row with the Cursor version and the result.
+3. Check the command prints the text. This probe does not involve Cursor, so it proves only
+   that the command works:
+   `node -e 'console.log(JSON.stringify({workspace_roots:[process.cwd()]}))' | align context inject --format cursor`
+   must print one JSON line with `additional_context`.
+4. Add a fresh marker that only the hook output carries. Append a line such as
+   `marker-4f9c2e71` (make up your own random string) to `.align/decisions.md`, and do not write
+   it anywhere else in the project, in a rule file or in the chat. Do not tell the model the value.
+5. Open a new Agent chat in that project and ask: "What marker string is in your initial
+   context? Do not open any file or call a tool." An exact match means the text reached the model.
+6. If the model cannot give it, find Cursor's own record that the hook ran for that same chat
+   (the Hooks output channel or its hook log) and what it printed. Count a failure as a delivery
+   failure only if that record shows the hook ran and printed the marker. If you cannot find that
+   record, write the result down as inconclusive. Update this row with the Cursor version and the
+   result, and remove the marker line.
 
 Until then, Cursor's delivery is unconfirmed. Do not treat it as equivalent to Claude Code's.
 
