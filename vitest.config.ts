@@ -1,6 +1,12 @@
 import { defineConfig } from 'vitest/config';
 import { availableParallelism } from 'node:os';
 import { maxWorkersFor } from './vitest.workers.js';
+import { fileURLToPath } from 'node:url';
+
+// A CLI a test spawns inherits this and cannot reach the hosted gateway (see helpers/block-hosted.cjs). Forward
+// slashes so the path survives NODE_OPTIONS parsing on Windows.
+const blockHosted = fileURLToPath(new URL('./src/__tests__/helpers/block-hosted.cjs', import.meta.url)).replaceAll('\\', '/');
+const nodeOptions = [process.env['NODE_OPTIONS'], `--require "${blockHosted}"`].filter(Boolean).join(' ');
 
 export default defineConfig({
   test: {
@@ -14,7 +20,7 @@ export default defineConfig({
     hookTimeout: process.platform === 'win32' ? 60_000 : 10_000,
     // L6: the launcher starts a detached `align sync` for a due source. No test may start a real one from a developer's own state directory.
     // No test may reach a real OS keychain (macOS Keychain, secret-tool, DPAPI): the token store stays on the config file unless a test injects a fake vault.
-    env: { ALIGN_NO_SYNC: '1', ALIGN_NO_TRUSTED_BIN: '1', ALIGN_TOKEN_STORE: 'file' },
+    env: { ALIGN_NO_SYNC: '1', ALIGN_NO_TRUSTED_BIN: '1', ALIGN_TOKEN_STORE: 'file', NODE_OPTIONS: nodeOptions },
     // No test may read or write the developer's real home folder (~/.claude, ~/.config/align-cli, ~/.local/state).
     // This points HOME at a temp folder before any test module is imported; see helpers/isolated-home.ts.
     setupFiles: ['src/__tests__/helpers/isolated-home.setup.ts'],
