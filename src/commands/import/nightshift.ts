@@ -21,7 +21,7 @@ interface NightshiftImportOpts {
 export function registerImportNightshiftCommand(importCmd: Command): void {
   importCmd
     .command('nightshift')
-    .description("Import the decisions you answered in nightshift's parking lot (open entries stay in nightshift)")
+    .description("Import the decisions you answered in nightshift's parking lot and plan record (open entries stay in nightshift)")
     .option('--dir <path>', 'The repo whose .nightshift folder to read (default: this folder)')
     .option('--limit <n>', 'Max decisions to import', String(SYNC_CEILINGS.nightshift))
     .option('--approve', 'Skip confirmation prompt')
@@ -40,8 +40,9 @@ export function registerImportNightshiftCommand(importCmd: Command): void {
         process.exit(1);
       }
       if (read.open > 0) p.log.info(`${read.open} parking-lot entr${read.open === 1 ? 'y is' : 'ies are'} still open. Answer ${read.open === 1 ? 'it' : 'them'} in nightshift and run this again.`);
+      if (read.planOpen > 0) p.log.info(`${read.planOpen} plan-record question${read.planOpen === 1 ? ' is' : 's are'} still open. Answer ${read.planOpen === 1 ? 'it' : 'them'} in the plan room and run this again.`);
       if (read.items.length === 0) {
-        p.log.info(`No answered entries yet in ${read.files} parking-lot file${read.files === 1 ? '' : 's'}.`);
+        p.log.info(`No answered entries yet in ${read.files} parking-lot file${read.files === 1 ? '' : 's'}${read.planFiles > 0 ? ` and ${read.planFiles} plan record${read.planFiles === 1 ? '' : 's'}` : ''}.`);
         return;
       }
 

@@ -21,7 +21,7 @@ import { currentRepoIdentity } from '../repo-identity.js';
  */
 
 export class NightshiftError extends Error {}
-export interface NightshiftRead { items: PersonalImportItem[]; open: number; files: number }
+export interface NightshiftRead { items: PersonalImportItem[]; open: number; files: number; planOpen: number; planFiles: number }
 
 const SEP = ' · ';
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -174,20 +174,158 @@ export function parseParkingLot(text: string, o: { fileDate?: string; repo?: str
   return { items, open, openUrls };
 }
 
-/** Every parking-lot.md under .nightshift, archive folders included, live file last so its answer wins. */
-async function parkingLots(dir: string): Promise<string[]> {
+/** Planning-menu choices nightshift records as `Decided:` lines. They steer the planning, not the project. */
+const MENU_CHOICE = /^(planning depth|evidence lines|edge-case pass|pre-mortem|ordering( and risk)? check|research|receipts\.\S+)$/i;
+/** A decision is parted from its why by a dash: nightshift writes an em dash, a hyphen is read too. */
+const WHY_SPLIT = /\s+(?:\u2014|\u2013|-)\s+/;
+
+interface PlanEntry { topic: string; date?: string; closed: 'captured' | 'dropped' | null; lines: { label: string; text: string }[] }
+
+/** The plan record's entries: a `- **topic**` bullet, its labelled notes indented under it, wrapped lines joined. */
+function planEntries(text: string): PlanEntry[] {
+  const lines = text.split(/\r?\n/);
+  const rule = lines.findIndex((l) => l.trim() === '---');
+  const out: PlanEntry[] = [];
+  let current: PlanEntry | null = null;
+  for (const raw of lines.slice(rule === -1 ? 0 : rule + 1)) {
+    if (raw.trim() === '') continue;
+    const head = /^- \*\*(.+?)\*\*(.*)$/.exec(raw);
+    if (head) {
+      const rest = segmentsOf(head[2]!);
+      const closing = rest.map((s) => /^(captured|dropped)\b/i.exec(s)?.[1]?.toLowerCase()).find(Boolean) as PlanEntry['closed'] | undefined;
+      const date = /open since\s+(\d{4}-\d{2}-\d{2})/i.exec(head[2]!)?.[1];
+      current = { topic: head[1]!.trim(), ...(date ? { date } : {}), closed: closing ?? null, lines: [] };
+      out.push(current);
+      continue;
+    }
+    const note = /^\s+- (Where we are|Decided|Rejected|Open):\s*(.*)$/i.exec(raw);
+    if (current && note) current.lines.push({ label: note[1]!.toLowerCase(), text: note[2]!.replace(/\*\*/g, '').trim() });
+    else if (current && /^\s+\S/.test(raw) && current.lines.length > 0) {
+      const last = current.lines[current.lines.length - 1]!;
+      last.text = `${last.text} ${raw.trim()}`;
+    } else current = null; // a Filed: pointer, a paragraph or "(empty)" ends the entry and is not one
+  }
+  return out;
+}
+
+/** Keyed by the repo, the plan, the kind and the decision (not its why), so an edited reason, and the filed copy, update one row. */
+export const planRecordUrl = (kind: 'decided' | 'rejected', topic: string, subject: string, repo = ''): string =>
+  `nightshift://plan-record/${createHash('sha256').update(`${repo}\n${topic.trim().toLowerCase()}\n${kind}\n${subject.trim().toLowerCase()}`).digest('hex').slice(0, 16)}`;
+
+/**
+ * The plan room's notebook. Each `Decided:` line is a decision and each `Rejected:` line a rejected option,
+ * both with the why after the dash. `Open:` lines are questions nobody answered, so they stay in nightshift
+ * (counted, never imported), and a dropped plan's lines are not decisions at all.
+ */
+export function parsePlanRecord(text: string, o: { fileDate?: string; repo?: string } = {}): { items: PersonalImportItem[]; open: number } {
+  const items: PersonalImportItem[] = [];
+  let open = 0;
+  for (const entry of planEntries(text)) {
+    if (entry.closed === 'dropped') continue;
+    const date = entry.date ?? (o.fileDate && DATE.test(o.fileDate) ? o.fileDate : undefined);
+    for (const line of entry.lines) {
+      if (line.label === 'open') { if (line.text) open++; continue; }
+      if (line.label !== 'decided' && line.label !== 'rejected') continue;
+      const [subject = '', ...why] = line.text.split(WHY_SPLIT);
+      const reason = why.join(' - ').trim();
+      if (!subject.trim() || (line.label === 'decided' && MENU_CHOICE.test(subject.trim()))) continue;
+      const rejected = line.label === 'rejected';
+      items.push({
+        source_url: planRecordUrl(rejected ? 'rejected' : 'decided', entry.topic, subject, o.repo),
+        platform: 'nightshift',
+        title: titleOf(rejected ? `Rejected: ${subject.trim()}` : subject.trim()),
+        raw_text: [rejected ? `Rejected: ${subject.trim()}` : subject.trim(), ...(reason ? [`Why: ${reason}`] : []), `Plan: ${entry.topic}`].join('\n'),
+        ...(date ? { created_at: day(date) } : {}),
+      });
+    }
+  }
+  return { items, open };
+}
+
+const DEFAULT_ROOT = ['archive'];
+/** Folders the live records sit in. A root inside one would file the running shift on top of itself, so nightshift refuses it. */
+const LIVE_FOLDERS = ['receipts', 'inbox', 'staging', 'product', 'run'];
+
+/** An `archive.root` as path segments, or null when nightshift would refuse it (absolute, `..`, hidden, empty, or a live folder). */
+function rootSegments(value: unknown): string[] | null {
+  if (typeof value !== 'string' || value.trim() === '' || /^([/\\~]|[A-Za-z]:)/.test(value.trim())) return null;
+  const segs = value.trim().split(/[/\\]/).filter((s) => s !== '');
+  if (segs.length === 0 || segs.some((s) => s === '.' || s === '..' || s.startsWith('.'))) return null;
+  return LIVE_FOLDERS.includes(segs[0]!) ? null : segs;
+}
+
+async function readText(file: string): Promise<string | null> {
+  try { return await readFile(file, 'utf8'); } catch { return null; }
+}
+
+/**
+ * Where nightshift files finished shifts: `archive.root` and `archive.layout`, from the settings file, the policy
+ * frozen for the running shift, and the marker an ended shift leaves (a shift filed under an earlier root is still
+ * archived). The default `archive` always counts. A file that cannot be read adds nothing.
+ */
+async function archiveSettings(dir: string): Promise<{ roots: string[][]; layouts: Set<string> }> {
+  const roots: string[][] = [DEFAULT_ROOT];
+  const layouts = new Set<string>();
+  const take = (root: unknown, layout: unknown) => {
+    const segs = rootSegments(root);
+    if (segs && !roots.some((r) => r.join('/') === segs.join('/'))) roots.push(segs);
+    if (typeof layout === 'string' && layout) layouts.add(layout);
+  };
+  for (const file of [path.join(dir, 'rules.json'), path.join(dir, 'run', 'shift-policy.json')]) {
+    const text = await readText(file);
+    if (text === null) continue;
+    try {
+      const block = (JSON.parse(text) as { archive?: { root?: unknown; layout?: unknown } } | null)?.archive;
+      if (block && typeof block === 'object') take(block.root, block.layout);
+    } catch { /* unreadable: today's behaviour */ }
+  }
+  const ended = await readText(path.join(dir, 'run', '.ended'));
+  if (ended !== null) take(/^archiveRoot=(.*)$/m.exec(ended)?.[1]?.trim(), /^archiveLayout=(.*)$/m.exec(ended)?.[1]?.trim());
+  return { roots, layouts };
+}
+
+/** The archive folder a file sits in, as `[...root, folder]`, or null for a live file. The longest root wins. */
+function archiveFolder(rel: string[], roots: string[][]): string[] | null {
+  let best: string[] | null = null;
+  for (const root of roots) {
+    if (rel.length > root.length + 1 && root.every((s, i) => rel[i] === s) && (!best || root.length > best.length - 1)) best = rel.slice(0, root.length + 1);
+  }
+  return best;
+}
+
+/** A folder's day: its own date when the layout names folders by date, else the `createdAt` of the shift policy filed in it. */
+async function folderDate(dir: string, folder: string[], layouts: Set<string>): Promise<string | undefined> {
+  if ([...layouts].every((l) => l === 'date' || l === 'date-name')) {
+    const named = /^\d{4}-\d{2}-\d{2}/.exec(folder[folder.length - 1]!)?.[0];
+    if (named) return named;
+  }
+  const text = await readText(path.join(dir, ...folder, 'run', 'shift-policy.json'));
+  if (text === null) return undefined;
+  try {
+    const created = (JSON.parse(text) as { createdAt?: unknown } | null)?.createdAt;
+    return typeof created === 'string' ? /^\d{4}-\d{2}-\d{2}/.exec(created)?.[0] : undefined;
+  } catch { return undefined; }
+}
+
+/** Every file with one of these names under .nightshift, archive folders included. */
+async function findFiles(dir: string, accept: (rel: string[]) => boolean): Promise<string[]> {
   const found: string[] = [];
   const walk = async (d: string) => {
     for (const e of await readdir(d, { withFileTypes: true })) {
       const p = path.join(d, e.name);
       if (e.isDirectory()) await walk(p);
-      else if (e.isFile() && e.name === 'parking-lot.md') found.push(p);
+      else if (e.isFile() && accept(path.relative(dir, p).split(path.sep))) found.push(p);
     }
   };
   await walk(dir);
-  const archived = (p: string) => p.includes(`${path.sep}archive${path.sep}`);
-  return found.sort((a, b) => Number(archived(b)) - Number(archived(a)) || a.localeCompare(b, 'en'));
+  return found;
 }
+
+/** Archives first, live last, so the live file's answer wins. */
+const archivesFirst = (dir: string, roots: string[][]) => (a: string, b: string): number => {
+  const archived = (p: string) => Number(archiveFolder(path.relative(dir, p).split(path.sep), roots) !== null);
+  return archived(b) - archived(a) || a.localeCompare(b, 'en');
+};
 
 export async function readNightshift(repoRoot: string): Promise<NightshiftRead> {
   const dir = path.join(repoRoot, '.nightshift');
@@ -196,25 +334,39 @@ export async function readNightshift(repoRoot: string): Promise<NightshiftRead> 
   } catch {
     throw new NightshiftError(`There is no .nightshift folder in ${repoRoot}. Run this in a repo where nightshift has run a shift.`);
   }
-  const files = await parkingLots(dir);
+  const { roots, layouts } = await archiveSettings(dir);
+  const order = archivesFirst(dir, roots);
+  const files = (await findFiles(dir, (rel) => rel[rel.length - 1] === 'parking-lot.md')).sort(order);
+  // The plan record lives at staging/plan-record.md, live or filed. The older flat layout is not read.
+  const plans = (await findFiles(dir, (rel) => rel[rel.length - 1] === 'plan-record.md' && rel[rel.length - 2] === 'staging')).sort(order);
   const repo = (await currentRepoIdentity({ cwd: repoRoot })) ?? path.resolve(repoRoot);
   const byUrl = new Map<string, PersonalImportItem>();
+  const keep = (item: PersonalImportItem) => {
+    const earlier = byUrl.get(item.source_url);
+    // A later read of the same entry replaces the earlier one, keeping the first date seen.
+    byUrl.set(item.source_url, earlier?.created_at && !item.created_at ? { ...item, created_at: earlier.created_at } : item);
+  };
   let open = 0;
+  let planOpen = 0;
   for (const file of files) {
     const rel = path.relative(dir, file).split(path.sep);
-    const fileDate = rel[0] === 'archive' ? rel.slice(1).map((s) => /\d{4}-\d{2}-\d{2}/.exec(s)?.[0]).find(Boolean) : undefined;
+    const folder = archiveFolder(rel, roots);
+    const fileDate = folder ? await folderDate(dir, folder, layouts) : undefined;
     const parsed = parseParkingLot(await readFile(file, 'utf8'), { repo, ...(fileDate ? { fileDate } : {}) });
     // Only the live file's open entries are still waiting; an archive keeps its own copy of history. A question
     // parked again and still open in the live file is waiting on the owner, so an older archived answer does not stand.
-    if (rel[0] !== 'archive') {
+    if (!folder) {
       open += parsed.open;
       for (const url of parsed.openUrls) byUrl.delete(url);
     }
-    for (const item of parsed.items) {
-      const earlier = byUrl.get(item.source_url);
-      // Archives first, live last: a later read of the same question replaces the earlier one, keeping the first date seen.
-      byUrl.set(item.source_url, earlier?.created_at && !item.created_at ? { ...item, created_at: earlier.created_at } : item);
-    }
+    parsed.items.forEach(keep);
   }
-  return { items: [...byUrl.values()], open, files: files.length };
+  for (const file of plans) {
+    const folder = archiveFolder(path.relative(dir, file).split(path.sep), roots);
+    const fileDate = folder ? await folderDate(dir, folder, layouts) : undefined;
+    const parsed = parsePlanRecord(await readFile(file, 'utf8'), { repo, ...(fileDate ? { fileDate } : {}) });
+    if (!folder) planOpen += parsed.open;
+    parsed.items.forEach(keep);
+  }
+  return { items: [...byUrl.values()], open, files: files.length, planOpen, planFiles: plans.length };
 }
