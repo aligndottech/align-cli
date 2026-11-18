@@ -5,6 +5,7 @@
  * the anonymous funnel could no longer tell people from test runs. The setup file now refuses
  * any request to the hosted gateway, so the next test that forgets a sink fails closed instead.
  */
+import { execFile } from 'node:child_process';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -25,6 +26,35 @@ describe('the test setup blocks the hosted gateway', () => {
       const { port } = server.address() as AddressInfo;
       const res = await fetch(`http://127.0.0.1:${port}/`);
       expect(await res.text()).toBe('ok');
+    } finally {
+      server.close();
+    }
+  });
+});
+
+/** Run a fetch in a CHILD node process that inherits this env, the way setup and share tests start the CLI. */
+function childFetch(url: string): Promise<string> {
+  const script = `fetch(${JSON.stringify(url)}).then(r => r.text()).then(t => console.log('REACHED ' + t), e => console.log('REJECTED ' + e.message))`;
+  return new Promise((resolve) => {
+    execFile(process.execPath, ['-e', script], { env: { ...process.env }, timeout: 15_000 }, (_err, stdout) => resolve(String(stdout).trim()));
+  });
+}
+
+describe('a CLI a test spawns cannot reach the hosted gateway either', () => {
+  // The setup file guards this process only. Setup and share tests spawn the CLI with a copy of
+  // process.env and no ALIGN_GATEWAY_URL, and those children sent real install beacons and real
+  // leads to production on every run (7 sends per full run, measured 18 Nov). vitest.config.ts
+  // puts helpers/block-hosted.cjs on NODE_OPTIONS so every child that inherits the env loads it.
+  it('a child process that inherits the env is refused before the request leaves', async () => {
+    expect(await childFetch(`${ALIGN_HOSTED_GATEWAY_URL}/health`)).toMatch(/^REJECTED .*hosted gateway is blocked in tests/);
+  });
+
+  it('CONTROL: the same child still reaches a loopback server', async () => {
+    const server = createServer((_req, res) => res.end('ok'));
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const { port } = server.address() as AddressInfo;
+      expect(await childFetch(`http://127.0.0.1:${port}/`)).toBe('REACHED ok');
     } finally {
       server.close();
     }
