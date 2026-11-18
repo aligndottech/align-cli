@@ -64,4 +64,18 @@ describe('tryOpenUrl', () => {
     child.emit('exit', 0, null);
     await expect(pending).resolves.toBe(true);
   });
+
+  it('an opener that resolves to no process (a mock, or an opener with no child) reads as not opened, and leaves no timer behind to throw later', async () => {
+    vi.useFakeTimers();
+    try {
+      const answer = tryOpenUrl('https://example.com', async () => undefined as never, 400);
+      // Nothing to watch, so nothing says the browser opened: the caller warns and prints the link, as before.
+      await expect(answer).resolves.toBe(false);
+      // The bug: a 400 ms timer was left running and threw `removeListener` of undefined outside any test.
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
+
