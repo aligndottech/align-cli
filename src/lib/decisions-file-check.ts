@@ -16,12 +16,32 @@
  */
 import type { AlignmentResult } from './gateway-client.js';
 import type { FileDecision } from './decisions-file.js';
-import { noProviderHintInline } from './local-llm.js';
+import { callChatDetailed, noProviderHintInline } from './local-llm.js';
 import { classifyCandidates } from './local-candidate-classify.js';
+import { classifyCandidateSet, ordinal, similarEntries } from './local-set-classifier.js';
 
 export interface FileJudgeDeps {
   classify?: typeof classifyCandidates;
 }
+
+/**
+ * The shared set classifier reads a non-empty `similar` array in which no entry names one of the
+ * candidates (`[null]`, a ref outside the list) as "judged, nothing related", and the caller then reads
+ * that as aligned. Here that is an unreadable answer: nothing was judged. An EMPTY array stays a valid
+ * "no conflict" answer.
+ */
+const setClassifier: NonNullable<Parameters<typeof classifyCandidates>[3]>['set'] = async (subject, candidates) => {
+  let text: string | undefined;
+  const result = await classifyCandidateSet(subject, candidates, async (...args) => {
+    const r = await callChatDetailed(...args);
+    if (r.ok) text = r.text;
+    return r;
+  });
+  const entries = result.ok && text !== undefined ? similarEntries(text) : null;
+  const judged = (e: unknown): boolean => typeof e === 'object' && e !== null && ordinal((e as Record<string, unknown>)['decision_ref'], candidates.length) !== null;
+  if (entries && entries.length > 0 && !entries.some(judged)) return { ok: false, reason: 'classifier_unparseable' };
+  return result;
+};
 
 export async function judgeAgainstDecisionsFile(
   diff: string,
@@ -41,7 +61,7 @@ export async function judgeAgainstDecisionsFile(
     status: null,
   }));
   const subject = { title: opts.title ?? 'Proposed change', summary: diff, decidedAt: null, platform: 'cli' };
-  const { outcomes } = await (deps.classify ?? classifyCandidates)(subject, candidates, 'candidate-first');
+  const { outcomes } = await (deps.classify ?? classifyCandidates)(subject, candidates, 'candidate-first', { set: setClassifier });
 
   const typed = candidates.map((c, i) => {
     const outcome = outcomes[i];

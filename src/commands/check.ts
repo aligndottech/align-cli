@@ -207,7 +207,9 @@ export function registerCheckCommand(program: Command): void {
       const envName: EnvName = resolveEnv(opts.env, { preferLocalEmbedded: true });
 
       const config = createConfigStore();
-      const client = createGatewayClient(config.getEnvironment(envName));
+      // Not for --decisions-file: building it opens the local database in local mode, and a file check needs no graph.
+      let client!: ReturnType<typeof createGatewayClient>;
+      if (!fileDecisions) client = createGatewayClient(config.getEnvironment(envName));
 
       let diff: string;
       let autoBase: string | null = null;

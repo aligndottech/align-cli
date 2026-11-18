@@ -12,6 +12,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Command } from 'commander';
 import { registerCheckCommand } from '../commands/check.js';
+import { createGatewayClient } from '../lib/gateway-client.js';
 import { renderDecisionsFile } from '../lib/decisions-context.js';
 import type * as LocalLlm from '../lib/local-llm.js';
 
@@ -163,6 +164,16 @@ describe('--decisions-file: aligned', () => {
   });
 });
 
+describe('--decisions-file: never opens the graph', () => {
+  it('a graph client that cannot be built (an unopenable local database) does not stop a file check', async () => {
+    vi.mocked(createGatewayClient).mockImplementationOnce(() => { throw new Error('unable to open database file'); });
+    answer(verdict(1));
+    const r = await runCheck(ciArgs());
+    expect(r.exitCode).toBe(1);
+    expect(json(r)['status']).toBe('conflicting');
+  });
+});
+
 describe('--decisions-file: fails closed (exit 2, never 0)', () => {
   it('no provider key: unknown / no_llm_key, naming the fix', async () => {
     mockHasProvider.mockReturnValue(false);
@@ -185,6 +196,19 @@ describe('--decisions-file: fails closed (exit 2, never 0)', () => {
     const r = await runCheck(ciArgs());
     expect(r.exitCode).toBe(2);
     expect(json(r)).toMatchObject({ status: 'unknown', reason: 'classifier_unparseable' });
+  });
+
+  it('a non-empty answer in which no entry names a decision is unreadable (exit 2), not "aligned"', async () => {
+    answer({ relationships: { similar: [null] } });
+    const r = await runCheck(ciArgs());
+    expect(r.exitCode).toBe(2);
+    expect(json(r)).toMatchObject({ status: 'unknown', reason: 'classifier_unparseable' });
+  });
+
+  it('an entry naming a decision outside the file is not a judgement of any of them (exit 2)', async () => {
+    answer(verdict(9));
+    const r = await runCheck(ciArgs());
+    expect(r.exitCode).toBe(2);
   });
 
   it('the provider call throws -> exit 2 with status error', async () => {

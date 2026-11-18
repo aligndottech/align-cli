@@ -15,7 +15,7 @@ import { readFileSync } from 'node:fs';
 export interface FileDecision {
   kind: 'rule' | 'decision';
   title: string;
-  /** e.g. `acme/app#12`. Only a token holding `#` or `@`, so a title ending in "(draft)" is not mistaken for one. */
+  /** `repo#12`, `owner/repo#12` or `repo@sha`: the forms `align up` writes. Anything else in parentheses ("(draft)", "(@acme/auth)") is part of the title. */
   cite?: string;
   url?: string;
   why?: string;
@@ -35,7 +35,7 @@ const RULES_HEADING = /^##\s+Rules written in this repo\s*$/i;
 const UNRATIFIED_HEADING = /^##\s+Agent-decided, not yet ratified/i;
 const LABEL = /\s\[(agent-decided[^\]]*)\]$/;
 const URL_TAIL = /\s-\s(https?:\/\/\S+)$/;
-const CITE_TAIL = /\s\(([^()\s]*[#@][^()\s]+)\)$/;
+const CITE_TAIL = /\s\(((?:[\w.-]+\/)?[\w.-]+#\d+|[\w.-]+@[0-9a-f]{7,40})\)$/;
 const WHY = /^\s+Why:\s*(.*)$/;
 
 function decisionFromBullet(text: string, kind: FileDecision['kind']): FileDecision {

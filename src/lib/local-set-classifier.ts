@@ -52,7 +52,7 @@ export type SetOutcome =
 type Call = typeof callChatDetailed;
 
 /** The `similar` array from the model's answer, or null when there is none to read. */
-function similarEntries(text: string): unknown[] | null {
+export function similarEntries(text: string): unknown[] | null {
   const start = text.indexOf('{');
   const end = text.lastIndexOf('}');
   if (start < 0 || end <= start) return null;
@@ -70,7 +70,7 @@ function similarEntries(text: string): unknown[] | null {
 }
 
 /** 1-based ordinal as printed in the prompt, as a number or a digit string; anything else is null. */
-function ordinal(value: unknown, count: number): number | null {
+export function ordinal(value: unknown, count: number): number | null {
   const n = typeof value === 'number' ? value : typeof value === 'string' && /^\d+$/.test(value.trim()) ? Number(value) : NaN;
   return Number.isInteger(n) && n >= 1 && n <= count ? n : null;
 }

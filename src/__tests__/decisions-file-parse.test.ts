@@ -56,6 +56,17 @@ describe('parseDecisionsFile: what the renderer wrote', () => {
     expect(d?.url).toBe('https://x.test/1');
   });
 
+  it('a scoped package name in parentheses stays in the title; it is not a citation', () => {
+    const [d] = parseDecisionsFile(renderDecisionsFile([{ title: 'Use the shared auth package (@acme/auth)', kind: 'decision' }]));
+    expect(d?.title).toBe('Use the shared auth package (@acme/auth)');
+    expect(d).not.toHaveProperty('cite');
+  });
+
+  it('still reads a commit cite (repo@sha) and a package name together', () => {
+    const [d] = parseDecisionsFile(renderDecisionsFile([{ title: 'Pin (@acme/auth) to v2', cite: 'cli@abc1234', kind: 'decision' }]));
+    expect(d).toMatchObject({ title: 'Pin (@acme/auth) to v2', cite: 'cli@abc1234' });
+  });
+
   it('a hosted graph file (one list, no section headings) parses too', () => {
     const parsed = parseDecisionsFile(renderDecisionsFile([{ title: 'Ship on Tuesdays' }, { title: 'No Friday deploys' }]));
     expect(parsed.map((d) => d.title).sort()).toEqual(['No Friday deploys', 'Ship on Tuesdays']);
