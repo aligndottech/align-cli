@@ -570,7 +570,7 @@ export const TOOL_SCHEMAS = [
   {
     name: 'align_check_drift',
     annotations: WRITES_ADDITIVE,
-    description: 'Check if code or configuration has drifted from a specific decision',
+    description: 'Check whether one piece of code, config or documentation still matches one decision you already have the id of (from align_search or align_ask). Use it to ask "has this file moved away from what we decided?". To check a proposed change against every decision, use align_check_alignment instead. Local mode returns `score` (embedding similarity, 0 to 1) and `drifted` (true when the score is below 0.5). Both are null, with a `note`, when the decision has no comparable embedding. A similarity score is a hint, not a verdict. On a team graph a model judges it instead: `result.drift_detected`, a severity and a recommended action, and the check is saved against the decision.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -584,7 +584,7 @@ export const TOOL_SCHEMAS = [
   {
     name: 'align_get_impact',
     annotations: READS,
-    description: 'Get the upstream and downstream impact of a decision',
+    description: 'List the decisions linked to one decision, to see what rests on it before you change, reverse or retire it. Local mode returns `upstream` (links from other decisions to this one, such as a newer decision that supersedes it) and `downstream` (links from this one to others), one hop each, and every link names its relation. On a team graph it walks up to 5 hops and returns `dependencies` (what this decision is built on) and `impact` (what depends on it). For the full story of a topic, use align_get_topic_timeline.',
     inputSchema: {
       type: 'object',
       properties: {
