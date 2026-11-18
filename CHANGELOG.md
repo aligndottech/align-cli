@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.86.1](https://github.com/aligndottech/align-cli/compare/cli-v0.86.0...cli-v0.86.1) (2026-11-18)
+
+
+### Bug Fixes
+
+* **nightshift:** read real workspaces - wrapped answers, runtime notes, dates, permission requests, titles ([#656](https://github.com/aligndottech/align-cli/issues/656)) ([f4fd71c](https://github.com/aligndottech/align-cli/commit/f4fd71cadff7fbb71d7371247b4fd1f20d25117f))
+
 ## [0.86.0](https://github.com/aligndottech/align-cli/compare/cli-v0.85.0...cli-v0.86.0) (2026-11-18)
 
 
