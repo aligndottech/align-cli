@@ -283,3 +283,23 @@ and nothing local can be embedded or searched until both succeed. On a restricte
 hosts are reachable before you begin, or point `HF_ENDPOINT` and `ALIGN_ORT_RUNTIME_URL` at a mirror
 (the SHA-256 check still applies). An agent hook never downloads: it reports "could not check" until
 the first import has run.
+
+## Privacy in one place
+
+The local graph is a SQLite file on your machine, and embeddings run on-device after a one-time
+~23MB model download from huggingface.co. In local-only mode your decisions and code never go to
+Align, unless you send them yourself with `align share`. The first run in a github.com repo reads
+that repo's recent merged pull requests from api.github.com without asking, and tools you connect
+are read with your own tokens. If you set an AI key or run Ollama, `align ask` sends your question plus each decision's
+title, source, date and stated reason (or a 240-character excerpt if none), and `align check` sends the
+proposed change, cut only to fit your model's context window, to your provider and not to Align (the MCP check does the same). Ollama counts as yours, wherever
+`OLLAMA_HOST` points. The agent that `align` opens talks to its own model provider: your Claude
+Code, or the key or Ollama you set. Team graphs are hosted by Align, or self-hosted,
+so the team can share them.
+
+Local-only mode sends anonymous usage counts. It tells you once before the first one and sends
+nothing from CI. Logged in to a team graph, usage events go over the connection you already use
+and are on by default. Either way, `align telemetry off` stops them.
+`align demo` sends one anonymous count per run (did it finish, how long, CLI version, OS).
+`align telemetry off`, `DO_NOT_TRACK=1`, `ALIGN_TELEMETRY=0` and CI all stop it.
+[What touches the network](local-mode.md) and [every field we send](telemetry.md).

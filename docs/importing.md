@@ -461,3 +461,12 @@ supported from the CLI yet. Over MCP, `align_capture` accepts text too, in local
 
 A decision is identified by its source URL and title, so running the same import twice updates
 what changed rather than duplicating the graph.
+
+## MIRSAD and nightshift
+
+To import decisions from a MIRSAD JSON export, run `align connect mirsad --file <path>`. Each decision is one item,
+so exporting and importing again updates it instead of adding a copy. MIRSAD's `supersedes` links arrive as
+confirmed, the same as if you had run `align mark <newer> replaces <older>`, and need a terminal to record.
+
+To import the decisions you answered in [nightshift](https://github.com/orwa-mahmoud/nightshift)'s parking lot or plan record, run
+`align connect nightshift` in the repo. Open entries stay in nightshift until you answer them.

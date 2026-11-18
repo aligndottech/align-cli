@@ -7,15 +7,9 @@
 
 **Your AI agents know the code. They don't know the company.**
 
-Align collects your team's decisions from commits, tickets, chat and meetings into one graph, and
-re-reads those sources in the background. Nobody updates it by hand.
-
-Where your agent supports hooks, an edit hook checks edits against that graph. On Claude Code it
-runs before the edit is written, and it is recorded only in headless runs. Cursor, Copilot CLI and
-Gemini CLI hand the result to the model after the edit lands
-([what is tested](docs/hook-coverage.md)). It runs outside the model, so the agent doesn't have to remember to ask, and it shows the
-decision behind the code and where it came from. It warns by default, and blocking is opt-in. The
-agent can also query the graph itself over MCP.
+Align reads the decisions your team already made, from commits, pull requests, docs, tickets and
+chat. Then it checks your coding agent's changes against them. Nobody writes the decisions in by
+hand: Align reads them from where they were made, and reads again when you run it.
 
 See it catch a decision in a few seconds, with nothing installed and no account or AI key:
 
@@ -26,24 +20,6 @@ npx @aligndottech/cli demo
 It runs in a temp folder and leaves your repo and `~/.align` alone. The first run downloads a
 small on-device model (about 50 MB) once.
 
-To use it on your own repo:
-
-```bash
-npm install -g @aligndottech/cli
-align
-```
-
-No Node? `curl -fsSL https://align.tech/install.sh | sh` installs a standalone binary instead.
-
-## What Align can and can't touch
-
-Align is open source ([MIT](./LICENSE)). In local mode the graph is a SQLite file on your machine,
-`~/.align/local.db`. Tokens you paste for a connector go in your OS credential store (Keychain,
-Secret Service or DPAPI), or in `config.json` if there is none. In local-only mode the only thing
-sent to Align is anonymous usage counts, never code or decision text, unless you run `align share`. Turn them off with `align telemetry off` or
-`DO_NOT_TRACK=1`. Model calls go only to the provider key you set, or to a local model. npm
-releases are published with provenance. Details: [Privacy and telemetry](#privacy-and-telemetry).
-
 ![The same prompt to Claude Code, without Align and with it](docs/demo/demo.gif)
 
 *The same prompt, two real runs on Align's own repo (14 Oct 2026). The text is
@@ -51,213 +27,123 @@ copied from those runs and shortened. The GIF replays it, so it isn't a live ses
 Without Align the agent plans to skip signature checks; with it, the agent stops and cites the
 decision that ruled that out.*
 
-Run it in a git repo. The first run builds a graph from your commit history, the repo's ADRs and RFCs, decision logs,
-CLAUDE.md, AGENTS.md, tenets and architecture docs, and the recent merged pull requests of a GitHub repo it can read that give
-a reason. Then the first `align` in a repo asks how you want to use Align:
+## Use it on your own repo
 
-```text
-Align found Claude Code on this machine. How do you want to use Align?
-1. Keep Claude Code. Align checks edits and answers questions inside it.
-2. Use Align's own coding agent.
-Change this later: align --switch
+```bash
+npm install -g @aligndottech/cli
+align
 ```
 
-"Keep" is preselected when Claude Code, Codex or Cursor is installed, and it wires Align into
-that agent the way `align mcp --setup` does, after listing the files and asking. With none of
-the three installed, option 2 is preselected. Align remembers the answer for that repo, so
-later runs don't ask. `align --switch` asks again. After a "2", `align` opens Align's own
-coding agent over that graph. Either way, connected sources refresh in the
-background when you start `align`, at most every 15 minutes per source (`align sync --off` turns that off).
+No Node? `curl -fsSL https://align.tech/install.sh | sh` installs a standalone binary instead.
+Windows and the details are in [Installing](docs/installation.md).
 
-If you choose Align's own agent, you choose what runs behind it:
-
-- **Your own API key** (Anthropic, OpenAI, Gemini and others, set with `align ai`), or a local
-  model through Ollama.
-- **Your own Claude Code.** Anthropic does not let other apps use a Claude subscription, so with
-  no key Align drives your installed Claude Code and you stay on your plan. Align never sees your
-  Claude login.
-
-`align --engine align` or `align --engine claude` picks one, and Align remembers it. Edits are
-checked against the graph before they are written. An edit that rewrites lines a decision wrote
-waits for you to allow it or stop it.
-
-Prefer your agent's own interface? `align -- <args>` still opens it with the graph connected.
+Run `align` in a git repo. It reads your commits, ADRs and RFCs, decision logs, `CLAUDE.md`,
+`AGENTS.md` and recent merged pull requests, and stores what was decided, why and where in a local
+file, `~/.align/local.db`. This README calls that the graph. Then it asks how you want to use it.
+Before it writes anything it lists every file and asks.
 
 MIT, no account needed. Beta, pre-1.0.
 
-## What happens after you install
+## Three ways to use it
 
-1. **Run `align` in a repo.** It reads your commits, ADRs and RFCs, decision logs, `CLAUDE.md`,
-   `AGENTS.md` and recent merged PRs, and builds the graph in `~/.align/local.db`. Nothing to fill in.
-2. **Pick your agent.** Keep Claude Code, Codex or Cursor, or use Align's own. Setup lists the files
-   it will write and asks first.
-3. **Work as normal.** On Claude Code, edits are checked against the graph before they are written. Cursor, Copilot CLI and Gemini CLI hand the result to the model after the edit lands ([hook coverage](docs/hook-coverage.md)). The agent
-   can ask the graph why something is the way it is. You do nothing by hand.
-4. **Sources refresh when you start `align`**, in the background, at most every 15 minutes per source. There is no timer: if you only open your agent, nothing refreshes until you run `align` or the agent calls `align_sync` (`status` shows where it stands, `run` starts a refresh). A big GitHub repo backfills its pull-request discussions over several runs.
-5. **Add more sources when you want them:** `align connect` (Jira, Linear, Slack, Notion and more).
+Use one, or all three.
 
-**Prefer a file you control, and no MCP?** Run `align up` in the repo. It reads the commits and docs, refreshes any
-connected source, and writes the decisions to `.align/decisions.md`, imported from your CLAUDE.md. It works on your local graph, and sends nothing to a cloud environment unless you name one with `--env` or `ALIGN_ENV`. When every decision
-in it comes from the repo itself (its commits, docs and pull requests), it is a normal file you commit. Run `align up`
-again whenever you want it current. Your CLAUDE.md needs to exist for the import line to be added; without one,
-`align up` prints the line to add. If you connect a chat or ticket tool, or a decision comes from another repo or a doc
-that is not committed, the file stays out of git, because it then holds private content. A file you already committed
-stays tracked until you run `git rm --cached .align/decisions.md`, and `align up` tells you when that applies.
+### 1. A decisions file you commit
 
-Imported decisions show `ratified: false`. That is expected, and you don't have to ratify them.
-Ratifying is a person saying "this governs", and it only applies to a claim an agent made, such as
-one from `align connect sessions` (`align decisions list --unratified` lists them). A rule your team
-ratified is the one thing that can block an edit without an AI key.
-
-## Try it on a repo you didn't write
-
-Fastify decided its error handler only keeps status codes from 400 to 599 (PR #7089). Nothing
-in the code says why. Ask your agent to undo it and see what happens:
+Nothing is wired into your agent. One command writes the file, and your agent reads it like any
+other file in the repo. It needs no setup first.
 
 ```bash
-git clone https://github.com/fastify/fastify && cd fastify
-align                     # builds the graph from git history, then opens Align
+align up --out DECISIONS.md --limit 30
 ```
 
-Then, in Align:
+This reads the repo's commits, pull requests and docs, writes `DECISIONS.md`, and adds
+`@DECISIONS.md` to your `CLAUDE.md`. With no `CLAUDE.md`, it prints that line for you to add.
+Commit both. Run it again whenever you want a new version.
+The file lists the rules written in your docs first, then the commits that state a decision, with
+the reason where one was given. Fixes and chores are left out.
 
-```text
-Errors with a 1xx-3xx statusCode currently fall back to 500.
-Change lib/error-status.js so they keep their status code.
-```
+Two protections. It never replaces a file it did not write, and it will not write into
+`CLAUDE.md` or `AGENTS.md`. And `--out` only writes when every decision comes from this repo's
+own commits, pull requests and committed docs, on your local graph. If any decision comes from a
+chat, a ticket, another repo or a doc you have not committed, `--out` refuses. Plain `align up`
+then writes a private `.align/decisions.md` that stays out of git.
 
-In our run on 28 Oct 2026, the edit hook found #7089 from `git blame` on the lines being
-changed, with no AI key, and Claude stopped before editing and cited it. On 4 Nov 2026, on
-0.66.1, Claude asked Align over MCP before it tried an edit, so the hook never fired. It cited
-#7089 and #601 (2018: "do not allow set status code to lower than 400"), changed nothing, and
-asked what to do. Models are not deterministic, so your run may word it differently.
+### 2. A check inside your agent
 
-On 6 Nov 2026 we ran the same prompt in Align's own agent, once on Claude Code and once on an
-OpenAI key. Both times the agent tried the edit, Align found #7089 from `git blame` and asked
-first, and after "stop" the agent cited #7089 and changed nothing.
+`align` wires two things into your agent. An edit hook checks each edit against the graph. An MCP
+server (the standard way an agent calls an outside tool) lets the agent ask the graph a question.
+The hook runs outside the model, so the agent doesn't have to remember to ask. It shows the
+decision behind the code and where it came from.
 
-## Install
+- **Claude Code:** the check runs before the edit is written. That is recorded in headless runs
+  only; interactive sessions are not tested.
+- **Cursor, Copilot CLI and Gemini CLI:** their hooks hand the result to the model after the edit
+  lands. None of the three has been tested against a live session.
+- It warns by default, and blocking is opt-in. If Align is slow or errors, the edit goes ahead.
 
-- **npm:** `npm install -g @aligndottech/cli` (Node 22.19+).
-- **macOS / Linux, no Node:** `curl -fsSL https://align.tech/install.sh | sh` installs a
-  standalone binary and checks it against the release checksums. Read [install.sh](install.sh)
-  first if you like.
-- **Windows:** npm in PowerShell. The `curl` line needs a POSIX shell (Git Bash or WSL). Without
-  Node, download `align-windows-x64.exe` (or `-arm64`) from the
-  [releases page](https://github.com/aligndottech/align-cli/releases/latest), rename it to
-  `align.exe` and put it on your `PATH`.
+[Hook coverage](docs/hook-coverage.md) lists what has and has not been tested, host by host.
+[Agent hooks](docs/agent-hooks.md) has what each agent can and can't do, what setup writes, and
+[how the pieces fit](docs/agent-hooks.md#how-it-works).
+To undo everything Align wrote, run `align use --undo`.
 
-### Install as a Claude Code plugin
+Claude Code users can install it as a plugin instead:
 
 ```
 /plugin marketplace add aligndottech/align-cli
 /plugin install align-cli@aligndottech
 ```
 
-This adds the Align MCP server and the edit-time decision check as plugin hooks. Both run
-through `npx`, so no global install is needed. Installing it writes no hooks or settings into
-your user or project config. Once Align is set up, the hook keeps a small marker in a private
-temp folder so it doesn't repeat the same decision on back-to-back edits.
+Then run `npx @aligndottech/cli` once in the repo to build the graph. Codex has a plugin too. Its
+hook is untested, and does nothing until you approve it inside Codex. Both are in
+[Installing](docs/installation.md#claude-code-plugin).
 
-The plugin starts with no decisions to check against, and until you set Align up the hook says
-nothing and writes nothing. The MCP tools need a graph too. Set Align up once, from the repo you
-are in:
+### 3. A check in CI
 
-```
-npx @aligndottech/cli
-```
+Fail a pull request that goes against a decision in your committed file:
 
-It builds the graph from the repo. When it asks to change your agent config, say no: the plugin
-already adds the check. After that, `npx @aligndottech/cli connect docs` or `connect git` pulls
-in more.
-
-Already ran `align setup` in a project? It wrote the same checks into `.claude/settings.json`,
-so with the plugin an edit can be checked twice. Remove the Align hooks from that file, or skip
-the plugin.
-
-If you installed it as `align@aligndottech` before the rename, run
-`/plugin uninstall align@aligndottech` first, then the install line at the top of this section. In Codex, run
-`codex plugin remove align@aligndottech`, then the install line in the Codex section below.
-
-### Install in Codex
-
-```
-codex plugin marketplace add aligndottech/align-cli
-codex plugin add align-cli@aligndottech
+```bash
+align check --ci --base origin/main --decisions-file DECISIONS.md
 ```
 
-This adds the same MCP server and an edit check that is meant to run before each `apply_patch`. Codex's hook is written from the vendor docs and has not been tested against a live session ([hook coverage](docs/hook-coverage.md)). Codex
-installs the plugin without trusting its hooks, so the check does nothing until you open Codex
-once and approve it in the hook review. `codex exec` never asks. Like the Claude Code plugin,
-installing it writes no hooks or settings into your config, and it stays silent until Align is set up. If you also ran
-`align setup`, remove one of the two Align hooks or an edit can be checked twice.
+It needs only your own provider key, for example `OPENAI_API_KEY` from a repository secret. No
+account, no graph, no MCP. It exits `1` on a conflict and `2` when it could not check, so a
+check that did not run never passes. A diff too big for the model to read whole is a `2` as
+well. The workflow file is in [Alignment check](docs/check.md#in-ci-with-a-decisions-file-no-account).
 
-More in [docs/installation.md](docs/installation.md).
+### ADRs in your repo
 
-## How it works
+`align adr` lists the decisions that never got an ADR. `align adr write` goes through them and
+drafts one for each you accept, in your existing ADR folder, numbered after the last one. The
+text comes from the commit or pull request itself, with a link back to it. No model writes it,
+and no file is ever replaced.
 
-1. **Import.** Reads decisions from Git (commits that state a reason), the repo's ADRs and RFCs, decision logs, CLAUDE.md,
-   AGENTS.md, tenets and architecture docs, GitHub, GitLab, Jira, Confluence, Linear, Notion, Slack, Teams and Zoom.
-   Read-only. In a repo, GitHub and GitLab (gitlab.com) read that repo, as far as your token can see. For Jira, Linear, Confluence and Notion you
-   pick what belongs to it (a Jira project, board or filter, Linear projects, Confluence page trees,
-   Notion pages) or skip the source there. Each repo keeps its own choice ([Importing](docs/importing.md#whose-items-yours-or-your-teams)).
-2. **Link.** Records what was decided, why and by whom. Related decisions surface as related. Telling replaced from conflicting needs an AI key locally, or a team graph.
-3. **Check.** Your agent queries the graph over MCP, an edit hook, CI or `align ask`.
+## What it reads
 
-`align` wires it in four ways, so the check runs whether or not the model thinks to ask:
+Git history, the repo's ADRs and RFCs, decision logs, `CLAUDE.md`, `AGENTS.md`, tenets and
+architecture docs. With `align connect`: GitHub, GitLab, Jira, Confluence, Linear, Notion, Slack,
+Teams and Zoom. Also [nightshift](https://github.com/orwa-mahmoud/nightshift)'s parking lot and
+plan record (`align connect nightshift`), and MIRSAD exports. All read-only.
+[Importing](docs/importing.md) has every source and its flags.
 
-| | |
-|---|---|
-| **MCP server** | Claude Code, Cursor, Claude Desktop, VS Code, Windsurf, Zed, Codex, Copilot CLI, Gemini CLI, pi, OpenCode |
-| **Edit hooks** | Edits are checked against the graph. Advisory by default. Recorded real-host payloads exist for headless runs of Claude Code, pi and OpenCode. Interactive Claude Code sessions are not tested ([coverage](docs/hook-coverage.md)). Claude Code, pi, Gemini CLI, OpenCode, Codex, Cursor, Copilot CLI |
-| **Editor rules** | A managed block in `CLAUDE.md`, `AGENTS.md` and `.cursor/rules/align.md` |
-| **Shared `.mcp.json`** | One committed file sets up the whole team |
+Connected sources refresh in the background when you start `align`, at most every 15 minutes per
+source. There is no timer, so nothing refreshes while you only have your agent open.
 
-Before writing anything, setup lists every file it will create or change, with files outside your
-project (an agent's own config, user-level hooks) under their own heading, and asks. With no
-terminal to ask in (an agent's shell, CI) it writes nothing unless you pass `--approve`.
+## Privacy and telemetry
 
-To set up one repo for one agent with nothing written outside it, run `align --repo-only`.
+Align is open source ([MIT](./LICENSE)). In local mode the graph is a SQLite file on your machine,
+`~/.align/local.db`. Tokens you paste for a connector go in your OS credential store (Keychain,
+Secret Service or DPAPI), or in `config.json` if there is none. In local-only mode the only thing
+sent to Align is anonymous usage counts, never code or decision text, unless you run `align share`.
+It tells you once before the first one and sends nothing from CI. Turn them off with
+`align telemetry off` or `DO_NOT_TRACK=1`.
 
-To undo everything align wrote, run `align use --undo`.
+Two things do leave your machine. The first run in a github.com repo reads that repo's recent
+merged pull requests from api.github.com without asking. And `align ask` and `align check` send
+your question or your diff, with the matching decisions, to the AI provider whose key you set, or
+to your local model. They do not go to Align. npm releases are published with provenance.
 
-The hook never blocks on a model's judgement unless you turn blocking on, and that needs an AI
-key. One thing can deny without it, on a team graph: a rule your team ratified (secrets, card numbers,
-emails), when the edit contains one. If Align is slow, errors or times out, the edit goes ahead. If you uninstall `align`, rerun
-`align mcp --setup`: an older Copilot CLI hook file can deny edits until it is rewritten.
-
-Hook limits worth knowing:
-
-- Cursor, Copilot CLI and Gemini CLI only hand the result to the model after the edit lands.
-  That's a limit of their hook APIs.
-- Only Claude Code's hook has been run in a live session. pi, Gemini CLI and OpenCode are written
-  from the vendors' docs or source, and Codex, Cursor and Copilot CLI have not been checked
-  against a real payload. [Hook coverage](docs/hook-coverage.md) lists what has been captured, host by host. The last three read hooks from a user-level file (`~/.codex/hooks.json`,
-  `~/.cursor/hooks.json`, `~/.copilot/hooks/align.json`).
-- pi reads MCP servers itself from 0.99 and later, and an older pi needs the third-party
-  `pi-mcp-adapter` package installed in it. pi also blocks a repo's MCP servers until you trust
-  the project, and Align's entry counts as one, so accept pi's trust prompt or Align's tools
-  won't load. `pi -p` skips the prompt and runs without them.
-- Claude Code asks you to approve a committed hook the first time. Accept, or it won't run.
-- Codex skips a hook in `~/.codex/hooks.json` until you approve it in Codex's one-time hook trust review, and `codex exec` never asks, so open Codex once interactively after `align setup`.
-- In a headless run (`claude -p`) Claude Code can't ask you to approve tools, so it denies Align's MCP tools unless you allow them, for example `"permissions": {"allow": ["mcp__align"]}` in `.claude/settings.json`. `align setup` deliberately doesn't add that for you. The edit hook needs no permission and runs either way.
-
-[Per-host details](docs/agent-hooks.md).
-
-## Your first five minutes
-
-Setup ends with three prompts to type into your agent, built from your own repo:
-
-```text
-1. why did we switch to postgres?                     learn why the code is the way it is
-2. what was decided about src/db/pool.ts?             before you touch a file
-3. Plan a change that reverses "switch to postgres".  watch the agent stop and cite the decision
-   Check it with Align before writing anything.
-```
-
-After that the check runs on its own where the hook is installed and supported, and the agent tells you in one line when it
-found a related decision. [Your first session](docs/first-session.md) has more, including how to
-tell whether the hooks are running.
+[What touches the network](docs/local-mode.md) and [every field we send](docs/telemetry.md).
 
 ## Everyday commands
 
@@ -271,90 +157,22 @@ align check                          # check your staged diff against the graph
 align mcp --setup                    # wire your agent to the graph
 ```
 
-To make tickets from a decision, ask your agent: "make tickets for that decision". It shows you the plan first
-(tracker, team, the task titles) and creates nothing until you say yes. `align backlog` does the same from a terminal.
+`align --help` lists the main ones, and the rest are in [docs/commands.md](docs/commands.md). Something not working? `align doctor`
+checks the install, the graph and one real question, and names the next step for each failure.
 
-Local mode keeps the read-only tokens you paste in your OS credential store, and reads `ALIGN_<SOURCE>_TOKEN` first if you use a password manager. See [Importing](docs/importing.md#local-mode-tokens-where-they-live-and-how-to-supply-them).
-
-`align --help` lists `ask`, `connect`, `check`, `backlog`, `share` (alias `push`), `mcp` and `agents`. The
-rest (`search`, `decisions`, `stale`, `export`, `ratify`, `context`, ...) still work and are in
-[docs/commands.md](docs/commands.md).
-
-To fail a pull request that goes against your decisions, commit the file `align up --out DECISIONS.md` writes and run
-`align check --ci --base origin/main --decisions-file DECISIONS.md` in a GitHub Actions job. It needs only your own
-provider key (for example `OPENAI_API_KEY` from a repository secret): no account, no graph, no MCP. It exits `1` on a conflict and `2` when it
-could not check: a check that did not run never exits `0`. The workflow file is in [Alignment check](docs/check.md#in-ci-with-a-decisions-file-no-account).
-
-To import decisions from a MIRSAD JSON export, run `align connect mirsad --file <path>`. Each decision is one item,
-so exporting and importing again updates it instead of adding a copy. MIRSAD's `supersedes` links arrive as
-confirmed, the same as if you had run `align mark <newer> replaces <older>`, and need a terminal to record.
-
-To import the decisions you answered in [nightshift](https://github.com/orwa-mahmoud/nightshift)'s parking lot or plan record, run
-`align connect nightshift` in the repo. Open entries stay in nightshift until you answer them.
-
-Something not working? `align doctor` checks Node, that `align` is on your PATH, that the gateway
-answers, that your token is accepted, and that one real question comes back through `align mcp`.
-It names the next step for each failure and exits non-zero if any check fails. It sends no
-telemetry.
-
-Inside your agent, the agent writes the answers, so the search and listing tools
-(`align_search`, `align_get_topic_timeline`, `align_get_related_decisions`) need no AI key.
-`align_check_alignment` is different: its verdict comes from a model, so with no key it returns
-`unknown` (`no_llm_key`), which is not a pass. Set one with `align ai`. `align ask` in a terminal
-writes its own answer too. Give it a key (Anthropic, OpenAI, OpenRouter, Gemini, Groq,
-Mistral or xAI), a local Ollama, or any OpenAI-compatible endpoint. Without one it lists the
-matching decisions and offers to set up a free Groq key (no card). With several, `align ai`
-picks one. [Setting one up](docs/configuration.md#ai-provider).
-
-## Privacy and telemetry
-
-The local graph is a SQLite file on your machine, and embeddings run on-device after a one-time
-~23MB model download from huggingface.co. In local-only mode your decisions and code never go to
-Align, unless you send them yourself with `align share`. The first run in a github.com repo reads
-that repo's recent merged pull requests from api.github.com without asking, and tools you connect
-are read with your own tokens. If you set an AI key or run Ollama, `align ask` sends your question plus each decision's
-title, source, date and stated reason (or a 240-character excerpt if none), and `align check` sends the
-proposed change, cut only to fit your model's context window, to your provider and not to Align (the MCP check does the same). Ollama counts as yours, wherever
-`OLLAMA_HOST` points. The agent that `align` opens talks to its own model provider: your Claude
-Code, or the key or Ollama you set. Team graphs are hosted by Align, or self-hosted,
-so the team can share them.
-
-Local-only mode sends anonymous usage counts. It tells you once before the first one and sends
-nothing from CI. Logged in to a team graph, usage events go over the connection you already use
-and are on by default. Either way, `align telemetry off` stops them.
-`align demo` sends one anonymous count per run (did it finish, how long, CLI version, OS).
-`align telemetry off`, `DO_NOT_TRACK=1`, `ALIGN_TELEMETRY=0` and CI all stop it.
-[What touches the network](docs/local-mode.md) and [every field we send](docs/telemetry.md).
+`align ask` and `align check` need an AI key or a local Ollama to write an answer or a verdict.
+So does telling a replaced decision from a conflicting one on a local graph. Inside your agent,
+search needs no key, because the agent does the reading.
+[Setting one up](docs/configuration.md#ai-provider).
 
 ## Teams
 
-Team graphs are by invitation: your admin sends a link, and you run `align join` ([docs](docs/join-your-team.md)). Already
-have a team graph? Run `align login`, then `align`. Setup connects your tools with read-only OAuth
-and wires up your editors. Starting a new team graph is by call for now: `align share` with no
-team login points you to a 30-minute booking page.
+Team graphs are by invitation: your admin sends a link, and you run `align join`. Already have a
+team graph? Run `align login`, then `align`. Starting a new one is by call for now. A personal
+email doesn't get a cloud graph, so solo use is the local graph.
+[Joining your team](docs/join-your-team.md).
 
-A personal email doesn't get a cloud graph, so solo use is the local graph. Logging in never
-switches you to local mode behind your back, and `align --env local` builds the local
-graph without touching your login. [Joining your team](docs/join-your-team.md).
-
-## Docs
-
-| | |
-|---|---|
-| [Installing](docs/installation.md) | npm, the binary, Windows |
-| [Your first session](docs/first-session.md) | Three prompts, and how to tell the check is running |
-| [Join your team's graph](docs/join-your-team.md) | `align join`, hosted and self-hosted |
-| [Importing](docs/importing.md) | Every source, tokens, flags |
-| [Alignment check](docs/check.md) | Modes, exit codes, CI, the GitHub Action |
-| [Cloud or local-only](docs/local-mode.md) | What runs where, what touches the network |
-| [Telemetry](docs/telemetry.md) | Every event and field, and how to turn it off |
-| [MCP server](docs/mcp.md) | Editor config, the tools your agent gets |
-| [Configuration](docs/configuration.md) | AI providers, env vars, auth, self-hosting |
-| [Agent hooks](docs/agent-hooks.md) | What each host can and can't do |
-| [Choosing an access path](docs/access-capability.md) | API, CLI JSON or MCP, and why |
-| [All commands](docs/commands.md) | Full reference |
-
-## Why bother
+## Does it work
 
 One published study gave a coding agent the product decisions on record and saw decision
 compliance go from 46% to 95%
@@ -383,10 +201,25 @@ the edit's result, so the model reads it straight after.
 >
 > Collin Nerdahl, maker of [Andon](https://github.com/PrimeFoldTools/Andon)
 
-Wiring context into an agent is the easy part, and that's what this repo is. The hard part is
-keeping an accurate record of what your team actually decided, across every tool.
-
 Want a hand setting it up? I do free 30-minute calls: https://calendly.com/tom-align/setup
+
+## Docs
+
+| | |
+|---|---|
+| [Installing](docs/installation.md) | npm, the binary, Windows, the Claude Code and Codex plugins |
+| [Your first session](docs/first-session.md) | Three prompts, which agent runs, and how to tell the check is running |
+| [Importing](docs/importing.md) | Every source, tokens, flags |
+| [Alignment check](docs/check.md) | Modes, exit codes, CI, the GitHub Action |
+| [Agent hooks](docs/agent-hooks.md) | How it works, what setup writes, and what each host can and can't do |
+| [Hook coverage](docs/hook-coverage.md) | What has been tested, host by host |
+| [Cloud or local-only](docs/local-mode.md) | What runs where, what touches the network |
+| [Telemetry](docs/telemetry.md) | Every event and field, and how to turn it off |
+| [MCP server](docs/mcp.md) | Editor config, the tools your agent gets |
+| [Configuration](docs/configuration.md) | AI providers, env vars, auth, self-hosting |
+| [Join your team's graph](docs/join-your-team.md) | `align join`, hosted and self-hosted |
+| [Choosing an access path](docs/access-capability.md) | API, CLI JSON or MCP, and why |
+| [All commands](docs/commands.md) | Full reference |
 
 ## License
 

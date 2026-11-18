@@ -66,3 +66,48 @@ align mcp --setup    # find your AI clients, then wire the ones you pick
 ```
 
 [MCP server](mcp.md) has the per-client config, including VS Code and the JetBrains IDEs.
+
+## Claude Code plugin
+
+```
+/plugin marketplace add aligndottech/align-cli
+/plugin install align-cli@aligndottech
+```
+
+This adds the Align MCP server and the edit-time decision check as plugin hooks. Both run
+through `npx`, so no global install is needed. Installing it writes no hooks or settings into
+your user or project config. Once Align is set up, the hook keeps a small marker in a private
+temp folder so it doesn't repeat the same decision on back-to-back edits.
+
+The plugin starts with no decisions to check against, and until you set Align up the hook says
+nothing and writes nothing. The MCP tools need a graph too. Set Align up once, from the repo you
+are in:
+
+```
+npx @aligndottech/cli
+```
+
+It builds the graph from the repo. When it asks to change your agent config, say no: the plugin
+already adds the check. After that, `npx @aligndottech/cli connect docs` or `connect git` pulls
+in more.
+
+Already ran `align setup` in a project? It wrote the same checks into `.claude/settings.json`,
+so with the plugin an edit can be checked twice. Remove the Align hooks from that file, or skip
+the plugin.
+
+If you installed it as `align@aligndottech` before the rename, run
+`/plugin uninstall align@aligndottech` first, then the install line at the top of this section. In Codex, run
+`codex plugin remove align@aligndottech`, then the install line in the Codex section below.
+
+## Codex plugin
+
+```
+codex plugin marketplace add aligndottech/align-cli
+codex plugin add align-cli@aligndottech
+```
+
+This adds the same MCP server and an edit check that is meant to run before each `apply_patch`. Codex's hook is written from the vendor docs and has not been tested against a live session ([hook coverage](hook-coverage.md)). Codex
+installs the plugin without trusting its hooks, so the check does nothing until you open Codex
+once and approve it in the hook review. `codex exec` never asks. Like the Claude Code plugin,
+installing it writes no hooks or settings into your config, and it stays silent until Align is set up. If you also ran
+`align setup`, remove one of the two Align hooks or an edit can be checked twice.

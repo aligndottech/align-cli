@@ -372,3 +372,53 @@ echo '{"hook_event_name":"PreToolUse","tool_name":"Write","tool_input":{"file_pa
 
 Step 2 is the one people skip. A shim that is registered but never invoked looks exactly
 like a shim that ran and found nothing - both are silent.
+
+## What setup writes, and limits worth knowing
+
+Before writing anything, setup lists every file it will create or change, with files outside your
+project (an agent's own config, user-level hooks) under their own heading, and asks. With no
+terminal to ask in (an agent's shell, CI) it writes nothing unless you pass `--approve`.
+
+To set up one repo for one agent with nothing written outside it, run `align --repo-only`.
+
+To undo everything align wrote, run `align use --undo`.
+
+The hook never blocks on a model's judgement unless you turn blocking on, and that needs an AI
+key. One thing can deny without it, on a team graph: a rule your team ratified (secrets, card numbers,
+emails), when the edit contains one. If Align is slow, errors or times out, the edit goes ahead. If you uninstall `align`, rerun
+`align mcp --setup`: an older Copilot CLI hook file can deny edits until it is rewritten.
+
+Hook limits worth knowing:
+
+- Cursor, Copilot CLI and Gemini CLI only hand the result to the model after the edit lands.
+  That's a limit of their hook APIs.
+- Only Claude Code's hook has been run in a live session. pi, Gemini CLI and OpenCode are written
+  from the vendors' docs or source, and Codex, Cursor and Copilot CLI have not been checked
+  against a real payload. [Hook coverage](hook-coverage.md) lists what has been captured, host by host. The last three read hooks from a user-level file (`~/.codex/hooks.json`,
+  `~/.cursor/hooks.json`, `~/.copilot/hooks/align.json`).
+- pi reads MCP servers itself from 0.99 and later, and an older pi needs the third-party
+  `pi-mcp-adapter` package installed in it. pi also blocks a repo's MCP servers until you trust
+  the project, and Align's entry counts as one, so accept pi's trust prompt or Align's tools
+  won't load. `pi -p` skips the prompt and runs without them.
+- Claude Code asks you to approve a committed hook the first time. Accept, or it won't run.
+- Codex skips a hook in `~/.codex/hooks.json` until you approve it in Codex's one-time hook trust review, and `codex exec` never asks, so open Codex once interactively after `align setup`.
+- In a headless run (`claude -p`) Claude Code can't ask you to approve tools, so it denies Align's MCP tools unless you allow them, for example `"permissions": {"allow": ["mcp__align"]}` in `.claude/settings.json`. `align setup` deliberately doesn't add that for you. The edit hook needs no permission and runs either way.
+
+## How it works
+
+1. **Import.** Reads decisions from Git (commits that state a reason), the repo's ADRs and RFCs, decision logs, CLAUDE.md,
+   AGENTS.md, tenets and architecture docs, GitHub, GitLab, Jira, Confluence, Linear, Notion, Slack, Teams and Zoom.
+   Read-only. In a repo, GitHub and GitLab (gitlab.com) read that repo, as far as your token can see. For Jira, Linear, Confluence and Notion you
+   pick what belongs to it (a Jira project, board or filter, Linear projects, Confluence page trees,
+   Notion pages) or skip the source there. Each repo keeps its own choice ([Importing](importing.md#whose-items-yours-or-your-teams)).
+2. **Link.** Records what was decided, why and by whom. Related decisions surface as related. Telling replaced from conflicting needs an AI key locally, or a team graph.
+3. **Check.** Your agent queries the graph over MCP, an edit hook, CI or `align ask`.
+
+`align` wires it in four ways, so the check runs whether or not the model thinks to ask:
+
+| | |
+|---|---|
+| **MCP server** | Claude Code, Cursor, Claude Desktop, VS Code, Windsurf, Zed, Codex, Copilot CLI, Gemini CLI, pi, OpenCode |
+| **Edit hooks** | Edits are checked against the graph. Advisory by default. Recorded real-host payloads exist for headless runs of Claude Code, pi and OpenCode. Interactive Claude Code sessions are not tested ([coverage](hook-coverage.md)). Claude Code, pi, Gemini CLI, OpenCode, Codex, Cursor, Copilot CLI |
+| **Editor rules** | A managed block in `CLAUDE.md`, `AGENTS.md` and `.cursor/rules/align.md` |
+| **Shared `.mcp.json`** | One committed file sets up the whole team |
