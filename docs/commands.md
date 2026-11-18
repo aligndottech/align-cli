@@ -281,6 +281,8 @@ a fact the next agent treats as settled. `align decisions list --unratified` sho
 queue; `.align/decisions.md` and the local MCP server both label an unratified claim
 `agent-decided, unratified` so an agent reading either can tell a claim from a rule.
 
+Decisions imported from git, tickets, chat or docs read `ratified: false` and `needs_ratification: false`: ratifying is only for an agent's claim, so nothing is waiting on you. A claim an agent made reads `needs_ratification: true` until you ratify it.
+
 `align ratify <id>` is the human act - it refuses a hook, a pipe, or any caller not at a
 terminal - and `align share <id>` (alias `push`) sends ratified decisions, with the judgements you made
 about them, to your team. It prints exactly what leaves the machine and asks first; nothing is
