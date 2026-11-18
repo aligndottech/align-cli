@@ -97,7 +97,7 @@ MIT, no account needed. Beta, pre-1.0.
 5. **Add more sources when you want them:** `align connect` (Jira, Linear, Slack, Notion and more).
 
 **Prefer a file you control, and no MCP?** Run `align up` in the repo. It reads the commits and docs, refreshes any
-connected source, and writes the decisions to `.align/decisions.md`, imported from your CLAUDE.md. When every decision
+connected source, and writes the decisions to `.align/decisions.md`, imported from your CLAUDE.md. It works on your local graph, and sends nothing to a cloud environment unless you name one with `--env` or `ALIGN_ENV`. When every decision
 in it comes from the repo itself (its commits, docs and pull requests), it is a normal file you commit. Run `align up`
 again whenever you want it current. Your CLAUDE.md needs to exist for the import line to be added; without one,
 `align up` prints the line to add. If you connect a chat or ticket tool, or a decision comes from another repo or a doc

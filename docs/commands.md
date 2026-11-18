@@ -225,7 +225,7 @@ align context inject          Print the decisions file as SessionStart hook outp
 
 # Bring this repo's decisions up to date and write .align/decisions.md
 
-align up                      Bring this repo's decisions up to date and write .align/decisions.md (commits, docs, connected sources)
+align up                      Bring this repo's decisions up to date and write .align/decisions.md (commits, docs, connected sources); local unless --env or ALIGN_ENV names another
                               flags: --env --limit --out
 
 # Draft ADRs in the repo for decisions that have none

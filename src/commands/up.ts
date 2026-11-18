@@ -20,12 +20,15 @@ export const UP_STEPS: Array<{ argv: string[]; what: string; env: boolean; optio
 ];
 
 export async function runUp(o: { env?: string; limit?: string; out?: string }, d: { run(argv: string[]): Promise<number>; out(line: string): void }): Promise<number> {
+  // Pinned to the local graph unless an environment is named. `--approve` skips the prompt that says where the text goes,
+  // so a cloud default must never be reached by leaving --env off: a person who names a cloud env has chosen to send there.
+  const env = o.env?.trim() ? o.env : 'local';
   for (const step of UP_STEPS) {
-    if (!step.env && o.env && o.env !== 'local') {
-      d.out(`align up: ${step.what} skipped: it refreshes the local graph, and --env ${o.env} names another.`);
+    if (!step.env && env !== 'local') {
+      d.out(`align up: ${step.what} skipped: it refreshes the local graph, and --env ${env} names another.`);
       continue;
     }
-    const argv = step.env && o.env ? [...step.argv, '--env', o.env] : [...step.argv];
+    const argv = step.env ? [...step.argv, '--env', env] : [...step.argv];
     // Only the step that writes the file takes the file's options.
     if (step.argv[0] === 'context') {
       if (o.limit) argv.push('--limit', o.limit);
@@ -61,12 +64,13 @@ export function upChildCommand(
 export function registerUpCommand(program: Command): void {
   program
     .command('up')
-    .description("Bring this repo's decisions up to date and write .align/decisions.md (commits, docs, connected sources)")
+    .description("Bring this repo's decisions up to date and write .align/decisions.md (commits, docs, connected sources); local unless --env or ALIGN_ENV names another")
     .option('--env <env>', 'Environment')
     .option('--limit <n>', 'Max decisions in the file (default 30)')
     .option('--out <file>', 'Write to this markdown file in the repo, e.g. DECISIONS.md (only when every decision comes from this repo)')
     .action(async (opts: { env?: string; limit?: string; out?: string }) => {
-      const code = await runUp(opts, {
+      // ALIGN_ENV is the person's own choice of destination, so it counts as naming one.
+      const code = await runUp({ ...opts, env: opts.env ?? process.env['ALIGN_ENV'] }, {
         run: async (argv) => {
           const { command, args } = upChildCommand(argv);
           const r = await execa(command, args, { stdio: 'inherit', reject: false });

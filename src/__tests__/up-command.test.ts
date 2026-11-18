@@ -26,19 +26,20 @@ describe('align up', () => {
   it('reads the repo, refreshes connected sources, then writes the decisions file, in that order', async () => {
     const r = recorder();
     expect(await runUp({}, r.deps)).toBe(0);
+    // No --env: the steps are pinned to the local graph, so a cloud login never has the repo's text sent to it unasked.
     expect(r.ran).toEqual([
-      ['connect', 'git', '--approve'],
-      ['connect', 'docs', '--approve'],
+      ['connect', 'git', '--approve', '--env', 'local'],
+      ['connect', 'docs', '--approve', '--env', 'local'],
       ['sync'],
-      ['context', 'sync'],
+      ['context', 'sync', '--env', 'local'],
     ]);
     expect(UP_STEPS).toHaveLength(4);
   });
 
   it('stops at the first step that fails, says which, and returns its code', async () => {
-    const r = recorder({ 'connect docs --approve': 3 });
+    const r = recorder({ 'connect docs --approve --env local': 3 });
     expect(await runUp({}, r.deps)).toBe(3);
-    expect(r.ran.map((a) => a.join(' '))).toEqual(['connect git --approve', 'connect docs --approve']);
+    expect(r.ran.map((a) => a.join(' '))).toEqual(['connect git --approve --env local', 'connect docs --approve --env local']);
     expect(r.out.join('\n')).toMatch(/align up: reading the repo's docs failed \(exit 3\)\. Nothing after it ran\./);
   });
 
@@ -57,18 +58,31 @@ describe('align up', () => {
     const r = recorder();
     await runUp({ limit: '40', out: 'DECISIONS.md' }, r.deps);
     expect(r.ran.map((a) => a.join(' '))).toEqual([
-      'connect git --approve',
-      'connect docs --approve',
+      'connect git --approve --env local',
+      'connect docs --approve --env local',
       'sync',
-      'context sync --limit 40 --out DECISIONS.md',
+      'context sync --env local --limit 40 --out DECISIONS.md',
     ]);
   });
 
   it('a failed refresh of connected sources is reported, and the file is still written from the repo', async () => {
     const r = recorder({ sync: 1 });
     expect(await runUp({}, r.deps)).toBe(0);
-    expect(r.ran.map((a) => a.join(' '))).toContain('context sync');
+    expect(r.ran.map((a) => a.join(' '))).toContain('context sync --env local');
     expect(r.out.join('\n')).toMatch(/refreshing connected sources failed \(exit 1\).*carried on/s);
+  });
+
+  it('a named cloud environment is passed through as given, since naming it is the person choosing to send there', async () => {
+    const r = recorder();
+    await runUp({ env: 'prod' }, r.deps);
+    expect(r.ran.map((a) => a.join(' '))).toEqual(['connect git --approve --env prod', 'connect docs --approve --env prod', 'context sync --env prod']);
+  });
+
+  it('an empty environment name is not a named environment: it stays local, and the refresh still runs', async () => {
+    // ALIGN_ENV= (an unset variable expanded into it) must not fall through to a cloud default in the children.
+    const r = recorder();
+    await runUp({ env: '' }, r.deps);
+    expect(r.ran.map((a) => a.join(' '))).toEqual(['connect git --approve --env local', 'connect docs --approve --env local', 'sync', 'context sync --env local']);
   });
 
   it('skips the local refresh when --env names another graph, and says so', async () => {
