@@ -65,41 +65,84 @@ function dispositionOf(segment: string): Disposition | null {
 
 const day = (d: string): string => `${d}T00:00:00.000Z`;
 
+/** The owner's dispositions. Unlike fixed/ignored, these never open an agent's default. */
+const OWNER = new Set<Disposition['kind']>(['answered', 'accepted-tradeoff', 'rejected-because']);
+/** A runtime permission request (`park-needs`), not a decision. */
+const PERMISSION = /^needs allowance\b/i;
+const TITLE_MAX = 100;
+
+const segmentsOf = (line: string): string[] =>
+  line.replace(/^·\s*/, '').split(SEP).map((s) => s.trim().replace(/^·\s*/, '')).filter((s) => s !== '');
+
+/** A label repeated by the agent or a template ("Default: Default: kept off") is said once. */
+const oneLabel = (s: string): string => s.replace(/^(Default|Rollback):\s*(?:(?:Default|Rollback):\s*)+/i, '$1: ');
+const withoutDefaultLabel = (s: string): string => s.replace(/^(?:Default:\s*)+/i, '');
+
+/** The first sentence, or a cut at a word boundary: a prose entry must not become a paragraph-long title. */
+function titleOf(question: string): string {
+  const sentence = /^.*?[.?!](?=\s|$)/.exec(question)?.[0] ?? question;
+  if (sentence.length <= TITLE_MAX) return sentence;
+  const cut = question.slice(0, TITLE_MAX - 3);
+  return `${cut.slice(0, cut.lastIndexOf(' ') > 0 ? cut.lastIndexOf(' ') : cut.length)}...`;
+}
+
 export function parseParkingLot(text: string, o: { fileDate?: string; repo?: string } = {}): { items: PersonalImportItem[]; open: number; openUrls: string[] } {
   const items: PersonalImportItem[] = [];
   const openUrls: string[] = [];
   let open = 0;
   for (const [head, ...rest] of entries(text)) {
-    const segments = head!.split(SEP).map((s) => s.trim()).filter((s) => s !== '');
-    // The owner APPENDS the disposition, so it is the last segment before any trailing date. An earlier
-    // segment that happens to start with a disposition word ("fixed retry count of 3") is the agent's default.
-    let at = segments.length - 1;
-    while (at > 0 && DATE.test(segments[at]!)) at--;
-    const disposition = at > 0 ? dispositionOf(segments[at]!) : null;
+    const headSegments = segmentsOf(head!);
+    const question = headSegments[0];
+    if (!question) continue;
+    // Every segment of the entry, wrapped lines included: the owner may append the answer to the last wrapped line.
+    const all = [...headSegments.map((s) => ({ s, line: 0 })), ...rest.flatMap((l, i) => segmentsOf(l).map((s) => ({ s, line: i + 1 })))];
+    // The owner's answer is the LAST owner disposition anywhere in the entry. The runtime may append after it
+    // (`outcome: ...`, `reconciled <date>`), so it is not the last segment. fixed/ignored only close an entry
+    // as its last head segment, so a default that starts with "fixed" is never read as one.
+    let at = -1;
+    for (let i = all.length - 1; i > 0; i--) { const d = dispositionOf(all[i]!.s); if (d && OWNER.has(d.kind)) { at = i; break; } }
+    if (at === -1) {
+      let last = headSegments.length - 1;
+      while (last > 0 && DATE.test(headSegments[last]!)) last--;
+      const closing = last > 0 ? dispositionOf(headSegments[last]!) : null;
+      if (closing && !OWNER.has(closing.kind)) continue; // fixed or ignored: not a decision
+    }
+    const disposition = at === -1 ? null : dispositionOf(all[at]!.s)!;
     if (!disposition || (disposition.kind === 'answered' && (disposition.text === '' || DEFERRED.test(disposition.text)))) {
       open++;
-      if (segments[0]) openUrls.push(nightshiftUrl(segments[0], o.repo));
+      openUrls.push(nightshiftUrl(question, o.repo));
       continue;
     }
-    if (disposition.kind === 'fixed' || disposition.kind === 'ignored') continue;
-    const [question, ...context] = segments.slice(0, at);
-    if (!question) continue;
-    const trailing = segments.slice(at + 1);
-    const date = trailing.find((s) => DATE.test(s)) ?? (o.fileDate && DATE.test(o.fileDate) ? o.fileDate : undefined);
+    if (PERMISSION.test(question)) continue;
+    const answerLine = all[at]!.line;
+    // Agent's default and why: the head segments before the answer, dates aside.
+    const headContext = (answerLine === 0 ? headSegments.slice(1, at) : headSegments.slice(1));
+    const context = headContext.filter((s) => !DATE.test(s));
+    const trailing = all.slice(at + 1).map((x) => x.s);
+    const date = [...trailing, ...headContext].find((s) => DATE.test(s)) ?? (o.fileDate && DATE.test(o.fileDate) ? o.fileDate : undefined);
+    const outcomeNotes = trailing.map((s) => /^outcome:\s*(.+)$/i.exec(s)?.[1]).filter((s): s is string => Boolean(s)).map((s) => `Outcome: ${s}`);
+    // Wrapped lines, minus the answer and what follows it.
+    const wrapped = rest
+      // With the answer on the bullet's own line every wrapped line is context; otherwise the lines before it, and
+      // the part of its own line before the answer.
+      .map((l, i) => (answerLine === 0 || i + 1 < answerLine ? segmentsOf(l) : i + 1 === answerLine ? segmentsOf(l).filter((s) => !all.slice(at).some((x) => x.s === s && x.line === i + 1)) : []))
+      .map((segs) => oneLabel(segs.join(SEP)))
+      .filter((l) => l !== '');
     const outcome = disposition.kind === 'answered' ? `Answered: ${disposition.text}`
       : disposition.kind === 'accepted-tradeoff' ? `Accepted the agent's default${disposition.text ? `: ${disposition.text}` : ''}`
       : `Rejected the agent's default${disposition.text ? `: ${disposition.text}` : ''}`;
     const body = [
       question,
-      ...(context[0] ? [`Agent's default: ${context[0]}`] : []),
+      ...(context[0] ? [`Agent's default: ${withoutDefaultLabel(context[0])}`] : []),
       ...(context.length > 1 ? [`Why: ${context.slice(1).join(SEP)}`] : []),
-      ...rest,
+      ...wrapped,
       outcome,
+      ...outcomeNotes,
     ];
     items.push({
       source_url: nightshiftUrl(question, o.repo),
       platform: 'nightshift',
-      title: question,
+      title: titleOf(question),
       raw_text: body.join('\n'),
       ...(date ? { created_at: day(date) } : {}),
     });
