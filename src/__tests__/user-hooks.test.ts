@@ -154,7 +154,7 @@ describe.each([
 
   function seed(rel: string): void {
     mkdirSync(join(dir, rel, '..'), { recursive: true });
-    writeFileSync(join(dir, rel), JSON.stringify({ version: 1, hooks: { [event]: [theirs], sessionStart: [{ command: 'x' }] }, keep: true }));
+    writeFileSync(join(dir, rel), JSON.stringify({ version: 1, hooks: { [event]: [theirs], sessionEnd: [{ command: 'x' }] }, keep: true }));
   }
 
   it('keeps someone else\'s hook on the same event, and every other key in the file', () => {
@@ -162,7 +162,7 @@ describe.each([
     writeUserHooks(target(host, 'h.json'), 'local');
     const cfg = readJson('h.json');
     expect(cfg.keep).toBe(true);
-    expect(cfg.hooks.sessionStart).toEqual([{ command: 'x' }]);
+    expect(cfg.hooks.sessionEnd).toEqual([{ command: 'x' }]);
     expect(cfg.hooks[event]).toHaveLength(2);
     expect(cfg.hooks[event][0]).toEqual(theirs);
     expect(commandOf(cfg.hooks[event][1])).toContain('align check --advisory');
@@ -184,7 +184,7 @@ describe.each([
     expect(removeUserHooks(target(host, 'h.json'))).toBe(true);
     const cfg = readJson('h.json');
     expect(cfg.hooks[event]).toEqual([theirs]);
-    expect(cfg.hooks.sessionStart).toEqual([{ command: 'x' }]);
+    expect(cfg.hooks.sessionEnd).toEqual([{ command: 'x' }]);
     expect(cfg.keep).toBe(true);
   });
 
@@ -309,5 +309,121 @@ describe('writeUserHooks - a user edit inside our own element survives the next 
     expect(groups).toHaveLength(1);
     expect(groups[0].hooks[0].command).toBe('align check --advisory --format codex --env local');
     expect(edited).toEqual([]);
+  });
+});
+
+// the session-start (read path) hook. Codex SessionStart fires on startup, resume, clear
+// and compact (learn.chatgpt.com/docs/hooks, read 2026-11-18); Copilot CLI sessionStart on startup,
+// resume and new, no matcher (docs.github.com Copilot hooks reference). Cursor is deliberately
+// absent: see user-hooks.ts.
+describe('writeUserHooks - session start', () => {
+  it('Codex: SessionStart runs `align context inject --format codex` on every source, compact included', () => {
+    writeUserHooks(target('codex', 'c.json'));
+    const groups = readJson('c.json').hooks.SessionStart;
+    expect(groups).toHaveLength(1);
+    expect(groups[0].matcher.split('|').sort()).toEqual(['clear', 'compact', 'fork', 'resume', 'startup']);
+    expect(groups[0].hooks[0]).toMatchObject({ type: 'command', command: 'align context inject --format codex' });
+    expect(groups[0].hooks[0].timeout).toBeLessThanOrEqual(10);
+    // the edit check is still there, and the inject command never takes an env
+    expect(readJson('c.json').hooks.PreToolUse).toHaveLength(1);
+    writeUserHooks(target('codex', 'd.json'), 'local');
+    expect(readJson('d.json').hooks.SessionStart[0].hooks[0].command).not.toContain('--env');
+  });
+
+  it('Copilot: sessionStart is a bash command guarded for an absent align, with no matcher', () => {
+    writeUserHooks(target('copilot', 'p.json'));
+    const entries = readJson('p.json').hooks.sessionStart;
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toEqual({
+      type: 'command',
+      bash: 'command -v align >/dev/null 2>&1 || exit 0; align context inject --format copilot',
+      timeoutSec: 10,
+    });
+  });
+
+  it('Cursor gets no session hook: its docs promise one, its forum reports the text never arrives', () => {
+    writeUserHooks(target('cursor', 'u.json'));
+    expect(Object.keys(readJson('u.json').hooks).sort()).toEqual(['postToolUse', 'preToolUse']);
+  });
+
+  it.each([['codex', 'SessionStart'], ['copilot', 'sessionStart']] as const)(
+    '%s: a re-run leaves one align session entry, keeps the user\'s own, and remove takes only ours',
+    (host, event) => {
+      const theirs = host === 'codex'
+        ? { matcher: 'startup', hooks: [{ type: 'command', command: 'echo hi' }] }
+        : { type: 'command', bash: 'echo hi' };
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 's.json'), JSON.stringify({ version: 1, hooks: { [event]: [theirs] } }));
+      writeUserHooks(target(host, 's.json'));
+      writeUserHooks(target(host, 's.json'));
+      const list = readJson('s.json').hooks[event];
+      expect(list).toHaveLength(2);
+      expect(list[0]).toEqual(theirs);
+      expect(removeUserHooks(target(host, 's.json'))).toBe(true);
+      expect(readJson('s.json').hooks[event]).toEqual([theirs]);
+    },
+  );
+
+  it('leaves a user\'s own bare `align context inject` entry alone on write and on remove', () => {
+    const mine = { matcher: 'startup', hooks: [{ type: 'command', command: 'align context inject' }] };
+    writeFileSync(join(dir, 'm.json'), JSON.stringify({ hooks: { SessionStart: [mine] } }));
+    writeUserHooks(target('codex', 'm.json'));
+    expect(readJson('m.json').hooks.SessionStart[0]).toEqual(mine);
+    expect(readJson('m.json').hooks.SessionStart).toHaveLength(2);
+    removeUserHooks(target('codex', 'm.json'));
+    expect(readJson('m.json').hooks.SessionStart).toEqual([mine]);
+  });
+
+  it('keeps a session entry the user edited, and says so', () => {
+    writeUserHooks(target('codex', 'e.json'));
+    const cfg = readJson('e.json');
+    cfg.hooks.SessionStart[0].hooks[0].timeout = 99;
+    writeFileSync(join(dir, 'e.json'), JSON.stringify(cfg));
+    const edited: string[] = [];
+    writeUserHooks(target('codex', 'e.json'), undefined, undefined, (f) => edited.push(f));
+    expect(edited).toHaveLength(1);
+    expect(readJson('e.json').hooks.SessionStart[0].hooks[0].timeout).toBe(99);
+  });
+
+  it('an edited session entry does not stop an env change reaching the edit-check hook', () => {
+    writeUserHooks(target('codex', 'v.json'));
+    const cfg = readJson('v.json');
+    cfg.hooks.SessionStart[0].hooks[0].timeout = 99;
+    writeFileSync(join(dir, 'v.json'), JSON.stringify(cfg));
+    writeUserHooks(target('codex', 'v.json'), 'preview');
+    const after = readJson('v.json');
+    expect(after.hooks.PreToolUse[0].hooks[0].command).toContain('--env preview');
+    expect(after.hooks.SessionStart[0].hooks[0].timeout).toBe(99);
+  });
+
+  it('remove takes out only our handler from a Codex group the user added a command to', () => {
+    writeUserHooks(target('codex', 'x.json'));
+    const cfg = readJson('x.json');
+    cfg.hooks.SessionStart[0].hooks.push({ type: 'command', command: 'my-own-linter' });
+    writeFileSync(join(dir, 'x.json'), JSON.stringify(cfg));
+    removeUserHooks(target('codex', 'x.json'));
+    const group = readJson('x.json').hooks.SessionStart;
+    expect(group).toHaveLength(1);
+    expect(group[0].matcher).toContain('compact');
+    expect(group[0].hooks).toEqual([{ type: 'command', command: 'my-own-linter' }]);
+  });
+
+  it('a command that only mentions ours is not ours, on write and on remove', () => {
+    const theirs = { matcher: 'startup', hooks: [{ type: 'command', command: "echo 'align context inject --format codex'" }] };
+    writeFileSync(join(dir, 'y.json'), JSON.stringify({ hooks: { SessionStart: [theirs] } }));
+    writeUserHooks(target('codex', 'y.json'));
+    expect(readJson('y.json').hooks.SessionStart).toHaveLength(2);
+    removeUserHooks(target('codex', 'y.json'));
+    expect(readJson('y.json').hooks.SessionStart).toEqual([theirs]);
+  });
+
+  it('Copilot: an edited edit-check entry leaves the file byte for byte as found', () => {
+    writeUserHooks(target('copilot', 'z.json'));
+    const cfg = readJson('z.json');
+    cfg.hooks.preToolUse[0].timeoutSec = 99;
+    const text = JSON.stringify(cfg);
+    writeFileSync(join(dir, 'z.json'), text);
+    writeUserHooks(target('copilot', 'z.json'), 'preview');
+    expect(readFileSync(join(dir, 'z.json'), 'utf8')).toBe(text);
   });
 });

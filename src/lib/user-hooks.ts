@@ -98,6 +98,71 @@ const HOSTS: Record<HookHost, HostSpec> = {
   },
 };
 
+// The session-start (read path) hook, for the user-level hosts whose docs prove one that injects.
+// Read 2026-11-18, cited in docs/agent-hooks.md. Cursor is not here on purpose: it documents
+// `sessionStart` + `additional_context`, but its own forum has open reports that the text never
+// reaches the model. This command reads a local file and takes no --env.
+const INJECT = 'align context inject';
+
+interface SessionSpec {
+  event: string;
+  entry: (command: string) => Record<string, unknown>;
+  commandsOf: HostSpec['commandsOf'];
+}
+
+const SESSION_HOSTS: Partial<Record<HookHost, SessionSpec>> = {
+  // Codex SessionStart fires on startup, resume, clear, compact and fork; `compact` is the one that
+  // puts the decisions back after a compaction. Plain Claude Code hook shape.
+  codex: {
+    event: 'SessionStart',
+    entry: (command) => ({
+      matcher: 'startup|resume|clear|compact|fork',
+      hooks: [{ type: 'command', command, timeout: HOOK_TIMEOUT_SECONDS }],
+    }),
+    commandsOf: (entry) => HOSTS.codex.commandsOf(entry),
+  },
+  // Copilot CLI sessionStart (startup, resume, new) has no matcher and no compact source.
+  copilot: {
+    event: 'sessionStart',
+    entry: (command) => ({ type: 'command', bash: command, timeoutSec: HOOK_TIMEOUT_SECONDS }),
+    commandsOf: (entry) => HOSTS.copilot.commandsOf(entry),
+  },
+};
+
+export function sessionHookCommand(host: HookHost): string | null {
+  if (!SESSION_HOSTS[host]) return null;
+  const command = `${INJECT} --format ${host}`;
+  return host === 'copilot' ? `${COPILOT_ABSENT_GUARD}${command}` : command;
+}
+
+/** The Codex SessionStart entry `align setup` writes, for the Codex plugin's hooks file to be pinned against. */
+export function codexSessionHookEntry(command: string): Record<string, unknown> {
+  return SESSION_HOSTS.codex!.entry(command);
+}
+
+// Ownership is the exact command align writes, never a substring: `echo 'align context inject ...'`
+// or a bare `align context inject` is the user's.
+function isOurSessionEntry(host: HookHost, session: SessionSpec, entry: unknown): boolean {
+  const ours = sessionHookCommand(host);
+  return ours !== null && session.commandsOf(entry).some((c) => c === ours);
+}
+
+// The entry without our handler: null when nothing else is left in it. A Codex group the user added
+// a command to keeps that command and its matcher; Copilot's entries hold one command each.
+function withoutOurSessionHandler(host: HookHost, session: SessionSpec, entry: unknown): unknown | null {
+  const ours = sessionHookCommand(host);
+  const hooks = (entry as { hooks?: unknown[] } | null)?.hooks;
+  if (!Array.isArray(hooks)) return null;
+  const rest = hooks.filter((h) => String((h as { command?: unknown } | null)?.command ?? '') !== ours);
+  return rest.length ? { ...(entry as object), hooks: rest } : null;
+}
+
+// Exactly what align writes, or the user edited it (same rule as isPristine).
+function isPristineSession(host: HookHost, session: SessionSpec, entry: unknown): boolean {
+  const command = sessionHookCommand(host);
+  return command !== null && isDeepStrictEqual(entry, session.entry(command));
+}
+
 /** The Codex hook entry `align setup` writes, for the Codex plugin's hooks file to be pinned against. */
 export function codexHookEntry(command: string): Record<string, unknown> {
   return HOSTS.codex.entry(command);
@@ -187,11 +252,19 @@ export function writeUserHooks(
       edited = true;
       return undefined;
     }
+    const session = SESSION_HOSTS[target.host];
+    // An edited session entry is kept as the user left it. It does not stop the edit-check hooks
+    // below from taking an env change, or the pair would check different graphs.
+    const sessionEdited = !!session && eventList(session.event).some((e) => isOurSessionEntry(target.host, session, e) && !isPristineSession(target.host, session, e));
+    if (sessionEdited) edited = true;
     for (const event of spec.events) {
       const existing = eventList(event);
       const preserved = existing.filter((e) => !isOurs(spec, e));
       preserved.push(spec.entry(command));
       hooks[event] = preserved;
+    }
+    if (session && !sessionEdited) {
+      hooks[session.event] = [...eventList(session.event).filter((e) => !isOurSessionEntry(target.host, session, e)), session.entry(sessionHookCommand(target.host)!)];
     }
     config['hooks'] = hooks;
     if (spec.version !== undefined && config['version'] === undefined) config['version'] = spec.version;
@@ -209,12 +282,13 @@ export function writeUserHooks(
   }
 
   const config = readHooksFile(target.path) ?? {};
-  merge(config);
+  const merged = merge(config);
   if (foreign) {
     onForeign!(target.path);
     return false;
   }
   if (edited) onEdited?.(target.path);
+  if (merged === undefined) return true;
   const dir = path.dirname(target.path);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   writeFileSync(target.path, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
@@ -239,6 +313,18 @@ export function removeUserHooks(target: UserHookTarget): boolean {
     if (preserved.length !== existing.length) removed = true;
     if (preserved.length) hooks[event] = preserved;
     else delete hooks[event];
+  }
+  const session = SESSION_HOSTS[target.host];
+  if (session) {
+    const existing = (Array.isArray(hooks[session.event]) ? hooks[session.event] : []) as unknown[];
+    const preserved = existing.flatMap((e) => {
+      if (!isOurSessionEntry(target.host, session, e)) return [e];
+      removed = true;
+      const rest = withoutOurSessionHandler(target.host, session, e);
+      return rest === null ? [] : [rest];
+    });
+    if (preserved.length) hooks[session.event] = preserved;
+    else delete hooks[session.event];
   }
   if (!removed) return false;
 

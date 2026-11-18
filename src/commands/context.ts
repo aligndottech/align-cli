@@ -29,6 +29,8 @@ import path from 'node:path';
 import { createConfigStore } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { resolveEnv } from '../lib/resolve-env.js';
+import { readSessionStartCwd } from '../lib/hook-payload.js';
+import { alignConfigDir } from '../lib/private-files.js';
 import { localCitationFor } from '../lib/commit-cite.js';
 import { ensureGitignored, isTrackedByGit } from '../lib/context-local-only.js';
 import { navigableSourceUrl } from '../lib/decision-links.js';
@@ -39,6 +41,41 @@ import {
   writeDecisionsContext,
 } from '../lib/decisions-context.js';
 import type { EnvName } from '../lib/config.js';
+
+const inside = (base: string, target: string): boolean => {
+  const rel = path.relative(base, target);
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+};
+
+// A decisions file is only injected when it really lives in the workspace it was found in, or in
+// Align's own config dir (where a local graph's file is kept and symlinked from). A workspace
+// you did not write can symlink `.align/decisions.md` at any readable file, and a user-level hook
+// would send that file to the model.
+function readableDecisions(dir: string): string | null {
+  const file = path.join(dir, ALIGN_CONTEXT_PATH);
+  try {
+    const real = fs.realpathSync(file);
+    if (!inside(fs.realpathSync(dir), real) && !inside(fs.realpathSync(alignConfigDir()), real)) return null;
+    return fs.readFileSync(real, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+// A host may start the session in a subdirectory of the project `align context sync` ran in. The
+// nearest `.align/decisions.md` wins, walking up to the git root (or the filesystem root).
+function findDecisions(start: string): string | null {
+  let dir = start;
+  for (let i = 0; i < 12; i++) {
+    const found = readableDecisions(dir);
+    if (found !== null) return found;
+    if (fs.existsSync(path.join(dir, '.git'))) return null;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+  return null;
+}
 
 export function registerContextCommand(program: Command): void {
   const context = program
@@ -135,7 +172,8 @@ export function registerContextCommand(program: Command): void {
     .description(
       'Print the decisions file as SessionStart hook output (written by `align`, not meant to be run by hand)',
     )
-    .action(() => {
+    .option('--format <host>', 'Hook output shape: claude (default), codex, gemini or copilot')
+    .action(async (opts: { format?: string }) => {
       // The read-path counterpart to `align check --advisory`. A SessionStart
       // hook shells out to this on every new/resumed/compacted session; whatever it
       // prints lands in the model's context WITHOUT the model choosing to open a file or
@@ -148,13 +186,19 @@ export function registerContextCommand(program: Command): void {
       // Fail-open on every branch, matching every other host shim in agent-rules.ts: no
       // decisions synced yet, an unreadable file, or a file with nothing but whitespace
       // in it all print nothing rather than error or inject an empty additionalContext.
-      let raw: string;
-      try {
-        raw = fs.readFileSync(path.join(process.cwd(), ALIGN_CONTEXT_PATH), 'utf8');
-      } catch {
-        return;
+      //
+      // Claude Code's project hook runs in the project and sends nothing we need. The other hosts
+      // write a USER-level file, which does not run in the project, so for those the workspace
+      // comes from the payload's `cwd` (a path that does not exist is ignored).
+      const format = opts.format ?? 'claude';
+      if (!['claude', 'codex', 'gemini', 'copilot'].includes(format)) return;
+      let root = process.cwd();
+      if (format !== 'claude') {
+        const named = await readSessionStartCwd();
+        if (named && fs.existsSync(named)) root = named;
       }
-      if (!raw.trim()) return;
+      const raw = format === 'claude' ? readableDecisions(root) : findDecisions(root);
+      if (raw === null || !raw.trim()) return;
       // trimEnd only: a full trim() would also strip leading whitespace, which is
       // part of the file's real content (e.g. an indented code block) and would
       // contradict the "raw file content" claim in the test and docs above.
@@ -163,8 +207,11 @@ export function registerContextCommand(program: Command): void {
       // Same shape Claude Code's own hooks already emit elsewhere in this codebase
       // (check.ts's buildAdvisoryOutput default case) - hookSpecificOutput.additionalContext,
       // confirmed for SessionStart specifically against code.claude.com/docs/en/hooks.
-      process.stdout.write(
-        `${JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: content } })}\n`,
-      );
+      // Copilot CLI reads additionalContext as a TOP-LEVEL key for sessionStart (docs.github.com
+      // Copilot hooks reference, read 2026-11-18). The other three read it under hookSpecificOutput.
+      const output = format === 'copilot'
+        ? { additionalContext: content }
+        : { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: content } };
+      process.stdout.write(`${JSON.stringify(output)}\n`);
     });
 }

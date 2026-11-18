@@ -190,6 +190,26 @@ export async function readHookPayload(
   }
 }
 
+/**
+ * The `cwd` a SessionStart hook payload names, or null. SessionStart payloads carry no tool, so
+ * readHookPayload returns null for them; `align context inject` only needs the workspace, which
+ * a USER-level hook file needs because it does not run in the project. Every host that has
+ * a session hook puts the workspace in `cwd` (Codex, Copilot CLI, Gemini CLI docs).
+ */
+export async function readSessionStartCwd(
+  stream: Readable & { isTTY?: boolean } = process.stdin,
+): Promise<string | null> {
+  if (stream.isTTY) return null;
+  const raw = await readAll(stream).catch(() => '');
+  if (!raw.trim()) return null;
+  try {
+    const cwd = asRecord(JSON.parse(raw))?.['cwd'];
+    return typeof cwd === 'string' && cwd ? cwd : null;
+  } catch {
+    return null;
+  }
+}
+
 // Read the stream to end. A short timeout guarantees a manual, non-TTY run with no
 // piped data never hangs the hook - it resolves empty and the caller falls back.
 /**

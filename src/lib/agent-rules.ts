@@ -444,6 +444,42 @@ function isAlignGeminiHook(group: unknown): boolean {
   return Array.isArray(hooks) && hooks.some((h) => String(h?.command ?? '').includes('align check --advisory'));
 }
 
+// Gemini CLI SessionStart: `source` is startup, resume or clear (geminicli.com/docs/hooks/reference,
+// read 2026-11-18) and lifecycle matchers are exact strings, so one group per source. Its reference
+// page says hookSpecificOutput.additionalContext is injected as the first history turn. There is no
+// compact source and PreCompress cannot inject, so a compaction is not covered here. Not confirmed
+// against a running Gemini CLI: the machine this was written on had no Gemini auth.
+const GEMINI_SESSION_SOURCES = ['startup', 'resume', 'clear'] as const;
+
+function geminiSessionGroups(): Array<Record<string, unknown>> {
+  return GEMINI_SESSION_SOURCES.map((source) => ({
+    matcher: source,
+    hooks: [{
+      type: 'command',
+      name: 'align-decision-graph-session',
+      description: 'Align: put the synced decisions in front of the agent at session start',
+      command: `${SESSION_INJECT_COMMAND} --format gemini`,
+    }],
+  }));
+}
+
+// Ours is the exact handler align writes (name and command), not a substring: a user's own bare
+// `align context inject` handler, or one that merely mentions the command, is theirs.
+const isOurGeminiSessionHandler = (h: unknown): boolean =>
+  (h as { name?: unknown } | null)?.name === 'align-decision-graph-session'
+  && (h as { command?: unknown }).command === `${SESSION_INJECT_COMMAND} --format gemini`;
+
+// The groups with our handler taken out. A group the user put another handler in keeps it and its
+// matcher; a group left with nothing is dropped. Re-adding ours after this makes a re-run idempotent.
+function withoutOurGeminiSessionHandler(groups: unknown[]): unknown[] {
+  return groups.flatMap((g) => {
+    const hooks = (g as { hooks?: unknown[] } | null)?.hooks;
+    if (!Array.isArray(hooks) || !hooks.some(isOurGeminiSessionHandler)) return [g];
+    const rest = hooks.filter((h) => !isOurGeminiSessionHandler(h));
+    return rest.length ? [{ ...(g as object), hooks: rest }] : [];
+  });
+}
+
 export function writeGeminiHooks(cwd: string, env?: string, onForeign?: OnForeign): boolean {
   const status = safeWriteJson(path.join(cwd, '.gemini', 'settings.json'), (settings) => {
     const hooks = (settings['hooks'] ?? {}) as Record<string, unknown>;
@@ -459,6 +495,8 @@ export function writeGeminiHooks(cwd: string, env?: string, onForeign?: OnForeig
       preserved.push(geminiHookGroup(event, env));
       hooks[event] = preserved;
     }
+    const sessionExisting = (Array.isArray(hooks['SessionStart']) ? hooks['SessionStart'] : []) as unknown[];
+    hooks['SessionStart'] = [...withoutOurGeminiSessionHandler(sessionExisting), ...geminiSessionGroups()];
     settings['hooks'] = hooks;
     return settings;
   }, projectWrite(cwd));

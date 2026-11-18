@@ -23,6 +23,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Command } from 'commander';
 import fs from 'node:fs';
+import { Readable } from 'node:stream';
 import os from 'node:os';
 import path from 'node:path';
 import { registerContextCommand } from '../commands/context.js';
@@ -42,7 +43,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-async function runInject(): Promise<{ stdout: string }> {
+async function runInject(extra: string[] = [], stdin?: string): Promise<{ stdout: string }> {
   const program = new Command();
   program.exitOverride();
   registerContextCommand(program);
@@ -51,9 +52,11 @@ async function runInject(): Promise<{ stdout: string }> {
     stdout += String(chunk);
     return true;
   });
+  const stdinSpy = stdin === undefined ? null : vi.spyOn(process, 'stdin', 'get').mockReturnValue(Readable.from([stdin]) as unknown as typeof process.stdin);
   try {
-    await program.parseAsync(['node', 'align', 'context', 'inject']);
+    await program.parseAsync(['node', 'align', 'context', 'inject', ...extra]);
   } finally {
+    stdinSpy?.mockRestore();
     writeSpy.mockRestore();
   }
   return { stdout };
@@ -108,5 +111,101 @@ describe('align context inject', () => {
     // that isn't ENOENT, without needing to fake filesystem permissions cross-platform.
     fs.mkdirSync(path.join(repo, '.align', 'decisions.md'), { recursive: true });
     await expect(runInject()).resolves.toEqual({ stdout: '' });
+  });
+});
+
+// The same command now serves the user-level hosts (Codex, Gemini CLI, Copilot CLI).
+// Their payload fixtures are the documented shapes, see fixtures/session-start-payloads/README.md.
+describe('align context inject --format <host>', () => {
+  const content = '# Decisions\n\n- Use Postgres 16';
+  const fixture = (name: string): string =>
+    fs.readFileSync(path.join(__dirname, 'fixtures', 'session-start-payloads', name), 'utf8');
+  const sync = (root: string): void => {
+    fs.mkdirSync(path.join(root, '.align'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.align', 'decisions.md'), content);
+  };
+
+  it.each([['codex', 'codex-session-start.json'], ['gemini', 'gemini-session-start.json']])(
+    '%s: nested hookSpecificOutput, reading the workspace named by the payload cwd, not the process cwd',
+    async (format, file) => {
+      const other = fs.mkdtempSync(path.join(os.tmpdir(), 'ali2130-ws-'));
+      try {
+        sync(other); // decisions exist ONLY in the payload's workspace; the process cwd (repo) has none
+        const payload = JSON.stringify({ ...JSON.parse(fixture(file)), cwd: other });
+        const { stdout } = await runInject(['--format', format], payload);
+        expect(JSON.parse(stdout.trim())).toEqual({
+          hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: content },
+        });
+      } finally {
+        fs.rmSync(other, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it('copilot: additionalContext is a top-level key, with no hookSpecificOutput wrapper', async () => {
+    const other = fs.mkdtempSync(path.join(os.tmpdir(), 'ali2130-ws-'));
+    try {
+      sync(other);
+      const payload = JSON.stringify({ ...JSON.parse(fixture('copilot-session-start.json')), cwd: other });
+      const { stdout } = await runInject(['--format', 'copilot'], payload);
+      expect(JSON.parse(stdout.trim())).toEqual({ additionalContext: content });
+    } finally {
+      fs.rmSync(other, { recursive: true, force: true });
+    }
+  });
+
+  it('falls back to the process cwd when the payload names a directory that does not exist', async () => {
+    sync(repo);
+    const payload = JSON.stringify({ ...JSON.parse(fixture('codex-session-start.json')), cwd: path.join(repo, 'nope') });
+    const { stdout } = await runInject(['--format', 'codex'], payload);
+    expect(JSON.parse(stdout.trim()).hookSpecificOutput.additionalContext).toBe(content);
+  });
+
+  it('prints nothing for an unknown format (fails open)', async () => {
+    sync(repo);
+    expect((await runInject(['--format', 'vim'], '{}')).stdout).toBe('');
+  });
+
+  it('finds the project decisions when the host starts the session in a subdirectory', async () => {
+    sync(repo);
+    fs.mkdirSync(path.join(repo, '.git'));
+    const sub = path.join(repo, 'packages', 'app');
+    fs.mkdirSync(sub, { recursive: true });
+    const { stdout } = await runInject(['--format', 'codex'], JSON.stringify({ cwd: sub }));
+    expect(JSON.parse(stdout.trim()).hookSpecificOutput.additionalContext).toBe(content);
+  });
+
+  it('prefers a decisions file in the session directory over one further up', async () => {
+    sync(repo);
+    const sub = path.join(repo, 'pkg');
+    fs.mkdirSync(path.join(sub, '.align'), { recursive: true });
+    fs.writeFileSync(path.join(sub, '.align', 'decisions.md'), 'nearer');
+    const { stdout } = await runInject(['--format', 'codex'], JSON.stringify({ cwd: sub }));
+    expect(JSON.parse(stdout.trim()).hookSpecificOutput.additionalContext).toBe('nearer');
+  });
+
+  it('does not send a file outside the workspace that .align/decisions.md links to', async () => {
+    const secret = path.join(os.tmpdir(), `ali-secret-${process.pid}.txt`);
+    fs.writeFileSync(secret, 'SECRET');
+    try {
+      fs.mkdirSync(path.join(repo, '.align'), { recursive: true });
+      const link = path.join(repo, '.align', 'decisions.md');
+      try {
+        fs.symlinkSync(path.join(repo, 'real.md'), link);
+      } catch {
+        return; // no symlink permission (Windows without developer mode): nothing to test
+      }
+      // Control: a link to a file INSIDE the workspace is still injected, so the empty output
+      // below comes from the guard and not from a link the hook cannot follow.
+      fs.writeFileSync(path.join(repo, 'real.md'), 'inside');
+      expect(JSON.parse((await runInject()).stdout.trim()).hookSpecificOutput.additionalContext).toBe('inside');
+      fs.rmSync(link);
+      fs.symlinkSync(secret, link);
+      for (const extra of [[], ['--format', 'codex']]) {
+        expect((await runInject(extra, JSON.stringify({ cwd: repo }))).stdout).toBe('');
+      }
+    } finally {
+      fs.rmSync(secret, { force: true });
+    }
   });
 });
