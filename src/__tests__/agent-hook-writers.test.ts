@@ -108,6 +108,21 @@ describe('writeGeminiHooks', () => {
     for (const g of groups) expect(g.hooks[0].command).toBe('align context inject --format gemini');
   });
 
+  it('keeps a user handler added beside ours, and a user\'s own bare `align context inject`', () => {
+    writeGeminiHooks(dir);
+    const cfg = readJson('.gemini/settings.json');
+    cfg.hooks.SessionStart[0].hooks.push({ type: 'command', command: 'my-own-linter' });
+    const bare = { matcher: 'startup', hooks: [{ type: 'command', command: 'align context inject' }] };
+    cfg.hooks.SessionStart.push(bare);
+    writeFileSync(join(dir, '.gemini', 'settings.json'), JSON.stringify(cfg));
+    writeGeminiHooks(dir);
+    const groups = readJson('.gemini/settings.json').hooks.SessionStart;
+    expect(groups.some((g: any) => g.hooks.some((h: any) => h.command === 'my-own-linter'))).toBe(true);
+    expect(groups).toContainEqual(bare);
+    const ours = groups.flatMap((g: any) => g.hooks).filter((h: any) => h.command === 'align context inject --format gemini');
+    expect(ours).toHaveLength(3);
+  });
+
   it('a re-run leaves the same three session groups and keeps the user\'s own', () => {
     mkdirSync(join(dir, '.gemini'), { recursive: true });
     writeFileSync(join(dir, '.gemini', 'settings.json'), JSON.stringify({ hooks: { SessionStart: [{ matcher: 'x' }] } }));

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { PLUGIN_PACKAGE_SPEC } from '../lib/agent-rules.js';
-import { advisoryHookCommand, codexHookEntry, codexSessionHookEntry, sessionHookCommand } from '../lib/user-hooks.js';
+import { advisoryHookCommand, codexHookEntry } from '../lib/user-hooks.js';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const PLUGIN_DIR = 'plugins/align';
@@ -43,11 +43,8 @@ describe('Codex plugin overlay', () => {
 describe('Codex plugin hooks match what `align setup` writes for Codex', () => {
   const hooks = read(CODEX_HOOKS)['hooks'] as Record<string, any[]>;
 
-  it('PreToolUse and SessionStart only, each with setup\'s matcher, timeout and command (npx-run)', () => {
-    expect(Object.keys(hooks)).toEqual(['PreToolUse', 'SessionStart']);
-    const session = codexSessionHookEntry(sessionHookCommand('codex')!) as { hooks: Array<{ command: string }> };
-    const expectedSession = { ...session, hooks: [{ ...session.hooks[0], command: session.hooks[0]!.command.replace(/^align /, `npx -y ${PLUGIN_PACKAGE_SPEC} `) }] };
-    expect(hooks['SessionStart']).toEqual([expectedSession]);
+  it('PreToolUse only, with setup\'s matcher, timeout and command (npx-run)', () => {
+    expect(Object.keys(hooks)).toEqual(['PreToolUse']);
     const setup = codexHookEntry(advisoryHookCommand('codex')) as { hooks: Array<{ command: string }> };
     const expected = { ...setup, hooks: [{ ...setup.hooks[0], command: setup.hooks[0]!.command.replace(/^align /, `npx -y ${PLUGIN_PACKAGE_SPEC} `) }] };
     expect(hooks['PreToolUse']).toEqual([expected]);

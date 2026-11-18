@@ -165,4 +165,47 @@ describe('align context inject --format <host>', () => {
     sync(repo);
     expect((await runInject(['--format', 'vim'], '{}')).stdout).toBe('');
   });
+
+  it('finds the project decisions when the host starts the session in a subdirectory', async () => {
+    sync(repo);
+    fs.mkdirSync(path.join(repo, '.git'));
+    const sub = path.join(repo, 'packages', 'app');
+    fs.mkdirSync(sub, { recursive: true });
+    const { stdout } = await runInject(['--format', 'codex'], JSON.stringify({ cwd: sub }));
+    expect(JSON.parse(stdout.trim()).hookSpecificOutput.additionalContext).toBe(content);
+  });
+
+  it('prefers a decisions file in the session directory over one further up', async () => {
+    sync(repo);
+    const sub = path.join(repo, 'pkg');
+    fs.mkdirSync(path.join(sub, '.align'), { recursive: true });
+    fs.writeFileSync(path.join(sub, '.align', 'decisions.md'), 'nearer');
+    const { stdout } = await runInject(['--format', 'codex'], JSON.stringify({ cwd: sub }));
+    expect(JSON.parse(stdout.trim()).hookSpecificOutput.additionalContext).toBe('nearer');
+  });
+
+  it('does not send a file outside the workspace that .align/decisions.md links to', async () => {
+    const secret = path.join(os.tmpdir(), `ali-secret-${process.pid}.txt`);
+    fs.writeFileSync(secret, 'SECRET');
+    try {
+      fs.mkdirSync(path.join(repo, '.align'), { recursive: true });
+      const link = path.join(repo, '.align', 'decisions.md');
+      try {
+        fs.symlinkSync(path.join(repo, 'real.md'), link);
+      } catch {
+        return; // no symlink permission (Windows without developer mode): nothing to test
+      }
+      // Control: a link to a file INSIDE the workspace is still injected, so the empty output
+      // below comes from the guard and not from a link the hook cannot follow.
+      fs.writeFileSync(path.join(repo, 'real.md'), 'inside');
+      expect(JSON.parse((await runInject()).stdout.trim()).hookSpecificOutput.additionalContext).toBe('inside');
+      fs.rmSync(link);
+      fs.symlinkSync(secret, link);
+      for (const extra of [[], ['--format', 'codex']]) {
+        expect((await runInject(extra, JSON.stringify({ cwd: repo }))).stdout).toBe('');
+      }
+    } finally {
+      fs.rmSync(secret, { force: true });
+    }
+  });
 });

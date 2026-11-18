@@ -384,4 +384,46 @@ describe('writeUserHooks - session start', () => {
     expect(edited).toHaveLength(1);
     expect(readJson('e.json').hooks.SessionStart[0].hooks[0].timeout).toBe(99);
   });
+
+  it('an edited session entry does not stop an env change reaching the edit-check hook', () => {
+    writeUserHooks(target('codex', 'v.json'));
+    const cfg = readJson('v.json');
+    cfg.hooks.SessionStart[0].hooks[0].timeout = 99;
+    writeFileSync(join(dir, 'v.json'), JSON.stringify(cfg));
+    writeUserHooks(target('codex', 'v.json'), 'preview');
+    const after = readJson('v.json');
+    expect(after.hooks.PreToolUse[0].hooks[0].command).toContain('--env preview');
+    expect(after.hooks.SessionStart[0].hooks[0].timeout).toBe(99);
+  });
+
+  it('remove takes out only our handler from a Codex group the user added a command to', () => {
+    writeUserHooks(target('codex', 'x.json'));
+    const cfg = readJson('x.json');
+    cfg.hooks.SessionStart[0].hooks.push({ type: 'command', command: 'my-own-linter' });
+    writeFileSync(join(dir, 'x.json'), JSON.stringify(cfg));
+    removeUserHooks(target('codex', 'x.json'));
+    const group = readJson('x.json').hooks.SessionStart;
+    expect(group).toHaveLength(1);
+    expect(group[0].matcher).toContain('compact');
+    expect(group[0].hooks).toEqual([{ type: 'command', command: 'my-own-linter' }]);
+  });
+
+  it('a command that only mentions ours is not ours, on write and on remove', () => {
+    const theirs = { matcher: 'startup', hooks: [{ type: 'command', command: "echo 'align context inject --format codex'" }] };
+    writeFileSync(join(dir, 'y.json'), JSON.stringify({ hooks: { SessionStart: [theirs] } }));
+    writeUserHooks(target('codex', 'y.json'));
+    expect(readJson('y.json').hooks.SessionStart).toHaveLength(2);
+    removeUserHooks(target('codex', 'y.json'));
+    expect(readJson('y.json').hooks.SessionStart).toEqual([theirs]);
+  });
+
+  it('Copilot: an edited edit-check entry leaves the file byte for byte as found', () => {
+    writeUserHooks(target('copilot', 'z.json'));
+    const cfg = readJson('z.json');
+    cfg.hooks.preToolUse[0].timeoutSec = 99;
+    const text = JSON.stringify(cfg);
+    writeFileSync(join(dir, 'z.json'), text);
+    writeUserHooks(target('copilot', 'z.json'), 'preview');
+    expect(readFileSync(join(dir, 'z.json'), 'utf8')).toBe(text);
+  });
 });

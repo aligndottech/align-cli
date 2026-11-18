@@ -140,9 +140,21 @@ export function codexSessionHookEntry(command: string): Record<string, unknown> 
   return SESSION_HOSTS.codex!.entry(command);
 }
 
-function isOurSessionEntry(session: SessionSpec, entry: unknown): boolean {
-  // `--format` is part of ownership: a bare `align context inject` is the user's own (Claude-style) entry.
-  return session.commandsOf(entry).some((c) => c.includes(`${INJECT} --format`));
+// Ownership is the exact command align writes, never a substring: `echo 'align context inject ...'`
+// or a bare `align context inject` is the user's.
+function isOurSessionEntry(host: HookHost, session: SessionSpec, entry: unknown): boolean {
+  const ours = sessionHookCommand(host);
+  return ours !== null && session.commandsOf(entry).some((c) => c === ours);
+}
+
+// The entry without our handler: null when nothing else is left in it. A Codex group the user added
+// a command to keeps that command and its matcher; Copilot's entries hold one command each.
+function withoutOurSessionHandler(host: HookHost, session: SessionSpec, entry: unknown): unknown | null {
+  const ours = sessionHookCommand(host);
+  const hooks = (entry as { hooks?: unknown[] } | null)?.hooks;
+  if (!Array.isArray(hooks)) return null;
+  const rest = hooks.filter((h) => String((h as { command?: unknown } | null)?.command ?? '') !== ours);
+  return rest.length ? { ...(entry as object), hooks: rest } : null;
 }
 
 // Exactly what align writes, or the user edited it (same rule as isPristine).
@@ -241,18 +253,18 @@ export function writeUserHooks(
       return undefined;
     }
     const session = SESSION_HOSTS[target.host];
-    if (session && eventList(session.event).some((e) => isOurSessionEntry(session, e) && !isPristineSession(target.host, session, e))) {
-      edited = true;
-      return undefined;
-    }
+    // An edited session entry is kept as the user left it. It does not stop the edit-check hooks
+    // below from taking an env change, or the pair would check different graphs.
+    const sessionEdited = !!session && eventList(session.event).some((e) => isOurSessionEntry(target.host, session, e) && !isPristineSession(target.host, session, e));
+    if (sessionEdited) edited = true;
     for (const event of spec.events) {
       const existing = eventList(event);
       const preserved = existing.filter((e) => !isOurs(spec, e));
       preserved.push(spec.entry(command));
       hooks[event] = preserved;
     }
-    if (session) {
-      hooks[session.event] = [...eventList(session.event).filter((e) => !isOurSessionEntry(session, e)), session.entry(sessionHookCommand(target.host)!)];
+    if (session && !sessionEdited) {
+      hooks[session.event] = [...eventList(session.event).filter((e) => !isOurSessionEntry(target.host, session, e)), session.entry(sessionHookCommand(target.host)!)];
     }
     config['hooks'] = hooks;
     if (spec.version !== undefined && config['version'] === undefined) config['version'] = spec.version;
@@ -270,12 +282,13 @@ export function writeUserHooks(
   }
 
   const config = readHooksFile(target.path) ?? {};
-  merge(config);
+  const merged = merge(config);
   if (foreign) {
     onForeign!(target.path);
     return false;
   }
   if (edited) onEdited?.(target.path);
+  if (merged === undefined) return true;
   const dir = path.dirname(target.path);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   writeFileSync(target.path, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
@@ -304,8 +317,12 @@ export function removeUserHooks(target: UserHookTarget): boolean {
   const session = SESSION_HOSTS[target.host];
   if (session) {
     const existing = (Array.isArray(hooks[session.event]) ? hooks[session.event] : []) as unknown[];
-    const preserved = existing.filter((e) => !isOurSessionEntry(session, e));
-    if (preserved.length !== existing.length) removed = true;
+    const preserved = existing.flatMap((e) => {
+      if (!isOurSessionEntry(target.host, session, e)) return [e];
+      removed = true;
+      const rest = withoutOurSessionHandler(target.host, session, e);
+      return rest === null ? [] : [rest];
+    });
     if (preserved.length) hooks[session.event] = preserved;
     else delete hooks[session.event];
   }

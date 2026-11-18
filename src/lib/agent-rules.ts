@@ -463,9 +463,21 @@ function geminiSessionGroups(): Array<Record<string, unknown>> {
   }));
 }
 
-function isAlignGeminiSessionHook(group: unknown): boolean {
-  const hooks = (group as { hooks?: Array<{ command?: unknown }> })?.hooks;
-  return Array.isArray(hooks) && hooks.some((h) => String(h?.command ?? '').includes(SESSION_INJECT_COMMAND));
+// Ours is the exact handler align writes (name and command), not a substring: a user's own bare
+// `align context inject` handler, or one that merely mentions the command, is theirs.
+const isOurGeminiSessionHandler = (h: unknown): boolean =>
+  (h as { name?: unknown } | null)?.name === 'align-decision-graph-session'
+  && (h as { command?: unknown }).command === `${SESSION_INJECT_COMMAND} --format gemini`;
+
+// The groups with our handler taken out. A group the user put another handler in keeps it and its
+// matcher; a group left with nothing is dropped. Re-adding ours after this makes a re-run idempotent.
+function withoutOurGeminiSessionHandler(groups: unknown[]): unknown[] {
+  return groups.flatMap((g) => {
+    const hooks = (g as { hooks?: unknown[] } | null)?.hooks;
+    if (!Array.isArray(hooks) || !hooks.some(isOurGeminiSessionHandler)) return [g];
+    const rest = hooks.filter((h) => !isOurGeminiSessionHandler(h));
+    return rest.length ? [{ ...(g as object), hooks: rest }] : [];
+  });
 }
 
 export function writeGeminiHooks(cwd: string, env?: string, onForeign?: OnForeign): boolean {
@@ -484,7 +496,7 @@ export function writeGeminiHooks(cwd: string, env?: string, onForeign?: OnForeig
       hooks[event] = preserved;
     }
     const sessionExisting = (Array.isArray(hooks['SessionStart']) ? hooks['SessionStart'] : []) as unknown[];
-    hooks['SessionStart'] = [...sessionExisting.filter((g) => !isAlignGeminiSessionHook(g)), ...geminiSessionGroups()];
+    hooks['SessionStart'] = [...withoutOurGeminiSessionHandler(sessionExisting), ...geminiSessionGroups()];
     settings['hooks'] = hooks;
     return settings;
   }, projectWrite(cwd));

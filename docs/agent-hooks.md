@@ -140,8 +140,8 @@ this table was captured from a live session; the fixtures in
 | Agent | Session-start hook that can inject | Hook after a compaction | What Align does | Docs read |
 |---|---|---|---|---|
 | **Claude Code** | yes, `SessionStart`, sources `startup`, `resume`, `clear`, `compact`, `fork`; `additionalContext` | `PostCompact` exists but has no decision control and cannot inject. The `compact` source of `SessionStart` is what re-injects | **Wired**: `.claude/settings.json`, matcher `startup\|resume\|clear\|compact\|fork` | [code.claude.com/docs/en/hooks](https://code.claude.com/docs/en/hooks) |
-| **Codex** | yes, `SessionStart`, sources `startup`, `resume`, `clear`, `compact`, `fork`; `hookSpecificOutput.additionalContext` | `PreCompact` and `PostCompact` exist, plain-text output is ignored, no context channel. The docs say to use `SessionStart` with the `compact` matcher | **Wired**: `~/.codex/hooks.json` and the Codex plugin's `hooks/codex-hooks.json`, matcher `startup\|resume\|clear\|compact\|fork`. Install one of the two, not both: with both, the decisions are injected twice. Codex skips a new hook until you approve it once, interactively | [learn.chatgpt.com/docs/hooks](https://learn.chatgpt.com/docs/hooks) (redirect from developers.openai.com/codex/hooks) |
-| **Gemini CLI** | yes, `SessionStart`, sources `startup`, `resume`, `clear`; `hookSpecificOutput.additionalContext`, injected as the first history turn | none that injects. `PreCompress` is advisory and can only show a message. No post-compression event | **Wired for session start**: `.gemini/settings.json`, one exact matcher per source. After a compaction: the fallback below | [geminicli.com/docs/hooks/reference](https://geminicli.com/docs/hooks/reference/) |
+| **Codex** | yes, `SessionStart`, sources `startup`, `resume`, `clear`, `compact`, `fork`; `hookSpecificOutput.additionalContext` | `PreCompact` and `PostCompact` exist, plain-text output is ignored, no context channel. The docs say to use `SessionStart` with the `compact` matcher | **Wired**: `~/.codex/hooks.json`, matcher `startup\|resume\|clear\|compact\|fork`. The Codex plugin's hooks file carries the edit check only, not this hook: a plugin hook runs through `npx`, which can miss the ten-second window, and with both installed the decisions would arrive twice. Codex skips a new hook until you approve it once, interactively | [learn.chatgpt.com/docs/hooks](https://learn.chatgpt.com/docs/hooks) (redirect from developers.openai.com/codex/hooks) |
+| **Gemini CLI** | yes, `SessionStart`, sources `startup`, `resume`, `clear`; `hookSpecificOutput.additionalContext`, injected as the first history turn in an interactive session and prepended to the prompt in a non-interactive one | none that injects. `PreCompress` is advisory and can only show a message. No post-compression event | **Wired for session start**: `.gemini/settings.json`, one exact matcher per source. After a compaction: the fallback below | [geminicli.com/docs/hooks/reference](https://geminicli.com/docs/hooks/reference/) |
 | **Copilot CLI** | yes, `sessionStart`, sources `startup`, `resume`, `new`, no matcher; a top-level `additionalContext` is consumed | none that injects. `preCompact` is notification only | **Wired for session start**: `~/.copilot/hooks/align.json`. After a compaction: the fallback below | [docs.github.com/en/copilot/reference/hooks-reference](https://docs.github.com/en/copilot/reference/hooks-reference) |
 | **Cursor** | documented: `sessionStart` with `additional_context`, fire-and-forget. **Not relied on**, see below | `preCompact` exists and is observational: it cannot block, modify or inject | **Not wired.** Fallback below | [cursor.com/docs/agent/hooks](https://cursor.com/docs/agent/hooks) |
 | **pi** | none that injects. `session_start` (reasons `startup`, `reload`, `new`, `resume`, `fork`) documents no return value. `before_agent_start` can return a `message` the model sees, but it fires on every prompt | `session_compact` is for observation. `session_before_compact` can supply the summary, which is not a way to add decisions | **Not wired.** Fallback below | [pi extensions.md](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md), first 100,000 of 158,000 characters read |
@@ -163,8 +163,15 @@ PR check do not depend on the session hook, so a long session still has them:
 3. **The PR check** (`align check --ci`, see [check.md](check.md)). It reads the diff in CI, so
    a decision lost mid-session is still caught before merge.
 
-A pi or OpenCode user who wants the decisions in context without a hook can import
-`.align/decisions.md` from their `AGENTS.md`. `align context sync` writes that file.
+An OpenCode user who wants the decisions in context without a hook can list `.align/decisions.md`
+under `instructions` in `opencode.json`; OpenCode's config docs say it loads those files alongside
+`AGENTS.md` ([opencode.ai/docs/config](https://opencode.ai/docs/config/), read 2026-11-18).
+`align context sync` writes that file. For pi, no documented way to do the same was found.
+
+`align context inject` only reads a decisions file that sits in the workspace, or in Align's own
+config directory where a local graph keeps it. A `.align/decisions.md` that links to a file
+elsewhere is ignored, so a workspace you did not write cannot make a user-level hook send an
+arbitrary file to the model. From a subdirectory it uses the nearest file, up to the git root.
 
 ### Why Cursor is not wired, and why Copilot CLI is now
 
