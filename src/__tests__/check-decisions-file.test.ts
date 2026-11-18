@@ -252,3 +252,27 @@ describe('--decisions-file: fails closed (exit 2, never 0)', () => {
     expect(mockProvider).not.toHaveBeenCalled();
   });
 });
+
+describe('--decisions-file: content that does not fit the model window is never a pass', () => {
+  // The provider runs the prompt builder with ITS window, as the real runtime does, then answers "no conflict".
+  const answerCleanWithWindow = (windowTokens: number) => mockProvider.mockImplementation(async (_system: unknown, user: unknown) => {
+    if (typeof user === 'function') (user as (w: number) => string)(windowTokens);
+    return { ok: true, text: JSON.stringify(clean) };
+  });
+
+  it('a window too small for the whole diff -> exit 2, status unknown, and the message says what did not fit', async () => {
+    answerCleanWithWindow(3_000);
+    const r = await runCheck(ciArgs());
+    expect(r.exitCode).toBe(2);
+    expect(json(r)['status']).toBe('unknown');
+    expect(String(json(r)['message'])).toMatch(/did not fit/);
+  });
+
+  it('a window that holds everything -> the same "no conflict" answer is a pass (positive control)', async () => {
+    answerCleanWithWindow(200_000);
+    const r = await runCheck(ciArgs());
+    expect(r.exitCode).toBe(0);
+    expect(json(r)['status']).toBe('aligned');
+  });
+});
+

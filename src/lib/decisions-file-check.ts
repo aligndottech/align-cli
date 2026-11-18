@@ -30,10 +30,26 @@ export interface FileJudgeDeps {
  * that as aligned. Here that is an unreadable answer: nothing was judged. An EMPTY array stays a valid
  * "no conflict" answer.
  */
-const setClassifier: NonNullable<Parameters<typeof classifyCandidates>[3]>['set'] = async (subject, candidates) => {
+type SetClassifier = NonNullable<Parameters<typeof classifyCandidates>[3]>['set'];
+
+/**
+ * The prompt builder shares what is left of the model's window between the diff and every decision summary, and cuts
+ * each to its share - to nothing when the window is small. A "no conflict" answer about text the model never saw is
+ * not a pass, so the prompt that was actually built is checked for the whole diff and every whole summary.
+ */
+const makeSetClassifier = (onCut: () => void): SetClassifier => async (subject, candidates) => {
   let text: string | undefined;
-  const result = await classifyCandidateSet(subject, candidates, async (...args) => {
-    const r = await callChatDetailed(...args);
+  const whole = [subject.summary, ...candidates.map((c) => c.summary)];
+  const result = await classifyCandidateSet(subject, candidates, async (system, user, opts) => {
+    const seen = typeof user === 'function'
+      ? (windowTokens: number) => {
+          const built = user(windowTokens);
+          if (whole.some((t) => !built.includes(t))) onCut();
+          return built;
+        }
+      : user;
+    if (typeof user === 'string' && whole.some((t) => !user.includes(t))) onCut();
+    const r = await callChatDetailed(system, seen, opts);
     if (r.ok) text = r.text;
     return r;
   });
@@ -61,7 +77,8 @@ export async function judgeAgainstDecisionsFile(
     status: null,
   }));
   const subject = { title: opts.title ?? 'Proposed change', summary: diff, decidedAt: null, platform: 'cli' };
-  const { outcomes } = await (deps.classify ?? classifyCandidates)(subject, candidates, 'candidate-first', { set: setClassifier });
+  let cut = false;
+  const { outcomes } = await (deps.classify ?? classifyCandidates)(subject, candidates, 'candidate-first', { set: makeSetClassifier(() => { cut = true; }) });
 
   const typed = candidates.map((c, i) => {
     const outcome = outcomes[i];
@@ -91,6 +108,17 @@ export async function judgeAgainstDecisionsFile(
       relevant_decisions,
       conflicts,
       message: `This change conflicts with ${conflicts.length} decision(s) in ${opts.file}.`,
+    };
+  }
+
+  if (cut) {
+    return {
+      status: 'unknown',
+      reason: 'classifier_error',
+      confidence: 0,
+      relevant_decisions,
+      conflicts: [],
+      message: `Could not check this change against the ${decisions.length} decision(s) in ${opts.file}: the diff, or a decision, did not fit the model's window and would have been cut. This is NOT a pass. Split the change, or use a model with a larger window.`,
     };
   }
 
