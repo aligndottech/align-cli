@@ -83,6 +83,22 @@ Prefer your agent's own interface? `align -- <args>` still opens it with the gra
 
 MIT, no account needed. Beta, pre-1.0.
 
+## What happens after you install
+
+1. **Run `align` in a repo.** It reads your commits, ADRs and RFCs, decision logs, `CLAUDE.md`,
+   `AGENTS.md` and recent merged PRs, and builds the graph in `~/.align/local.db`. Nothing to fill in.
+2. **Pick your agent.** Keep Claude Code, Codex or Cursor, or use Align's own. Setup lists the files
+   it will write and asks first.
+3. **Work as normal.** Each edit is checked against the graph before it is written, and the agent
+   can ask the graph why something is the way it is. You do nothing by hand.
+4. **The graph refreshes itself** in the background, at most every 15 minutes per source.
+5. **Add more sources when you want them:** `align connect` (Jira, Linear, Slack, Notion and more).
+
+Imported decisions show `ratified: false`. That is expected, and you don't have to ratify them.
+Ratifying is a person saying "this governs", and it only applies to a claim an agent made, such as
+one from `align connect sessions` (`align decisions list --unratified` lists them). A rule your team
+ratified is the one thing that can block an edit without an AI key.
+
 ## Try it on a repo you didn't write
 
 Fastify decided its error handler only keeps status codes from 400 to 599 (PR #7089). Nothing

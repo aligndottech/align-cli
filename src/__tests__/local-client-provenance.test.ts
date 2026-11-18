@@ -103,6 +103,19 @@ describe('listDecisions carries provenance', () => {
     expect(byId[legacyId]).toMatchObject({ decider_kind: 'unknown', ratified: false });
   });
 
+  it('only an unratified agent claim needs ratification; a human or imported row never does', async () => {
+    const c = client();
+    const { agentId, humanId, legacyId } = await seed(c);
+    const rows = await c.listDecisions({ all: true });
+    const byId = Object.fromEntries(rows.map((r) => [r.id, r]));
+    expect(byId[agentId]).toMatchObject({ needs_ratification: true });
+    expect(byId[humanId]).toMatchObject({ needs_ratification: false });
+    expect(byId[legacyId]).toMatchObject({ needs_ratification: false });
+    await c.ratifyDecision(agentId, { ratifiedBy: 'tom@align.tech' });
+    const after = (await c.listDecisions({ all: true })).find((r) => r.id === agentId);
+    expect(after).toMatchObject({ needs_ratification: false });
+  });
+
   it('after ratification the agent row reads ratified, with who and when', async () => {
     const c = client();
     const { agentId } = await seed(c);

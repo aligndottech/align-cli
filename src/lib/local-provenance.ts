@@ -10,6 +10,9 @@ export function provenanceOf(row: Pick<DecisionRow, 'deciderKind' | 'ratifiedBy'
   return {
     decider_kind: row.deciderKind ?? 'unknown',
     ratified: row.ratifiedAt !== null,
+    // Ratifying is for an agent's claim only. A decision imported from git, tickets or docs
+    // reads ratified:false and needs nothing, so an agent must not tell the user to ratify it.
+    needs_ratification: row.deciderKind === 'agent' && row.ratifiedAt === null,
     ...(row.ratifiedAt ? { ratified_at: row.ratifiedAt, ratified_by: row.ratifiedBy } : {}),
   };
 }
