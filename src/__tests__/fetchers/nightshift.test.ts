@@ -110,6 +110,58 @@ describe('parseParkingLot', () => {
     expect(parseParkingLot(lot('- Use Redis? · answered: maybe'), { repo: 'acme/api' }).items[0]!.source_url).toBe(a.items[0]!.source_url);
   });
 
+  // From a real workspace (Orwa Mahmoud, AdaptTable, 18 Nov): 10 of 23 answered entries imported on 0.86.0.
+  it('finds an answer on an indented line under the bullet', () => {
+    const { items, open } = parseParkingLot(lot(
+      '- Keep the retry queue on disk? · kept it on disk · survives a restart',
+      '  · answered: yes, keep it on disk',
+    ));
+    expect(items.map((i) => i.title)).toEqual(['Keep the retry queue on disk?']);
+    expect(items[0]!.raw_text).toContain('Answered: yes, keep it on disk');
+    expect(open).toBe(0);
+  });
+
+  it('text the runtime adds after the answer does not hide it', () => {
+    const { items, open } = parseParkingLot(lot(
+      '- Ship the export? · kept it · users asked · answered: yes · outcome: shipped in 2.3',
+      '- Rename the table? · answered: no · reconciled 2026-10-02',
+    ));
+    expect(items.map((i) => i.title)).toEqual(['Ship the export?', 'Rename the table?']);
+    expect(items[0]!.raw_text).toContain('Outcome: shipped in 2.3');
+    expect(open).toBe(0);
+  });
+
+  it('a date before the answer is the date, not the why', () => {
+    const { items } = parseParkingLot(lot('- Drop the legacy flag? · kept it · 2026-09-30 · answered: drop it'));
+    expect(items[0]!.raw_text).not.toContain('Why: 2026-09-30');
+    expect(items[0]!.created_at).toBe('2026-09-30T00:00:00.000Z');
+  });
+
+  it('a runtime permission request is not a decision', () => {
+    const { items } = parseParkingLot(lot(
+      '- needs allowance: network access for the docs build · answered: allowed for the next shift',
+      '- Keep the cache? · answered: yes',
+    ));
+    expect(items.map((i) => i.title)).toEqual(['Keep the cache?']);
+  });
+
+  it('a prose entry gets a short title, and its text keeps the whole entry', () => {
+    const long = 'The importer reads every row of the sheet and the sheet has grown past ten thousand rows so the nightly run now takes forty minutes, and I paged it rather than skipping rows';
+    const { items } = parseParkingLot(lot(`- ${long} · answered: page it`));
+    expect(items[0]!.title.length).toBeLessThanOrEqual(100);
+    expect(long.startsWith(items[0]!.title.replace(/\.\.\.$/, ''))).toBe(true);
+    expect(items[0]!.raw_text).toContain(long);
+  });
+
+  it('never prints "Default:" twice', () => {
+    const { items } = parseParkingLot(lot(
+      '- Ship the flag on? · Default: kept off · answered: yes',
+      '  - Default: Default: kept off',
+    ));
+    expect(items[0]!.raw_text).not.toMatch(/Default:\s*Default:/i);
+    expect(items[0]!.raw_text).toContain("Agent's default: kept off");
+  });
+
   it('the template above the rule, a Filed: pointer and a paragraph are not entries', () => {
     const { items } = parseParkingLot(lot(
       '- Keep the cache? · answered: yes',

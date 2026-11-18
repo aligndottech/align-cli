@@ -518,7 +518,9 @@ one decision, titled by its question:
 - `answered: <decision>`: the owner's decision, with the agent's default and its reason kept as context.
 - `accepted-tradeoff`: the agent's default stands.
 - `rejected-because`: the agent's default was rejected, and why.
-- `fixed`, `ignored` and an answer of `later` are not decisions and are skipped.
+- `fixed`, `ignored`, an answer of `later` and a runtime permission request (`needs allowance: ...`) are not decisions and are skipped.
+
+The answer can sit on a wrapped line under the bullet, and text the runtime adds after it (`outcome: ...`, `reconciled <date>`) is kept as context.
 
 An open entry is the agent's unconfirmed default, so it is never imported: nightshift shows it at the start of the next
 shift, and once you answer it the next import picks it up. Each decision is keyed by its question, so the same entry read
