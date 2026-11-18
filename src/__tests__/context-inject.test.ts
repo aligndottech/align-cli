@@ -190,12 +190,14 @@ describe('align context inject --format <host>', () => {
 
   // The payload NAMES a path that is not a usable directory: a stale or deleted workspace. A
   // user-level hook can start in any repo, so falling back to the process cwd would inject
-  // another project's decisions (ALI-2130).
+  // another project's decisions.
   it.each(HOSTS)('%s: prints nothing when the payload cwd does not exist, even if the process cwd has decisions', async (format, file) => {
     sync(repo);
     const payload = JSON.stringify({ ...JSON.parse(fixture(file)), cwd: path.join(repo, 'nope') });
     expect((await runInject(['--format', format], payload)).stdout).toBe('');
-    const gone = JSON.stringify({ ...JSON.parse(fixture(file)), cwd: path.join(os.tmpdir(), 'ali2130-deleted-ws') });
+    const deleted = fs.mkdtempSync(path.join(os.tmpdir(), 'ali2130-gone-'));
+    fs.rmSync(deleted, { recursive: true, force: true }); // a workspace that existed and was deleted
+    const gone = JSON.stringify({ ...JSON.parse(fixture(file)), cwd: deleted });
     expect((await runInject(['--format', format], gone)).stdout).toBe('');
   });
 

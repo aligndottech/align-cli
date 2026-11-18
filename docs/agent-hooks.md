@@ -123,8 +123,8 @@ The exception is Cursor's `sessionStart` payload, which has no `cwd` and names t
 multi-root workspace it finds decisions only if the first root has them.
 
 For `align context inject`, a payload that names a path that is not a directory (a stale or deleted
-workspace) prints nothing, on every host except Claude Code. Codex, Gemini and Copilot payloads that
-name no `cwd` at all still fall back to the process directory.
+workspace) prints nothing, on every host except Claude Code. Codex, Gemini and Copilot use the process
+directory only when the payload supplies neither a `cwd` nor a first `workspace_roots` entry.
 
 ## The read path: putting the decisions back in front of the agent
 
