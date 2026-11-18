@@ -57,7 +57,7 @@ align connect nightshift      Import the decisions you answered in nightshift's 
                               flags: --dir --limit --approve --env
 
 align check                   Check current changes against the decision graph (exit 1 = conflict found)
-                              flags: --env --all --hook --advisory --format --block-on-critical --adjudicate-deferred --ci --json --title --base --depth --resolve
+                              flags: --env --all --hook --advisory --format --block-on-critical --adjudicate-deferred --ci --json --title --base --decisions-file --depth --resolve
 align review                  same as align check
 
 align backlog <decision>      Turn a decision into one issue per task, created straight away in Linear, GitHub Issues or Jira (the first run asks where; later runs reuse it)
@@ -219,14 +219,15 @@ align doctor                  Check this install end to end: Node, align on PATH
 
 align context                 Manage the decisions file agents read (.align/decisions.md)
 align context sync            Write current decisions to .align/decisions.md and import it from CLAUDE.md
-                              flags: --env --limit
+                              flags: --env --limit --out
 align context inject          Print the decisions file as SessionStart hook output (written by `align`, not meant to be run by hand)
                               flags: --format
 
 # Bring this repo's decisions up to date and write .align/decisions.md
 
 align up                      Bring this repo's decisions up to date and write .align/decisions.md (commits, docs, connected sources)
-                              flags: --env
+                              flags: --env --limit --out
+align update                  same as align up
 
 # Answer a check the judge declined to rule on
 
