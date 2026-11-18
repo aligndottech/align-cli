@@ -52,8 +52,9 @@ align connect notion          Import your Notion pages (internal integration tok
 align connect sessions        Review decision-shaped moments from local coding-agent sessions (Claude Code, pi, Codex CLI, opencode) one by one
                               flags: --limit --env
 align connect mirsad          Import decisions from a MIRSAD JSON export (its supersedes links arrive as confirmed)
-align connect nightshift      Import the decisions you answered in nightshift's parking lot (open entries stay in nightshift)
                               flags: --file --limit --approve --env
+align connect nightshift      Import the decisions you answered in nightshift's parking lot (open entries stay in nightshift)
+                              flags: --dir --limit --approve --env
 
 align check                   Check current changes against the decision graph (exit 1 = conflict found)
                               flags: --env --all --hook --advisory --format --block-on-critical --adjudicate-deferred --ci --json --title --base --depth --resolve
