@@ -111,12 +111,12 @@ interface SessionSpec {
 }
 
 const SESSION_HOSTS: Partial<Record<HookHost, SessionSpec>> = {
-  // Codex SessionStart fires on startup, resume, clear and compact; `compact` is the one that
+  // Codex SessionStart fires on startup, resume, clear, compact and fork; `compact` is the one that
   // puts the decisions back after a compaction. Plain Claude Code hook shape.
   codex: {
     event: 'SessionStart',
     entry: (command) => ({
-      matcher: 'startup|resume|clear|compact',
+      matcher: 'startup|resume|clear|compact|fork',
       hooks: [{ type: 'command', command, timeout: HOOK_TIMEOUT_SECONDS }],
     }),
     commandsOf: (entry) => HOSTS.codex.commandsOf(entry),
@@ -141,7 +141,8 @@ export function codexSessionHookEntry(command: string): Record<string, unknown> 
 }
 
 function isOurSessionEntry(session: SessionSpec, entry: unknown): boolean {
-  return session.commandsOf(entry).some((c) => c.includes(INJECT));
+  // `--format` is part of ownership: a bare `align context inject` is the user's own (Claude-style) entry.
+  return session.commandsOf(entry).some((c) => c.includes(`${INJECT} --format`));
 }
 
 // Exactly what align writes, or the user edited it (same rule as isPristine).

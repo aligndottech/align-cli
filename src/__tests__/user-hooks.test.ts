@@ -321,7 +321,7 @@ describe('writeUserHooks - session start', () => {
     writeUserHooks(target('codex', 'c.json'));
     const groups = readJson('c.json').hooks.SessionStart;
     expect(groups).toHaveLength(1);
-    expect(groups[0].matcher.split('|').sort()).toEqual(['clear', 'compact', 'resume', 'startup']);
+    expect(groups[0].matcher.split('|').sort()).toEqual(['clear', 'compact', 'fork', 'resume', 'startup']);
     expect(groups[0].hooks[0]).toMatchObject({ type: 'command', command: 'align context inject --format codex' });
     expect(groups[0].hooks[0].timeout).toBeLessThanOrEqual(10);
     // the edit check is still there, and the inject command never takes an env
@@ -363,6 +363,16 @@ describe('writeUserHooks - session start', () => {
       expect(readJson('s.json').hooks[event]).toEqual([theirs]);
     },
   );
+
+  it('leaves a user\'s own bare `align context inject` entry alone on write and on remove', () => {
+    const mine = { matcher: 'startup', hooks: [{ type: 'command', command: 'align context inject' }] };
+    writeFileSync(join(dir, 'm.json'), JSON.stringify({ hooks: { SessionStart: [mine] } }));
+    writeUserHooks(target('codex', 'm.json'));
+    expect(readJson('m.json').hooks.SessionStart[0]).toEqual(mine);
+    expect(readJson('m.json').hooks.SessionStart).toHaveLength(2);
+    removeUserHooks(target('codex', 'm.json'));
+    expect(readJson('m.json').hooks.SessionStart).toEqual([mine]);
+  });
 
   it('keeps a session entry the user edited, and says so', () => {
     writeUserHooks(target('codex', 'e.json'));

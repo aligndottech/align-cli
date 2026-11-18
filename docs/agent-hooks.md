@@ -140,7 +140,7 @@ this table was captured from a live session; the fixtures in
 | Agent | Session-start hook that can inject | Hook after a compaction | What Align does | Docs read |
 |---|---|---|---|---|
 | **Claude Code** | yes, `SessionStart`, sources `startup`, `resume`, `clear`, `compact`, `fork`; `additionalContext` | `PostCompact` exists but has no decision control and cannot inject. The `compact` source of `SessionStart` is what re-injects | **Wired**: `.claude/settings.json`, matcher `startup\|resume\|clear\|compact\|fork` | [code.claude.com/docs/en/hooks](https://code.claude.com/docs/en/hooks) |
-| **Codex** | yes, `SessionStart`, sources `startup`, `resume`, `clear`, `compact`, `fork`; `hookSpecificOutput.additionalContext` | `PreCompact` and `PostCompact` exist, plain-text output is ignored, no context channel. The docs say to use `SessionStart` with the `compact` matcher | **Wired**: `~/.codex/hooks.json` and the Codex plugin's `hooks/codex-hooks.json`, matcher `startup\|resume\|clear\|compact`. Codex skips a new hook until you approve it once, interactively | [learn.chatgpt.com/docs/hooks](https://learn.chatgpt.com/docs/hooks) (redirect from developers.openai.com/codex/hooks) |
+| **Codex** | yes, `SessionStart`, sources `startup`, `resume`, `clear`, `compact`, `fork`; `hookSpecificOutput.additionalContext` | `PreCompact` and `PostCompact` exist, plain-text output is ignored, no context channel. The docs say to use `SessionStart` with the `compact` matcher | **Wired**: `~/.codex/hooks.json` and the Codex plugin's `hooks/codex-hooks.json`, matcher `startup\|resume\|clear\|compact\|fork`. Install one of the two, not both: with both, the decisions are injected twice. Codex skips a new hook until you approve it once, interactively | [learn.chatgpt.com/docs/hooks](https://learn.chatgpt.com/docs/hooks) (redirect from developers.openai.com/codex/hooks) |
 | **Gemini CLI** | yes, `SessionStart`, sources `startup`, `resume`, `clear`; `hookSpecificOutput.additionalContext`, injected as the first history turn | none that injects. `PreCompress` is advisory and can only show a message. No post-compression event | **Wired for session start**: `.gemini/settings.json`, one exact matcher per source. After a compaction: the fallback below | [geminicli.com/docs/hooks/reference](https://geminicli.com/docs/hooks/reference/) |
 | **Copilot CLI** | yes, `sessionStart`, sources `startup`, `resume`, `new`, no matcher; a top-level `additionalContext` is consumed | none that injects. `preCompact` is notification only | **Wired for session start**: `~/.copilot/hooks/align.json`. After a compaction: the fallback below | [docs.github.com/en/copilot/reference/hooks-reference](https://docs.github.com/en/copilot/reference/hooks-reference) |
 | **Cursor** | documented: `sessionStart` with `additional_context`, fire-and-forget. **Not relied on**, see below | `preCompact` exists and is observational: it cannot block, modify or inject | **Not wired.** Fallback below | [cursor.com/docs/agent/hooks](https://cursor.com/docs/agent/hooks) |
@@ -196,8 +196,9 @@ live Gemini CLI, which was installed without auth on the machine this was writte
 project's `.claude/settings.json`. `writeGeminiHooks` (same file) adds the three Gemini
 `SessionStart` groups to `.gemini/settings.json`. `writeUserHooks` (`src/lib/user-hooks.ts`) is
 the one writer for the Codex and Copilot CLI files and adds their session entry beside the edit
-check, so `align mcp --remove` takes both out together. A session entry you edited is kept, and
-setup says so, the same rule as the edit-check entries.
+check, so `align mcp --remove` takes both out together. A Codex or Copilot session entry you edited is kept, and
+setup says so, the same rule as the edit-check entries. The Gemini groups are rewritten on every
+setup run, and `align use --undo` is what takes them out.
 
 **Freshness, stated plainly.** The hook delivers whatever `align context sync` last wrote. A user
 who never ran it gets nothing (the hook prints nothing), and one who ran it last week gets last
