@@ -45,9 +45,11 @@ export function registerImportNightshiftCommand(importCmd: Command): void {
         return;
       }
 
+      const selected = read.items.slice(0, parseInt(opts.limit, 10));
+      if (selected.length < read.items.length) p.log.warn(`Importing ${selected.length} of ${read.items.length} answered decisions. Raise --limit to import the rest.`);
       const client = createGatewayClient(env);
       try {
-        await runPersonalImport(read.items.slice(0, parseInt(opts.limit, 10)), client, {
+        await runPersonalImport(selected, client, {
           label: 'nightshift',
           approve: opts.approve,
           appUrl: resolveAppUrl(env),

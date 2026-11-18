@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { PersonalImportItem } from '../personal-import.js';
+import { currentRepoIdentity } from '../repo-identity.js';
 
 /**
  * Read nightshift's parking lot (github.com/orwa-mahmoud/nightshift), a tool that lets a coding
@@ -27,8 +28,10 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 /** An answer that defers rather than decides. The entry still waits on the owner. */
 const DEFERRED = /^(later|not now|skip|tbd)\.?$/i;
 
-export const nightshiftUrl = (question: string): string =>
-  `nightshift://parking-lot/${createHash('sha256').update(question.trim().toLowerCase()).digest('hex').slice(0, 16)}`;
+/** Keyed by the repo and the question, so the live and archived copies of one entry are one decision,
+ *  and the same question parked in two repos is two. */
+export const nightshiftUrl = (question: string, repo = ''): string =>
+  `nightshift://parking-lot/${createHash('sha256').update(`${repo}\n${question.trim().toLowerCase()}`).digest('hex').slice(0, 16)}`;
 
 /** The entries: each `- ` bullet with the lines that belong to it (indented, or a `Default:`/`Rollback:` bullet). */
 function entries(text: string): string[][] {
@@ -62,14 +65,22 @@ function dispositionOf(segment: string): Disposition | null {
 
 const day = (d: string): string => `${d}T00:00:00.000Z`;
 
-export function parseParkingLot(text: string, o: { fileDate?: string } = {}): { items: PersonalImportItem[]; open: number } {
+export function parseParkingLot(text: string, o: { fileDate?: string; repo?: string } = {}): { items: PersonalImportItem[]; open: number; openUrls: string[] } {
   const items: PersonalImportItem[] = [];
+  const openUrls: string[] = [];
   let open = 0;
   for (const [head, ...rest] of entries(text)) {
     const segments = head!.split(SEP).map((s) => s.trim()).filter((s) => s !== '');
-    const at = segments.findIndex((s) => dispositionOf(s) !== null);
-    const disposition = at === -1 ? null : dispositionOf(segments[at]!);
-    if (!disposition || (disposition.kind === 'answered' && (disposition.text === '' || DEFERRED.test(disposition.text)))) { open++; continue; }
+    // The owner APPENDS the disposition, so it is the last segment before any trailing date. An earlier
+    // segment that happens to start with a disposition word ("fixed retry count of 3") is the agent's default.
+    let at = segments.length - 1;
+    while (at > 0 && DATE.test(segments[at]!)) at--;
+    const disposition = at > 0 ? dispositionOf(segments[at]!) : null;
+    if (!disposition || (disposition.kind === 'answered' && (disposition.text === '' || DEFERRED.test(disposition.text)))) {
+      open++;
+      if (segments[0]) openUrls.push(nightshiftUrl(segments[0], o.repo));
+      continue;
+    }
     if (disposition.kind === 'fixed' || disposition.kind === 'ignored') continue;
     const [question, ...context] = segments.slice(0, at);
     if (!question) continue;
@@ -86,14 +97,14 @@ export function parseParkingLot(text: string, o: { fileDate?: string } = {}): { 
       outcome,
     ];
     items.push({
-      source_url: nightshiftUrl(question),
+      source_url: nightshiftUrl(question, o.repo),
       platform: 'nightshift',
       title: question,
       raw_text: body.join('\n'),
       ...(date ? { created_at: day(date) } : {}),
     });
   }
-  return { items, open };
+  return { items, open, openUrls };
 }
 
 /** Every parking-lot.md under .nightshift, archive folders included, live file last so its answer wins. */
@@ -119,14 +130,19 @@ export async function readNightshift(repoRoot: string): Promise<NightshiftRead> 
     throw new NightshiftError(`There is no .nightshift folder in ${repoRoot}. Run this in a repo where nightshift has run a shift.`);
   }
   const files = await parkingLots(dir);
+  const repo = (await currentRepoIdentity({ cwd: repoRoot })) ?? path.resolve(repoRoot);
   const byUrl = new Map<string, PersonalImportItem>();
   let open = 0;
   for (const file of files) {
     const rel = path.relative(dir, file).split(path.sep);
     const fileDate = rel[0] === 'archive' ? rel.slice(1).map((s) => /\d{4}-\d{2}-\d{2}/.exec(s)?.[0]).find(Boolean) : undefined;
-    const parsed = parseParkingLot(await readFile(file, 'utf8'), fileDate ? { fileDate } : {});
-    // Only the live file's open entries are still waiting; an archive keeps its own copy of history.
-    if (rel[0] !== 'archive') open += parsed.open;
+    const parsed = parseParkingLot(await readFile(file, 'utf8'), { repo, ...(fileDate ? { fileDate } : {}) });
+    // Only the live file's open entries are still waiting; an archive keeps its own copy of history. A question
+    // parked again and still open in the live file is waiting on the owner, so an older archived answer does not stand.
+    if (rel[0] !== 'archive') {
+      open += parsed.open;
+      for (const url of parsed.openUrls) byUrl.delete(url);
+    }
     for (const item of parsed.items) {
       const earlier = byUrl.get(item.source_url);
       // Archives first, live last: a later read of the same question replaces the earlier one, keeping the first date seen.

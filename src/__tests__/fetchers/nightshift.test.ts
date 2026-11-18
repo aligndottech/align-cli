@@ -95,6 +95,21 @@ describe('parseParkingLot', () => {
     expect(items[0]!.raw_text).toContain('Rollback: turn it off again');
   });
 
+  it('a default that starts with a disposition word is not read as the disposition', () => {
+    const { items, open } = parseParkingLot(lot('- Retry failed jobs? · fixed retry count of 3 · avoid retry storms · answered: use exponential backoff'));
+    expect(items).toHaveLength(1);
+    expect(items[0]!.raw_text).toContain('Answered: use exponential backoff');
+    expect(items[0]!.raw_text).toContain("Agent's default: fixed retry count of 3");
+    expect(open).toBe(0);
+  });
+
+  it('the same question in two repos is two decisions', () => {
+    const a = parseParkingLot(lot('- Use Redis? · answered: yes'), { repo: 'acme/api' });
+    const b = parseParkingLot(lot('- Use Redis? · answered: no'), { repo: 'acme/web' });
+    expect(a.items[0]!.source_url).not.toBe(b.items[0]!.source_url);
+    expect(parseParkingLot(lot('- Use Redis? · answered: maybe'), { repo: 'acme/api' }).items[0]!.source_url).toBe(a.items[0]!.source_url);
+  });
+
   it('the template above the rule, a Filed: pointer and a paragraph are not entries', () => {
     const { items } = parseParkingLot(lot(
       '- Keep the cache? · answered: yes',
@@ -149,6 +164,15 @@ describe('readNightshift', () => {
     expect(read.items.find((i) => i.title === 'Ship the flag on?')!.created_at).toBe('2026-09-24T00:00:00.000Z');
     expect(read.open).toBe(1);
     expect(read.files).toBe(2);
+  });
+
+  it('a question parked again in the live file, still open, wins over an older archived answer', async () => {
+    repo = mkdtempSync(join(tmpdir(), 'ns-read-'));
+    write('.nightshift/archive/2026-09-24/inbox/parking-lot.md', lot('- Use Redis? · answered: yes', '- Keep the cache? · answered: yes'));
+    write('.nightshift/inbox/parking-lot.md', lot('- Use Redis? · switched to Valkey · licence change'));
+    const read = await readNightshift(repo);
+    expect(read.items.map((i) => i.title)).toEqual(['Keep the cache?']);
+    expect(read.open).toBe(1);
   });
 
   it('reads the older flat layout too', async () => {

@@ -107,6 +107,13 @@ describe('align connect nightshift', () => {
     expect(fs.existsSync(path.join(dir, 'graph.db'))).toBe(false);
   });
 
+  it('says how many were left out when --limit is below what was found', async () => {
+    lot(repo, '- Keep the cache? · answered: yes', '- Use pnpm? · answered: yes', '- Ship it? · answered: yes');
+    expect(await run(['--limit', '2', '--approve'])).toBeUndefined();
+    expect(q('SELECT 1 FROM decisions')).toHaveLength(2);
+    expect(out.concat(err).join('\n')).toMatch(/Importing 2 of 3 answered decisions\. Raise --limit to import the rest\./);
+  });
+
   it('--dir reads another repo', async () => {
     const other = path.join(dir, 'other');
     lot(other, '- Use pnpm? · answered: yes');
