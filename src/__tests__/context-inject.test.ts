@@ -182,11 +182,38 @@ describe('align context inject --format <host>', () => {
     expect(stdout).toBe('');
   });
 
-  it('falls back to the process cwd when the payload names a directory that does not exist', async () => {
+  const HOSTS: Array<[string, string]> = [
+    ['codex', 'codex-session-start.json'],
+    ['gemini', 'gemini-session-start.json'],
+    ['copilot', 'copilot-session-start.json'],
+  ];
+
+  // The payload NAMES a path that is not a usable directory: a stale or deleted workspace. A
+  // user-level hook can start in any repo, so falling back to the process cwd would inject
+  // another project's decisions (ALI-2130).
+  it.each(HOSTS)('%s: prints nothing when the payload cwd does not exist, even if the process cwd has decisions', async (format, file) => {
     sync(repo);
-    const payload = JSON.stringify({ ...JSON.parse(fixture('codex-session-start.json')), cwd: path.join(repo, 'nope') });
-    const { stdout } = await runInject(['--format', 'codex'], payload);
-    expect(JSON.parse(stdout.trim()).hookSpecificOutput.additionalContext).toBe(content);
+    const payload = JSON.stringify({ ...JSON.parse(fixture(file)), cwd: path.join(repo, 'nope') });
+    expect((await runInject(['--format', format], payload)).stdout).toBe('');
+    const gone = JSON.stringify({ ...JSON.parse(fixture(file)), cwd: path.join(os.tmpdir(), 'ali2130-deleted-ws') });
+    expect((await runInject(['--format', format], gone)).stdout).toBe('');
+  });
+
+  it.each(HOSTS)('%s: a payload cwd that is a regular file prints nothing', async (format, file) => {
+    sync(repo);
+    const target = path.join(repo, 'notes.txt');
+    fs.writeFileSync(target, 'x');
+    const payload = JSON.stringify({ ...JSON.parse(fixture(file)), cwd: target });
+    expect((await runInject(['--format', format], payload)).stdout).toBe('');
+  });
+
+  // The payload names NOTHING: the fallback to the process cwd stays, for a host that omits cwd.
+  it.each(HOSTS)('%s: falls back to the process cwd when the payload names no cwd at all', async (format) => {
+    sync(repo);
+    for (const payload of ['{}', JSON.stringify({ cwd: '' }), JSON.stringify({ cwd: 42 })]) {
+      const { stdout } = await runInject(['--format', format], payload);
+      expect(stdout, payload).toContain('Use Postgres 16');
+    }
   });
 
   it('prints nothing for an unknown format (fails open)', async () => {

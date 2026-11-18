@@ -189,7 +189,7 @@ export function registerContextCommand(program: Command): void {
       //
       // Claude Code's project hook runs in the project and sends nothing we need. The other hosts
       // write a USER-level file, which does not run in the project, so for those the workspace
-      // comes from the payload's `cwd` (a path that does not exist is ignored).
+      // comes from the payload's `cwd` (a path that is not a directory prints nothing).
       const format = opts.format ?? 'claude';
       if (!['claude', 'codex', 'gemini', 'copilot', 'cursor'].includes(format)) return;
       let root = process.cwd();
@@ -198,10 +198,15 @@ export function registerContextCommand(program: Command): void {
         const isDir = (p: string): boolean => {
           try { return fs.statSync(p).isDirectory(); } catch { return false; }
         };
-        if (named && (format === 'cursor' ? isDir(named) : fs.existsSync(named))) root = named;
-        // Cursor's workspace is the only hint it gives; a user-level hook can start in any repo,
-        // so falling back to process.cwd() would send another project's decisions.
-        else if (format === 'cursor') return;
+        // A payload that NAMES a path which is not a directory (a stale or deleted workspace)
+        // prints nothing: a user-level hook can start in any repo, so the process cwd would send
+        // another project's decisions. A payload that names nothing keeps the process cwd for
+        // codex, gemini and copilot. Cursor's workspace_roots is its only hint, so with none named
+        // it prints nothing.
+        if (named) {
+          if (!isDir(named)) return;
+          root = named;
+        } else if (format === 'cursor') return;
       }
       const raw = format === 'claude' ? readableDecisions(root) : findDecisions(root);
       if (raw === null || !raw.trim()) return;
