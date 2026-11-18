@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { runAdr } from '../commands/adr.js';
+import { fetchAdrRows, runAdr } from '../commands/adr.js';
 
 let repo: string;
 beforeEach(() => { repo = fs.mkdtempSync(path.join(os.tmpdir(), 'align-adr-cmd-')); });
@@ -47,3 +47,27 @@ describe('runAdr', () => {
     expect(adrFiles()).toEqual([]);
   });
 });
+
+describe('fetchAdrRows', () => {
+  const page = (n: number, from: number) => Array.from({ length: n }, (_, i) => ({ title: `d${from + i}` }));
+
+  it('a cloud graph is read page by page until a short page, so this repo is not lost behind other repos', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const list = async (p: Record<string, string | number | boolean>) => { calls.push(p); const o = Number(p.offset); return o === 0 ? page(1000, 0) : o === 1000 ? page(1000, 1000) : page(7, 2000); };
+    const rows = await fetchAdrRows(list, { local: false });
+    expect(rows).toHaveLength(2007);
+    expect(calls.map((c) => c.offset)).toEqual([0, 1000, 2000]);
+  });
+
+  it('refuses rather than report "every decision has an ADR" when the graph is larger than it will read', async () => {
+    const list = async () => page(1000, 0);
+    await expect(fetchAdrRows(list, { local: false, maxPages: 3 })).rejects.toThrow(/more than 3000/);
+  });
+
+  it('a local graph is already this repo\'s, and is read in one call', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    await fetchAdrRows(async (p) => { calls.push(p); return page(3, 0); }, { local: true });
+    expect(calls).toHaveLength(1);
+  });
+});
+

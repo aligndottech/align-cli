@@ -97,7 +97,7 @@ function linkedFromAdrs(repoRoot: string): Set<string> {
       if (!f.toLowerCase().endsWith('.md')) continue;
       let text = '';
       try { text = fs.readFileSync(path.join(dir, f), 'utf8'); } catch { continue; }
-      for (const m of text.matchAll(/https?:\/\/[^\s<>()[\]"'`]+/g)) urls.add(m[0].replace(/[.,;:!?]+$/, ''));
+      for (const m of text.matchAll(/(?:https?|git):\/\/[^\s<>()[\]"'`]+/g)) urls.add(m[0].replace(/[.,;:!?]+$/, ''));
     }
   }
   return urls;

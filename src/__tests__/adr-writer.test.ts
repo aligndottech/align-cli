@@ -133,3 +133,15 @@ describe('rowsOfThisRepo', () => {
     expect(rowsOfThisRepo(rows, repo).map((r) => r.title)).toEqual(['local']);
   });
 });
+
+describe('adrCandidates and git:// links', () => {
+  it('leaves out a decision whose git:// source an existing ADR already links to', () => {
+    put('docs/adr/0001-engine.md', '# 1. Engine\n\nDecided in git://commit/abc1234.\n');
+    const rows = [
+      { title: 'Replace the old engine with the per-copy engine', platform: 'git', summary: '', source_url: 'git://commit/abc1234' },
+      { title: 'Encode TRUE as FF- instead of 01-', platform: 'git', summary: '', source_url: 'git://commit/def5678' },
+    ];
+    expect(adrCandidates(rows, repo).map((c) => c.title)).toEqual(['Encode TRUE as FF- instead of 01-']);
+  });
+});
+

@@ -47,6 +47,28 @@ export async function runAdr(rows: AdrRow[], repoRoot: string, d: AdrDeps): Prom
   return written;
 }
 
+const CLOUD_PAGE = 1000; // the gateway's own cap on one page of /snapshots
+
+/**
+ * Every active decision to consider. A local graph is already this repo's and is read in one call. A cloud graph holds
+ * every repo in the tenant, has no repo filter, and caps a page at 1,000, so it is read page by page before filtering:
+ * otherwise other repos' rows can fill the read and this repo's look as though they all have ADRs.
+ */
+export async function fetchAdrRows(
+  list: (params: Record<string, string | number | boolean>) => Promise<AdrRow[]>,
+  o: { local: boolean; maxPages?: number },
+): Promise<AdrRow[]> {
+  if (o.local) return list({ limit: LOCAL_SCAN, status: 'active' });
+  const maxPages = o.maxPages ?? 50;
+  const rows: AdrRow[] = [];
+  for (let i = 0; i < maxPages; i += 1) {
+    const got = await list({ limit: CLOUD_PAGE, offset: i * CLOUD_PAGE, status: 'active' });
+    rows.push(...got);
+    if (got.length < CLOUD_PAGE) return rows;
+  }
+  throw new Error(`the graph holds more than ${maxPages * CLOUD_PAGE} decisions, more than this command reads, so it cannot say which have no ADR. Nothing was written.`);
+}
+
 export function registerAdrCommand(program: Command): void {
   program
     .command('adr')
@@ -58,7 +80,15 @@ export function registerAdrCommand(program: Command): void {
       const root = await getRepoRoot();
       if (!root) { console.error('align adr: run this inside a git repo.'); process.exitCode = 1; return; }
       const env = createConfigStore().getEnvironment(resolveEnv(opts.env, { preferLocalEmbedded: true }));
-      const fetched = (await createGatewayClient(env).listDecisions({ limit: LOCAL_SCAN, status: 'active' })) as AdrRow[];
+      const client = createGatewayClient(env);
+      let fetched: AdrRow[];
+      try {
+        fetched = await fetchAdrRows((p) => client.listDecisions(p) as Promise<AdrRow[]>, { local: env.mode === 'local-embedded' });
+      } catch (err) {
+        console.error(`align adr: ${(err as Error).message}`);
+        process.exitCode = 1;
+        return;
+      }
       // A cloud tenant holds every repo's decisions and listDecisions has no repo filter there, so narrow to this repo.
       const rows = rowsOfThisRepo(fetched, root);
       const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
