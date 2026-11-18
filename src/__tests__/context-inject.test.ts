@@ -154,6 +154,18 @@ describe('align context inject --format <host>', () => {
     }
   });
 
+  it('cursor: additional_context is a top-level snake_case key, workspace read from workspace_roots', async () => {
+    const other = fs.mkdtempSync(path.join(os.tmpdir(), 'ali2130-ws-'));
+    try {
+      sync(other);
+      const payload = JSON.stringify({ ...JSON.parse(fixture('cursor-session-start.json')), workspace_roots: [other] });
+      const { stdout } = await runInject(['--format', 'cursor'], payload);
+      expect(JSON.parse(stdout.trim())).toEqual({ additional_context: content });
+    } finally {
+      fs.rmSync(other, { recursive: true, force: true });
+    }
+  });
+
   it('falls back to the process cwd when the payload names a directory that does not exist', async () => {
     sync(repo);
     const payload = JSON.stringify({ ...JSON.parse(fixture('codex-session-start.json')), cwd: path.join(repo, 'nope') });

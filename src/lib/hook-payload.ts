@@ -193,8 +193,8 @@ export async function readHookPayload(
 /**
  * The `cwd` a SessionStart hook payload names, or null. SessionStart payloads carry no tool, so
  * readHookPayload returns null for them; `align context inject` only needs the workspace, which
- * a USER-level hook file needs because it does not run in the project. Every host that has
- * a session hook puts the workspace in `cwd` (Codex, Copilot CLI, Gemini CLI docs).
+ * a USER-level hook file needs because it does not run in the project. Codex, Copilot CLI and
+ * Gemini CLI put the workspace in `cwd`; Cursor puts it in `workspace_roots`.
  */
 export async function readSessionStartCwd(
   stream: Readable & { isTTY?: boolean } = process.stdin,
@@ -203,8 +203,14 @@ export async function readSessionStartCwd(
   const raw = await readAll(stream).catch(() => '');
   if (!raw.trim()) return null;
   try {
-    const cwd = asRecord(JSON.parse(raw))?.['cwd'];
-    return typeof cwd === 'string' && cwd ? cwd : null;
+    const payload = asRecord(JSON.parse(raw));
+    const cwd = payload?.['cwd'];
+    if (typeof cwd === 'string' && cwd) return cwd;
+    // Cursor's sessionStart payload has no `cwd`; it names the workspace in `workspace_roots`
+    // (cursor.com/docs/hooks, read 2026-11-18). The first root is the one it opened.
+    const roots = payload?.['workspace_roots'];
+    const first = Array.isArray(roots) ? roots[0] : undefined;
+    return typeof first === 'string' && first ? first : null;
   } catch {
     return null;
   }
