@@ -53,11 +53,11 @@ align connect sessions        Review decision-shaped moments from local coding-a
                               flags: --limit --env
 align connect mirsad          Import decisions from a MIRSAD JSON export (its supersedes links arrive as confirmed)
                               flags: --file --limit --approve --env
-align connect nightshift      Import the decisions you answered in nightshift's parking lot (open entries stay in nightshift)
+align connect nightshift      Import the decisions you answered in nightshift's parking lot and plan record (open entries stay in nightshift)
                               flags: --dir --limit --approve --env
 
 align check                   Check current changes against the decision graph (exit 1 = conflict found)
-                              flags: --env --all --hook --advisory --format --block-on-critical --adjudicate-deferred --ci --json --title --base --depth --resolve
+                              flags: --env --all --hook --advisory --format --block-on-critical --adjudicate-deferred --ci --json --title --base --decisions-file --depth --resolve
 align review                  same as align check
 
 align backlog <decision>      Turn a decision into one issue per task, created straight away in Linear, GitHub Issues or Jira (the first run asks where; later runs reuse it)
@@ -521,9 +521,14 @@ align connect nightshift            # this repo
 align connect nightshift --dir ../api
 ```
 
-Reads [nightshift](https://github.com/orwa-mahmoud/nightshift)'s parking lot: `.nightshift/inbox/parking-lot.md`,
-every archived copy under `.nightshift/archive/`, and the older flat layout. Read-only. Each entry the owner closed becomes
-one decision, titled by its question:
+Reads [nightshift](https://github.com/orwa-mahmoud/nightshift)'s parking lot (`.nightshift/inbox/parking-lot.md`) and
+plan record (`.nightshift/staging/plan-record.md`), plus every archived copy of either, and the older flat parking-lot layout.
+Read-only. The archive folder is found from nightshift's `archive.root` setting (in `.nightshift/rules.json`, the running
+shift's `run/shift-policy.json` and the ended shift's `run/.ended`), so a moved archive still counts as archived. If none of
+those can be read, only the default `.nightshift/archive/` counts. An archived entry's date comes from a date-named folder
+(`archive.layout` `date` or `date-name`) and otherwise from the `createdAt` of the shift policy filed in the folder.
+
+Each parking-lot entry the owner closed becomes one decision, titled by its question:
 
 - `answered: <decision>`: the owner's decision, with the agent's default and its reason kept as context.
 - `accepted-tradeoff`: the agent's default stands.
@@ -532,9 +537,18 @@ one decision, titled by its question:
 
 The answer can sit on a wrapped line under the bullet, and text the runtime adds after it (`outcome: ...`, `reconciled <date>`) is kept as context.
 
-An open entry is the agent's unconfirmed default, so it is never imported: nightshift shows it at the start of the next
-shift, and once you answer it the next import picks it up. Each decision is keyed by its question, so the same entry read
-from the live file and later from an archive is one decision, and a re-import updates it.
+In the plan record, each plan is one `- **topic**` entry, and its lines map like this:
+
+- `Decided: <decision> - <why>`: one decision, with the why and the plan's name kept as context. The planning menu's own
+  choices (`planning depth`, `pre-mortem`, `ordering check`, ...) are not decisions and are skipped.
+- `Rejected: <option> - <reason>`: one rejected option, titled `Rejected: <option>`, with the reason.
+- `Open: <question>` and `Where we are:` are not imported. Open questions are counted in the output.
+- A plan closed with `dropped:` imports nothing. A captured plan and a plan still being worked both import their `Decided:` and `Rejected:` lines.
+
+An open parking-lot entry is the agent's unconfirmed default, so it is never imported: nightshift shows it at the start of the next
+shift, and once you answer it the next import picks it up. Each decision is keyed by its question (a plan-record line by its plan,
+its kind and its decision, not its reason), so the same entry read from the live file and later from an archive is one decision,
+and a re-import updates it.
 
 ## Undoing `align local forget <source> --purge`
 

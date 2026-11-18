@@ -120,4 +120,20 @@ describe('align connect nightshift', () => {
     expect(await run(['--dir', other, '--approve'])).toBeUndefined();
     expect(q<{ title: string }>('SELECT title FROM decisions').map((r) => r.title)).toEqual(['Use pnpm?']);
   });
+
+  it('imports the plan record: decisions and rejected options in, open questions left in nightshift and counted', async () => {
+    fs.mkdirSync(path.join(repo, '.nightshift', 'staging'), { recursive: true });
+    fs.writeFileSync(path.join(repo, '.nightshift', 'staging', 'plan-record.md'), [
+      '# Plan Record', '', '---', '',
+      '- **Session export** \u00b7 open since 2026-11-14 09:12 (UTC+04:00)',
+      '  - Decided: stream rows instead of buffering \u2014 exports reach 2 GB',
+      '  - Rejected: a background job queue \u2014 adds a service for one feature',
+      '  - Open: does an export include archived rows?', '',
+    ].join('\n'));
+    fs.mkdirSync(path.join(repo, '.nightshift', 'inbox'), { recursive: true });
+    fs.writeFileSync(path.join(repo, '.nightshift', 'inbox', 'parking-lot.md'), '# Parking Lot\n\n---\n\n');
+    expect(await run(['--approve'])).toBeUndefined();
+    expect(q<{ title: string }>('SELECT title FROM decisions ORDER BY title').map((r) => r.title)).toEqual(['Rejected: a background job queue', 'stream rows instead of buffering']);
+    expect(out.concat(err).join('\n')).toMatch(/1 plan-record question is still open/);
+  });
 });

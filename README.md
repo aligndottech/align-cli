@@ -280,11 +280,16 @@ Local mode keeps the read-only tokens you paste in your OS credential store, and
 rest (`search`, `decisions`, `stale`, `export`, `ratify`, `context`, ...) still work and are in
 [docs/commands.md](docs/commands.md).
 
+To fail a pull request that goes against your decisions, commit the file `align up --out DECISIONS.md` writes and run
+`align check --ci --base origin/main --decisions-file DECISIONS.md` in a GitHub Actions job. It needs only your own
+provider key (for example `OPENAI_API_KEY` from a repository secret): no account, no graph, no MCP. It exits `1` on a conflict and `2` when it
+could not check: a check that did not run never exits `0`. The workflow file is in [Alignment check](docs/check.md#in-ci-with-a-decisions-file-no-account).
+
 To import decisions from a MIRSAD JSON export, run `align connect mirsad --file <path>`. Each decision is one item,
 so exporting and importing again updates it instead of adding a copy. MIRSAD's `supersedes` links arrive as
 confirmed, the same as if you had run `align mark <newer> replaces <older>`, and need a terminal to record.
 
-To import the decisions you answered in [nightshift](https://github.com/orwa-mahmoud/nightshift)'s parking lot, run
+To import the decisions you answered in [nightshift](https://github.com/orwa-mahmoud/nightshift)'s parking lot or plan record, run
 `align connect nightshift` in the repo. Open entries stay in nightshift until you answer them.
 
 Something not working? `align doctor` checks Node, that `align` is on your PATH, that the gateway
