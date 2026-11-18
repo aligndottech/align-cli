@@ -32,7 +32,7 @@ import { resolveEnv } from '../lib/resolve-env.js';
 import { readSessionStartCwd } from '../lib/hook-payload.js';
 import { alignConfigDir } from '../lib/private-files.js';
 import { ensureGitignored, isTrackedByGit, onlyFromTheRepo, removeGitignoreLine } from '../lib/context-local-only.js';
-import { contextDecisionOf, decisionsFromLocalGraph } from '../lib/context-from-graph.js';
+import { contextDecisionOf, decisionsFromLocalGraph, LOCAL_FILE_CAP, LOCAL_SCAN, selectForFile } from '../lib/context-from-graph.js';
 import {
   ALIGN_CONTEXT_PATH,
   ALIGN_IMPORT_LINE,
@@ -85,8 +85,8 @@ export function registerContextCommand(program: Command): void {
     .command('sync')
     .description(`Write current decisions to ${ALIGN_CONTEXT_PATH} and import it from CLAUDE.md`)
     .option('--env <env>', 'Environment')
-    .option('--limit <n>', 'Max decisions to include', '200')
-    .action(async (opts: { env: EnvName; limit: string }) => {
+    .option('--limit <n>', 'Max decisions in the file (default: 30 for a local graph, 200 for a team graph)')
+    .action(async (opts: { env: EnvName; limit?: string }) => {
       const config = createConfigStore();
       // preferLocalEmbedded: the launch's flagship command must work for the
       // no-account user it is pitched at - bare resolution sent them to an
@@ -100,17 +100,27 @@ export function registerContextCommand(program: Command): void {
       // unreachable graph are different claims (the rule, new surface).
       let decisions: ContextDecision[];
       let platforms: string[] = [];
+      let leftOut = 0;
       try {
         // A malformed --limit must not become NaN: locally slice(0, NaN) is []
         // and the command would write a plausible-looking EMPTY decisions file -
         // the exact silent failure the fetch-before-write guard below exists for.
-        const parsedLimit = parseInt(opts.limit, 10);
-        const limit = Number.isInteger(parsedLimit) && parsedLimit > 0 ? parsedLimit : 200;
+        const parsedLimit = parseInt(opts.limit ?? '', 10);
+        const given = Number.isInteger(parsedLimit) && parsedLimit > 0 ? parsedLimit : undefined;
+        const localGraph = syncEnv.mode === 'local-embedded';
         // Active only: the file states what currently governs. Superseded and
         // archived decisions are history, and history is the graph's job.
-        const rows = await client.listDecisions({ limit, status: 'active' });
-        decisions = rows.map(contextDecisionOf);
+        // A local graph is every commit that states a reason, so it is read whole and the file is SELECTED from it
+        // (selectForFile); a team graph is already curated, so it is listed as it is.
+        const rows = await client.listDecisions({ limit: localGraph ? LOCAL_SCAN : given ?? 200, status: 'active' });
         platforms = rows.map((r) => r.platform);
+        if (localGraph) {
+          const picked = selectForFile(rows, given ?? LOCAL_FILE_CAP);
+          decisions = picked.decisions;
+          leftOut = picked.leftOut;
+        } else {
+          decisions = rows.map(contextDecisionOf);
+        }
       } catch (err) {
         spinner.fail(chalk.red(`Could not fetch decisions: ${(err as Error).message}`));
         process.exit(1);
@@ -124,7 +134,7 @@ export function registerContextCommand(program: Command): void {
       const local = syncEnv.mode === 'local-embedded';
       // A local graph built only from this repo holds nothing a clone does not: its file can be committed.
       const committable = local && onlyFromTheRepo(platforms);
-      const result = await writeDecisionsContext(repoRoot, decisions, { external: local && !committable });
+      const result = await writeDecisionsContext(repoRoot, decisions, { external: local && !committable, leftOut });
 
       console.log(`${chalk.green('Wrote')} ${result.contextPath} (${decisions.length} decision${decisions.length === 1 ? '' : 's'})`);
 

@@ -146,18 +146,19 @@ describe('align context sync', () => {
     expect(exists('.align/decisions.md')).toBe(false);
   });
 
-  it('fetches active decisions only, within the limit', async () => {
+  it('fetches active decisions only; a local graph is read whole and the file chosen from it', async () => {
     await run();
     // 'active' is load-bearing: the file states what currently GOVERNS, and a
     // fetch without the filter would render superseded decisions as if live.
-    expect(mockListDecisions).toHaveBeenCalledWith({ limit: 200, status: 'active' });
+    expect(mockListDecisions).toHaveBeenCalledWith({ limit: 5000, status: 'active' });
   });
 
   it('a malformed --limit falls back to the default instead of becoming NaN', async () => {
     await run('--limit', 'abc');
     // NaN would slice the local graph to [] and write a plausible EMPTY file -
     // the silent failure this command is built to refuse (Copilot, #120).
-    expect(mockListDecisions).toHaveBeenCalledWith({ limit: 200, status: 'active' });
+    expect(mockListDecisions).toHaveBeenCalledWith({ limit: 5000, status: 'active' });
+    expect(fs.readFileSync(path.join(repo, '.align/decisions.md'), 'utf8')).toContain('Use Postgres 16 for new services'); // the file is not empty
   });
 
   it('empty graph: writes the explicit no-decisions body and exits 0', async () => {
@@ -170,7 +171,7 @@ describe('align context sync', () => {
 describe('align context sync drops a synthetic hosted source', () => {
   it('does not print an align://claimed/... identity as a link', async () => {
     mockListDecisions.mockResolvedValue([
-      { id: '4', title: 'Scan could not verify where this was decided', summary: '', platform: 'github', status: 'active', source_url: 'align://claimed/9f2c' },
+      { id: '4', title: 'Scan could not verify where this was decided', summary: '', platform: 'jira', status: 'active', source_url: 'align://claimed/9f2c' },
     ]);
     await run();
     const file = read('.align/decisions.md');
