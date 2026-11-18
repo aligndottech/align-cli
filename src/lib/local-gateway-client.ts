@@ -2,7 +2,7 @@ import { blameCandidates, type BlameVia } from './blame-candidates.js';
 import { createLocalDb, type DecisionRow, identifyingSourceUrl, type LinkRow, normaliseDecidedAt } from './local-db.js';
 import { deriveDeciderKind } from './decider-kind.js';
 import { datesOf, provenanceOf } from './local-provenance.js';
-import { currentRepoIdentity, repoFromSourceUrl, SYNC_REPO_ENV } from './repo-identity.js';
+import { currentRepoIdentity, repoFromSourceUrl } from './repo-identity.js';
 import { cosineSimilarity, EMBEDDING_MODEL_ID, getEmbedding } from './local-embeddings.js';
 import { classifyCandidates } from './local-candidate-classify.js';
 import { noProviderHintInline, RECOMMENDED_OLLAMA_PULL } from './local-llm.js';
@@ -442,11 +442,10 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     // Which repo this decision belongs to. A hosted code URL (any platform, not
     // just 'git' - a GitHub PR captured by hand is still code) names its own repo directly.
     // Only a git-sourced item with NO hosted remote (a self-hosted GHES, a repo never
-    // pushed) falls back to the CURRENT repo. A hand capture of a Jira ticket or Slack thread is not that repo's,
-    // so it gets no fallback.
-    // A connector import (ingestBatch hands `runRepo`) is the one exception: the repo whose run read it owns it, because
-    // connector scope is chosen per repo, and an unattributed row shows in every repo of a graph that holds two clients.
-    const repo = repoFromSourceUrl(sourceUrl) ?? (platform === 'git' ? await getCurrentRepo() : (opts.runRepo ?? null));
+    // pushed) falls back to the CURRENT repo - that fallback is deliberately narrow: a
+    // Jira ticket or Slack thread imported from inside a repo is not that repo's, and
+    // widening the fallback to every platform would misattribute them.
+    const repo = repoFromSourceUrl(sourceUrl) ?? (platform === 'git' ? await getCurrentRepo() : null);
 
     // BEFORE the upsert: insertDecision returns the surviving id whether it inserted or
     // refreshed, so this is the only moment the difference is visible. Without it a
@@ -550,9 +549,6 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
 
     async ingestBatch(items: LocalBatchItem[], opts: LocalBatchOptions = {}) {
       const session: IngestSession = {};
-      // The repo a connector import belongs to: the one a background child was started for (it runs from the home
-      // directory, so the folder cannot say), else the folder's. Null outside a repo: such rows stay unattributed.
-      const runRepo = opts.classify === false ? (process.env[SYNC_REPO_ENV] || await getCurrentRepo()) : null;
       // A connector import (classify: false) can be re-run, so it trades the per-commit sync for
       // speed (see withRelaxedSync). A capture a person made by hand keeps the default.
       const run = <T>(fn: () => Promise<T>) => (opts.classify === false ? db.withRelaxedSync(fn) : fn());
@@ -563,18 +559,18 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
             titleOverride: item.title,
             sourceUrlOverride: item.source_url ?? null,
             createdAt: item.created_at, dateSource: item.date_source,
-            classify: opts.classify, keyed: opts.keyed, detailPending: item.detail_pending, runRepo,
+            classify: opts.classify, keyed: opts.keyed, detailPending: item.detail_pending,
           }, session);
           // A docs section is the whole source of its rule, so every docs item re-syncs it, with or
           // without one: the absence of the field is how a README that dropped the rule says so.
           // Stamped with the repo the import runs in (the docs fetcher reads only that one), which
-          // is what `align check` compares. The run's repo, not the stored row's: a blob URL names
-          // no repo to repoFromSourceUrl, and NULL on a rule means "every repo", so with no repo to
-          // stamp the rule is neither stored nor removed: one already stored from inside the repo stays.
+          // is what `align check` compares. A docs decision's own repo is NULL (a blob URL names
+          // no repo to repoFromSourceUrl), and NULL on a rule means "every repo": with no repo to
+          // stamp, the rule is neither stored nor removed: one already stored from inside the repo stays.
           // A failure to write it (a lock, an in-memory graph) warns and leaves the import running:
           // the decision is already stored, and one missing rule must not cost every later item.
           if ((item.platform ?? 'cli') === 'docs') {
-            const repo = runRepo ?? await getCurrentRepo();
+            const repo = db.getDecisionById(r.id)?.repo ?? await getCurrentRepo();
             if (repo !== null) {
               try {
                 syncImportedCoChangeRule(dbPath, r.id, repo, item.co_change_rule);

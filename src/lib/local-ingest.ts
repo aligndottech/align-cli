@@ -35,10 +35,6 @@ export interface IngestOptions {
   keyed?: boolean;
   /** L3: the item's discussion has not been fetched yet (GitHub items-first). Stored, never inferred. */
   detailPending?: boolean;
-  /** The repo whose run is importing this item, for a connector import (ingestBatch with classify: false).
-   *  A Slack thread or Jira ticket names no repo itself, so this is what keeps it out of another repo's
-   *  reads. Never set for a hand capture. Null or omitted leaves the row unattributed. */
-  runRepo?: string | null;
 }
 
 /** State shared by the ingests of ONE run (ingestBatch). `matrix` is the graph's embeddings,
