@@ -53,6 +53,8 @@ align connect sessions        Review decision-shaped moments from local coding-a
                               flags: --limit --env
 align connect mirsad          Import decisions from a MIRSAD JSON export (its supersedes links arrive as confirmed)
                               flags: --file --limit --approve --env
+align connect nightshift      Import the decisions you answered in nightshift's parking lot (open entries stay in nightshift)
+                              flags: --dir --limit --approve --env
 
 align check                   Check current changes against the decision graph (exit 1 = conflict found)
                               flags: --env --all --hook --advisory --format --block-on-critical --adjudicate-deferred --ci --json --title --base --depth --resolve
@@ -501,6 +503,26 @@ Reads a MIRSAD JSON export. Each decision becomes one item keyed `mirsad://decis
 it. MIRSAD's owner records the `supersedes` links, so they arrive as confirmed, written the way `align mark <newer>
 replaces <older>` writes them, and like that command they need a terminal. A link to a decision that is not in the
 file is ignored, and a decision you ratified is not replaced without `align mark ... --force`.
+
+## Importing from nightshift
+
+```bash
+align connect nightshift            # this repo
+align connect nightshift --dir ../api
+```
+
+Reads [nightshift](https://github.com/orwa-mahmoud/nightshift)'s parking lot: `.nightshift/inbox/parking-lot.md`,
+every archived copy under `.nightshift/archive/`, and the older flat layout. Read-only. Each entry the owner closed becomes
+one decision, titled by its question:
+
+- `answered: <decision>`: the owner's decision, with the agent's default and its reason kept as context.
+- `accepted-tradeoff`: the agent's default stands.
+- `rejected-because`: the agent's default was rejected, and why.
+- `fixed`, `ignored` and an answer of `later` are not decisions and are skipped.
+
+An open entry is the agent's unconfirmed default, so it is never imported: nightshift shows it at the start of the next
+shift, and once you answer it the next import picks it up. Each decision is keyed by its question, so the same entry read
+from the live file and later from an archive is one decision, and a re-import updates it.
 
 ## Undoing `align local forget <source> --purge`
 

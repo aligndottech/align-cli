@@ -274,6 +274,9 @@ To import decisions from a MIRSAD JSON export, run `align connect mirsad --file 
 so exporting and importing again updates it instead of adding a copy. MIRSAD's `supersedes` links arrive as
 confirmed, the same as if you had run `align mark <newer> replaces <older>`, and need a terminal to record.
 
+To import the decisions you answered in [nightshift](https://github.com/orwa-mahmoud/nightshift)'s parking lot, run
+`align connect nightshift` in the repo. Open entries stay in nightshift until you answer them.
+
 Something not working? `align doctor` checks Node, that `align` is on your PATH, that the gateway
 answers, that your token is accepted, and that one real question comes back through `align mcp`.
 It names the next step for each failure and exits non-zero if any check fails. It sends no

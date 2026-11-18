@@ -30,6 +30,8 @@ const ITEM_SHAPES: Record<string, RegExp[]> = {
   zoom: [/^\/recording\/[^/]+$/],
   // mirsad://decisions/<id>: the id is MIRSAD's own, assigned once and never reused.
   mirsad: [/^\/\d+$/], // the path of mirsad://decisions/<id>; the host is "decisions"
+  // nightshift://parking-lot/<hash>: a hash of the entry's question, the same whichever file it is read from.
+  nightshift: [/^\/[0-9a-f]{16}$/],
   git: [/\/commit\/[0-9a-f]{7,40}$/i, /^\/\/commit\/[0-9a-f]{7,40}$/i],
 };
 

@@ -22,4 +22,5 @@ export const CAPTURE_SOURCES = {
   notion: { label: 'Notion', unit: 'pages' },
   sessions: { label: 'Agent sessions', unit: 'decisions' },
   mirsad: { label: 'MIRSAD', unit: 'decisions' },
+  nightshift: { label: 'nightshift', unit: 'decisions' },
 } as const satisfies Record<string, { label: string; unit: string }>;
