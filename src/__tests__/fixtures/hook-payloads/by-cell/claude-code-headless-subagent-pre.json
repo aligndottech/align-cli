@@ -1,0 +1,29 @@
+{
+  "_capture": {
+    "host": "Claude Code",
+    "claudeCodeVersion": "2.1.326",
+    "mode": "headless run, edit made by a subagent",
+    "how": "claude -p with a PreToolUse hook running tee; payload is what the host piped, ids and paths redacted",
+    "capturedAt": "2026-11-18"
+  },
+  "session_id": "redacted",
+  "transcript_path": "redacted",
+  "cwd": "/work",
+  "scratchpad_dir": "redacted",
+  "prompt_id": "redacted",
+  "permission_mode": "acceptEdits",
+  "agent_id": "a45e3788c5674ef68",
+  "agent_type": "general-purpose",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Edit",
+  "tool_input": {
+    "file_path": "/work/b.ts",
+    "old_string": "export const B = 1;",
+    "new_string": "export const B = 2;",
+    "replace_all": false
+  },
+  "tool_use_id": "redacted"
+}

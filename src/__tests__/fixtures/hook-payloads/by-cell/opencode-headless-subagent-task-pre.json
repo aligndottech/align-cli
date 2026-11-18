@@ -1,0 +1,22 @@
+{
+  "_capture": {
+    "host": "OpenCode",
+    "opencodeVersion": "1.18.27",
+    "how": "opencode run with a project plugin that appends its tool.execute.before (input, output) arguments to a file; ids are as sent",
+    "mode": "headless run, the parent session calling the task tool",
+    "capturedAt": "2026-11-18"
+  },
+  "event": "tool.execute.before",
+  "input": {
+    "tool": "task",
+    "sessionID": "ses_e11a7689affeTpz1wzNnuAoJuP",
+    "callID": "call-92c54e45-02a2-4d2a-b7f6-956ca91bcb04"
+  },
+  "output": {
+    "args": {
+      "description": "Edit b.ts B from 1 to 2",
+      "prompt": "Your only job is to edit the file b.ts in the current working directory using the edit tool, changing the value of B from 1 to 2.\n\nSteps:\n1. Read b.ts to see its exact contents.\n2. Use the edit tool to change B from 1 to 2 (exact string replacement).\n3. Report back what you changed.\n\nDo not edit any other file. Do not create files.",
+      "subagent_type": "general"
+    }
+  }
+}

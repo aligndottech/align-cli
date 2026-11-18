@@ -317,6 +317,9 @@ This is deliberate. A guardrail that blocks on a false positive gets switched of
 protects nothing. Fail-open also covers align being missing, slow, unauthenticated or
 unreachable - all of those let the edit through untouched.
 
+Which hosts fire the check for a subagent's edit, or in a headless run, is in
+[hook-coverage.md](hook-coverage.md), with the cells nobody has tested shown as such.
+
 ## Verifying a shim actually fires
 
 Config presence is not enforcement. To check a host really runs it:

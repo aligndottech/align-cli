@@ -1,0 +1,22 @@
+{
+  "_capture": {
+    "host": "OpenCode",
+    "opencodeVersion": "1.18.27",
+    "how": "opencode run with a project plugin that appends its tool.execute.before (input, output) arguments to a file; ids are as sent",
+    "mode": "headless run, edit made inside the child session the task tool started",
+    "capturedAt": "2026-11-18"
+  },
+  "event": "tool.execute.before",
+  "input": {
+    "tool": "edit",
+    "sessionID": "ses_e11a75d49ffeey9SzMn6jXYvGQ",
+    "callID": "call_8e9f96154a724373b958581b"
+  },
+  "output": {
+    "args": {
+      "filePath": "/work/b.ts",
+      "oldString": "export const B = 1;",
+      "newString": "export const B = 2;"
+    }
+  }
+}
