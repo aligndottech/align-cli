@@ -42,7 +42,8 @@ export function removeGitignoreLine(repoRoot: string, relPath: string): 'removed
   let existing: string;
   try { existing = fs.readFileSync(file, 'utf8'); } catch { return 'absent'; }
   const lines = existing.split('\n');
-  const kept = lines.filter((l) => l.trim() !== relPath);
+  // `/x` and `x` name the same root-level file; broader rules (`.align/`) cover other files too and are left alone.
+  const kept = lines.filter((l) => l.trim().replace(/^\//, '') !== relPath);
   if (kept.length === lines.length) return 'absent';
   // Written beside it and renamed over it, so no reader sees a half-written .gitignore and an interruption loses nothing.
   const tmp = `${file}.align-tmp-${process.pid}`;
@@ -87,6 +88,19 @@ export function committableFromRepo(rows: ReadonlyArray<{ platform: string; sour
     if (r.platform !== 'docs') return true;
     return path !== undefined && isTrackedByGit(repoRoot, decodeURIComponent(path));
   });
+}
+
+/** The .gitignore rule that still ignores `relPath` (e.g. `.align/`), or null when git says it is not ignored. Never throws. */
+export function ignoringRule(repoRoot: string, relPath: string): string | null {
+  // check-ignore takes plain paths (it rejects pathspec magic such as --literal-pathspecs) and exits 1 for "not ignored".
+  try {
+    const out = execFileSync('git', ['-C', repoRoot, 'check-ignore', '-v', '--', relPath], { stdio: 'pipe' }).toString().trim();
+    // `<source>:<line>:<pattern>\t<path>`
+    return /^[^:]*:\d+:([^\t]*)\t/.exec(out)?.[1] ?? out;
+  } catch (err) {
+    // Exit 1 is the only "not ignored". Anything else could not look, and must not read as "safe to commit".
+    return (err as { status?: number }).status === 1 ? null : 'unknown (git check-ignore failed)';
+  }
 }
 
 /** Is `relPath` already tracked by git? False outside a repo, and never throws. */

@@ -84,4 +84,37 @@ describe('align context sync --out', () => {
     expect(text).toContain('Retry webhooks with backoff');
     expect(text).not.toContain('Use Postgres instead of MySQL');
   });
+
+  it('refuses to replace a file Align did not write, and leaves it as it was', async () => {
+    fs.writeFileSync(path.join(repo, 'DECISIONS.md'), '# Our decisions\n\n- We ship on Tuesdays\n');
+    await run('--out', 'DECISIONS.md');
+    expect(fs.readFileSync(path.join(repo, 'DECISIONS.md'), 'utf8')).toBe('# Our decisions\n\n- We ship on Tuesdays\n');
+    expect(process.exitCode).toBe(1);
+    expect(errs.join('\n')).toMatch(/DECISIONS\.md.*not written by Align/s);
+  });
+
+  it('replaces a file Align wrote before (a rerun)', async () => {
+    await run('--out', 'DECISIONS.md');
+    mockListDecisions.mockResolvedValue(REPO_ONLY.slice(0, 2));
+    await run('--out', 'DECISIONS.md');
+    expect(process.exitCode ?? 0).toBe(0);
+    expect(fs.readFileSync(path.join(repo, 'DECISIONS.md'), 'utf8')).not.toContain('Use Postgres instead of MySQL');
+  });
+
+  it('never writes into CLAUDE.md, which would also make it import itself', async () => {
+    const before = fs.readFileSync(path.join(repo, 'CLAUDE.md'), 'utf8');
+    await run('--out', 'CLAUDE.md');
+    expect(fs.readFileSync(path.join(repo, 'CLAUDE.md'), 'utf8')).toBe(before);
+    expect(process.exitCode).toBe(1);
+  });
+
+  it.skipIf(process.platform === 'win32')('refuses a path whose folder is a symlink out of the repo', async () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'ctx-out-elsewhere-'));
+    fs.symlinkSync(outside, path.join(repo, 'docs-link'));
+    await run('--out', 'docs-link/x.md');
+    expect(fs.existsSync(path.join(outside, 'x.md'))).toBe(false);
+    expect(process.exitCode).toBe(1);
+    fs.rmSync(outside, { recursive: true, force: true });
+  });
 });
+
