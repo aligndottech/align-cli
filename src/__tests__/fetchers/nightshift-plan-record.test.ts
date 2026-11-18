@@ -26,6 +26,7 @@
  * 12. archive.layout name or shift: the folder has no date, so it comes from the filed shift policy
  * 13. an unreadable or unsafe setting falls back to the default archive folder, and never files a live record
  * 14. the older flat plan record is not read
+ * 15. a layout belongs to its own root: an unsafe root takes its layout with it, and two roots keep their own layouts
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -266,5 +267,22 @@ describe('readNightshift: the plan record', () => {
     const read = await readNightshift(repo);
     expect(titles(read)).toEqual(['Keep the cache?']);
     expect(read.planFiles).toBe(0);
+  });
+
+  it('a layout belongs to its own root', async () => {
+    // an unsafe root is ignored together with its layout, so the default folder keeps its date
+    fresh();
+    write('.nightshift/rules.json', rules('inbox', 'name'));
+    write('.nightshift/archive/2026-09-24/inbox/parking-lot.md', lot('- Keep the cache? · answered: yes'));
+    expect((await readNightshift(repo)).items[0]!.created_at).toBe('2026-09-24T00:00:00.000Z');
+    // two roots, two layouts: the date-named default folder is dated by its name, the name-layout folder by its policy
+    fresh();
+    write('.nightshift/rules.json', rules('history', 'name'));
+    write('.nightshift/run/.ended', 'shiftId=aaaa1111bbbb2222\narchiveRoot=archive\narchiveLayout=date\nshiftName=\narchiveFolder=\nhost=claude\n');
+    write('.nightshift/archive/2026-09-24/inbox/parking-lot.md', lot('- Keep the cache? · answered: yes'));
+    write('.nightshift/history/release-prep/inbox/parking-lot.md', lot('- Use pnpm? · answered: yes'));
+    write('.nightshift/history/release-prep/run/shift-policy.json', policy('2026-09-02T02:30:00Z'));
+    const read = await readNightshift(repo);
+    expect(read.items.map((i) => [i.title, i.created_at]).sort()).toEqual([['Keep the cache?', '2026-09-24T00:00:00.000Z'], ['Use pnpm?', '2026-09-02T00:00:00.000Z']]);
   });
 });

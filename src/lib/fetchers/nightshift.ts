@@ -263,13 +263,16 @@ async function readText(file: string): Promise<string | null> {
  * frozen for the running shift, and the marker an ended shift leaves (a shift filed under an earlier root is still
  * archived). The default `archive` always counts. A file that cannot be read adds nothing.
  */
-async function archiveSettings(dir: string): Promise<{ roots: string[][]; layouts: Set<string> }> {
+async function archiveSettings(dir: string): Promise<{ roots: string[][]; layouts: Map<string, Set<string>> }> {
   const roots: string[][] = [DEFAULT_ROOT];
-  const layouts = new Set<string>();
+  const layouts = new Map<string, Set<string>>(); // root -> the layouts declared for that root
   const take = (root: unknown, layout: unknown) => {
-    const segs = rootSegments(root);
-    if (segs && !roots.some((r) => r.join('/') === segs.join('/'))) roots.push(segs);
-    if (typeof layout === 'string' && layout) layouts.add(layout);
+    // No root named is nightshift's default; a root named and refused takes its layout with it.
+    const named = typeof root === 'string' && root.trim() !== '';
+    const segs = named ? rootSegments(root) : DEFAULT_ROOT;
+    if (!segs) return;
+    if (!roots.some((r) => r.join('/') === segs.join('/'))) roots.push(segs);
+    if (typeof layout === 'string' && layout) layouts.set(segs.join('/'), (layouts.get(segs.join('/')) ?? new Set()).add(layout));
   };
   for (const file of [path.join(dir, 'rules.json'), path.join(dir, 'run', 'shift-policy.json')]) {
     const text = await readText(file);
@@ -294,8 +297,9 @@ function archiveFolder(rel: string[], roots: string[][]): string[] | null {
 }
 
 /** A folder's day: its own date when the layout names folders by date, else the `createdAt` of the shift policy filed in it. */
-async function folderDate(dir: string, folder: string[], layouts: Set<string>): Promise<string | undefined> {
-  if ([...layouts].every((l) => l === 'date' || l === 'date-name')) {
+async function folderDate(dir: string, folder: string[], layouts: Map<string, Set<string>>): Promise<string | undefined> {
+  // Only the layouts declared for this folder's own root decide; none declared trusts a date in the name.
+  if ([...(layouts.get(folder.slice(0, -1).join('/')) ?? [])].every((l) => l === 'date' || l === 'date-name')) {
     const named = /^\d{4}-\d{2}-\d{2}/.exec(folder[folder.length - 1]!)?.[0];
     if (named) return named;
   }
