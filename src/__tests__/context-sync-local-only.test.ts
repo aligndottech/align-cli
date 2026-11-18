@@ -154,6 +154,23 @@ describe('align context sync, local graph built only from the repo', () => {
     expect(fs.readFileSync(external, 'utf8')).toContain('From chat'); // the private copy is never written through
     expect(gitignore()).toBe('dist\n');
   });
+
+  it('removes a leading-slash ignore line too, so the file it says to commit is not ignored', async () => {
+    mockListDecisions.mockResolvedValue(REPO_ONLY);
+    fs.writeFileSync(path.join(repo, '.gitignore'), 'node_modules\n/.align/decisions.md\n');
+    await run();
+    expect(gitignore()).not.toContain('.align/decisions.md');
+    expect(logs.join('\n')).toMatch(/normal file: commit it/);
+  });
+
+  it('warns instead of saying "commit it" when a broader rule still ignores the file, and leaves that rule alone', async () => {
+    mockListDecisions.mockResolvedValue(REPO_ONLY);
+    fs.writeFileSync(path.join(repo, '.gitignore'), '.align/\n');
+    await run();
+    expect(gitignore()).toBe('.align/\n');
+    expect(logs.join('\n')).not.toMatch(/normal file: commit it/);
+    expect(logs.join('\n')).toMatch(/still ignored by git.*"\.align\/"/s);
+  });
 });
 
 describe('align context sync, team graph', () => {
