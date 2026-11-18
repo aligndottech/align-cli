@@ -37,6 +37,7 @@ export const SYNC_CEILINGS = {
   docs: 500,         // repo ADRs and doc sections; not a windowed read.
   sessions: 250,     // review candidates per run; not a windowed read.
   mirsad: 1_000,     // decisions in one export file; not a windowed read.
+  nightshift: 1_000, // answered parking-lot entries in one repo; not a windowed read.
 } as const satisfies Record<SourceId, number>;
 
 /** Git is the one source whose default is NOT the window: the newest commits however old, as

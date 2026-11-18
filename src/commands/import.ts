@@ -23,6 +23,7 @@ import { registerImportZoomCommand } from './import/zoom.js';
 import { registerImportNotionCommand } from './import/notion.js';
 import { registerImportSessionsCommand } from './import/sessions.js';
 import { registerImportMirsadCommand } from './import/mirsad.js';
+import { registerImportNightshiftCommand } from './import/nightshift.js';
 import { runConnect } from './connect.js';
 import { SINCE_HELP } from '../lib/since-flag.js';
 import type { ScopeFlags } from '../lib/scope-connect.js';
@@ -457,4 +458,5 @@ export function registerImportCommand(program: Command): void {
   registerImportNotionCommand(importCmd);
   registerImportSessionsCommand(importCmd);
   registerImportMirsadCommand(importCmd);
+  registerImportNightshiftCommand(importCmd);
 }
