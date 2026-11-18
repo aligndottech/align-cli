@@ -166,6 +166,13 @@ describe('align context inject --format <host>', () => {
     }
   });
 
+  it('cursor: prints nothing when the payload names no existing workspace, even if the process cwd has decisions', async () => {
+    sync(repo); // the process cwd (a user-level hook can start in any repo) has decisions
+    const missing = JSON.stringify({ workspace_roots: [path.join(repo, 'nope')] });
+    expect((await runInject(['--format', 'cursor'], missing)).stdout).toBe('');
+    expect((await runInject(['--format', 'cursor'], '{}')).stdout).toBe('');
+  });
+
   it('falls back to the process cwd when the payload names a directory that does not exist', async () => {
     sync(repo);
     const payload = JSON.stringify({ ...JSON.parse(fixture('codex-session-start.json')), cwd: path.join(repo, 'nope') });

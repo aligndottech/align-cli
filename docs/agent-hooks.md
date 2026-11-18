@@ -194,11 +194,19 @@ the current documentation says it works, and a hook that runs and is swallowed r
 delivered, so do not read "wired" as "delivered". Cursor documents that `sessionStart` does not
 run in cloud agents.
 
-**To verify on a real Cursor, one step.** Run `align context sync` in a project. Run `align setup`
-to write the hook. Open a new Agent chat in that project and ask "Quote the first line of
-.align/decisions.md without opening any file or calling a tool." If the model quotes it, the
-text reached the model. If it says it cannot see it, the forum reports hold on your Cursor version.
-Then update this row with the Cursor version and the result.
+**To verify on a real Cursor.** Do these in order and stop at the first one that fails, because a
+failed setup step says nothing about Cursor.
+1. Run `align context sync` in a project, then `align setup`.
+2. Check that `.align/decisions.md` exists and that `~/.cursor/hooks.json` has a `sessionStart`
+   entry running `align context inject --format cursor`.
+3. Check the hook prints the text: `echo '{"workspace_roots":["'"$PWD"'"]}' | align context inject --format cursor`
+   must print a JSON line with `additional_context`.
+4. Only then open a new Agent chat in that project and ask "Quote the first line of
+   .align/decisions.md without opening any file or calling a tool." If the model quotes it, the text
+   reached the model. If it cannot, and steps 1 to 3 passed, the forum reports hold on your Cursor
+   version. Update this row with the Cursor version and the result.
+
+Until then, Cursor's delivery is unconfirmed. Do not treat it as equivalent to Claude Code's.
 
 **Copilot CLI.** The September list said its `sessionStart` output is ignored. The current
 reference says "Only `additionalContext` is consumed for `sessionStart`", so that row was
