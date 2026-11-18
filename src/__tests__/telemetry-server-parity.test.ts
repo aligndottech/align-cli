@@ -57,8 +57,8 @@ const SERVER_OUTCOMES = ['ok', 'partial', 'needs_reauth', 'error'];
 const SERVER_SCOPES = ['yours', 'team'];
 const SERVER_TRIGGERS = ['connect', 'background', 'manual', 'mcp'];
 
-/** The commands the CLI registers that the gateway deliberately leaves out: `dev` and `connector` are internal (ALIGN_INTERNAL=1), `local` never pings, `doctor` sends no telemetry of any kind, `backlog` has no count yet (the gateway would 400 on an unknown command, so it needs an align-stack change first), and `up` sends no ping of its own: recordInvocationUsage returns early for it, and its steps report as `connect`, `sync` and `context` (usage-telemetry-invocation-local-only.test.ts pins both halves). (`demo` is NOT here: it sends one anonymous run count, `demo_run`, which the gateway accepts under the command `demo`.) */
-const NOT_SENT = new Set(['local', 'dev', 'connector', 'doctor', 'backlog', 'up']);
+/** The commands the CLI registers that the gateway deliberately leaves out: `dev` and `connector` are internal (ALIGN_INTERNAL=1), `local` never pings, `doctor` sends no telemetry of any kind, `backlog` has no count yet (the gateway would 400 on an unknown command, so it needs an align-stack change first), and `up` sends no ping of its own: recordInvocationUsage returns early for it, and its steps report as `connect`, `sync` and `context` (usage-telemetry-invocation-local-only.test.ts pins both halves), and `adr` sends nothing until the gateway accepts it (same test file). (`demo` is NOT here: it sends one anonymous run count, `demo_run`, which the gateway accepts under the command `demo`.) */
+const NOT_SENT = new Set(['local', 'dev', 'connector', 'doctor', 'backlog', 'up', 'adr']);
 
 /**
  * There is deliberately NO allowlist of commands the gateway rejects. The old

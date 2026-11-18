@@ -40,7 +40,7 @@ import { entryDate, findDecisionLogFiles, readLogFile, splitDecisionLog } from '
 /** ADR directory conventions, checked in this order; EVERY one that exists is scanned -
  *  a repo can legitimately carry more than one (a migration between conventions, or
  *  doc/adr and docs/decisions covering different eras of the same project). */
-const ADR_DIR_CANDIDATES = [
+export const ADR_DIR_CANDIDATES = [
   'docs/adr', 'doc/adr', 'docs/decisions', 'doc/decisions', 'adr',
   'docs/adrs', 'src/docs/adrs', 'src/docs/adr', 'docs/architecture/adr', 'docs/architecture/decisions',
   // RFC folders: one decision per file, dated like an ADR.
