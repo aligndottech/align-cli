@@ -63,10 +63,10 @@ async function seed(titles: string[]): Promise<string[]> {
 
 describe('decisionsFromLocalGraph', () => {
   it('names every active decision in the local graph', async () => {
-    await seed(['Use Postgres 16 for the events store', 'Retry webhooks three times with backoff']);
+    await seed(['Use Postgres 16 for the events store', 'Always retry webhooks three times with backoff']);
     const text = await decisionsFromLocalGraph(dir, { env: () => local(dbPath) });
     expect(text).toContain('Use Postgres 16 for the events store');
-    expect(text).toContain('Retry webhooks three times with backoff');
+    expect(text).toContain('Always retry webhooks three times with backoff');
   });
 
   it('says where the list came from, and does not call itself a file to edit', async () => {
@@ -78,7 +78,7 @@ describe('decisionsFromLocalGraph', () => {
   });
 
   it('leaves out a decision that was superseded', async () => {
-    const [older, newer] = await seed(['Cache sessions in Redis', 'Cache sessions in Postgres']);
+    const [older, newer] = await seed(['Use Redis to cache sessions', 'Use Postgres to cache sessions']);
     const db = createLocalDb(dbPath);
     try {
       db.insertLink({ sourceId: newer!, targetId: older!, relation: 'supersedes', confidence: 1 });
@@ -86,8 +86,8 @@ describe('decisionsFromLocalGraph', () => {
       db.close();
     }
     const text = await decisionsFromLocalGraph(dir, { env: () => local(dbPath) });
-    expect(text).toContain('Cache sessions in Postgres'); // positive control: the read worked
-    expect(text).not.toContain('Cache sessions in Redis');
+    expect(text).toContain('Use Postgres to cache sessions'); // positive control: the read worked
+    expect(text).not.toContain('Use Redis to cache sessions');
   });
 
   it('returns null for a graph with no decisions, so the hook prints nothing', async () => {

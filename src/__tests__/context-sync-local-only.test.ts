@@ -94,7 +94,7 @@ describe('align context sync, local graph built only from the repo', () => {
   const REPO_ONLY = [
     { id: '1', title: 'Use Postgres 16', summary: '', platform: 'git', status: 'active', source_url: 'https://github.com/acme/api/commit/abc1234' },
     { id: '2', title: 'ADRs live in docs/adr', summary: '', platform: 'docs', status: 'active', source_url: 'https://github.com/acme/api/blob/main/docs/adr/1.md' },
-    { id: '3', title: 'Retry webhooks with backoff', summary: '', platform: 'github', status: 'active', source_url: 'https://github.com/acme/api/pull/7' },
+    { id: '3', title: 'Retry webhooks with backoff instead of failing the event', summary: '', platform: 'github', status: 'active', source_url: 'https://github.com/acme/api/pull/7' },
   ];
 
   // The repo IS acme/api, and the doc the docs row came from is committed: that is what "from this repo" has to mean.
@@ -127,7 +127,7 @@ describe('align context sync, local graph built only from the repo', () => {
     await run();
     const file = path.join(repo, '.align/decisions.md');
     expect(fs.lstatSync(file).isSymbolicLink()).toBe(false);
-    expect(fs.readFileSync(file, 'utf8')).toContain('Retry webhooks with backoff');
+    expect(fs.readFileSync(file, 'utf8')).toContain('Retry webhooks with backoff instead of failing the event');
     expect(gitignore()).toBeNull();
     expect(logs.join('\n')).toMatch(/comes from this repo.*commit it/s);
     expect(logs.join('\n')).not.toMatch(/Kept out of git/);
