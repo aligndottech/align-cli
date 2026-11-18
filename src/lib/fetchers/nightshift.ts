@@ -76,12 +76,22 @@ const segmentsOf = (line: string): string[] =>
 
 /** A label repeated by the agent or a template ("Default: Default: kept off") is said once. */
 const oneLabel = (s: string): string => s.replace(/^(Default|Rollback):\s*(?:(?:Default|Rollback):\s*)+/i, '$1: ');
-const withoutDefaultLabel = (s: string): string => s.replace(/^(?:Default:\s*)+/i, '');
 
-/** The first sentence, or a cut at a word boundary: a prose entry must not become a paragraph-long title. */
+/** A status note the runtime parks for the owner ("stalled - needs human: ..."), not a decision. */
+const STATUS = /^stalled\b/i;
+/** A line that is a labelled part of the entry, not a soft wrap of its text. */
+const LABELLED = /^(Default|Rollback|Why|Outcome):/i;
+/** Abbreviations whose period does not end a sentence. */
+const ABBREV = /\b(?:vs|e\.g|i\.e|etc|cf|approx|no)\.$/i;
+
+/** The first sentence when the question is too long for a title, else a cut at a word boundary. */
 function titleOf(question: string): string {
-  const sentence = /^.*?[.?!](?=\s|$)/.exec(question)?.[0] ?? question;
-  if (sentence.length <= TITLE_MAX) return sentence;
+  if (question.length <= TITLE_MAX) return question;
+  for (const m of question.matchAll(/[.?!](?=\s+[A-Z0-9])/g)) {
+    const sentence = question.slice(0, m.index + 1);
+    if (sentence.length > TITLE_MAX) break;
+    if (sentence.length >= 20 && !ABBREV.test(sentence)) return sentence;
+  }
   const cut = question.slice(0, TITLE_MAX - 3);
   return `${cut.slice(0, cut.lastIndexOf(' ') > 0 ? cut.lastIndexOf(' ') : cut.length)}...`;
 }
@@ -90,9 +100,16 @@ export function parseParkingLot(text: string, o: { fileDate?: string; repo?: str
   const items: PersonalImportItem[] = [];
   const openUrls: string[] = [];
   let open = 0;
-  for (const [head, ...rest] of entries(text)) {
-    const headSegments = segmentsOf(head!);
-    const question = headSegments[0];
+  for (const [first, ...more] of entries(text)) {
+    // Identity stays on the bullet's first line exactly as 0.86.1 read it, so a re-import updates rather than duplicates.
+    const key = segmentsOf(first!)[0];
+    if (!key) continue;
+    // A soft wrap continues the entry's text; a labelled line (Default:, Rollback:, ...) is its own part.
+    const rest = more.filter((l) => LABELLED.test(l));
+    const head = [first!, ...more.filter((l) => !LABELLED.test(l))].join(' ');
+    const headSegments = segmentsOf(head);
+    // A bold item number ("**14.** ...") is a list position, not part of the question.
+    const question = headSegments[0]!.replace(/^\d+\.\s+/, '');
     if (!question) continue;
     // Every segment of the entry, wrapped lines included: the owner may append the answer to the last wrapped line.
     const all = [...headSegments.map((s) => ({ s, line: 0 })), ...rest.flatMap((l, i) => segmentsOf(l).map((s) => ({ s, line: i + 1 })))];
@@ -110,14 +127,20 @@ export function parseParkingLot(text: string, o: { fileDate?: string; repo?: str
     const disposition = at === -1 ? null : dispositionOf(all[at]!.s)!;
     if (!disposition || (disposition.kind === 'answered' && (disposition.text === '' || DEFERRED.test(disposition.text)))) {
       open++;
-      openUrls.push(nightshiftUrl(question, o.repo));
+      openUrls.push(nightshiftUrl(key, o.repo));
       continue;
     }
-    if (PERMISSION.test(question)) continue;
+    if (PERMISSION.test(question) || STATUS.test(question)) continue;
     const answerLine = all[at]!.line;
     // Agent's default and why: the head segments before the answer, dates aside.
     const headContext = (answerLine === 0 ? headSegments.slice(1, at) : headSegments.slice(1));
-    const context = headContext.filter((s) => !DATE.test(s));
+    // A segment the agent labelled goes under its own label; an unlabelled one by position (default, then why).
+    const undated = headContext.filter((s) => !DATE.test(s));
+    const labelled = (l: string) => undated.map((s) => new RegExp(`^(?:${l}:\\s*)+`, 'i').exec(s) ? s.replace(new RegExp(`^(?:${l}:\\s*)+`, 'i'), '') : null).filter((s): s is string => s !== null);
+    const plain = undated.filter((s) => !/^(Default|Why|Rollback):/i.test(s));
+    const defaults = [...labelled('Default'), ...(labelled('Default').length ? [] : plain.slice(0, 1))];
+    const whys = [...labelled('Why'), ...plain.slice(labelled('Default').length ? 0 : 1)];
+    const rollbacks = labelled('Rollback');
     const trailing = all.slice(at + 1).map((x) => x.s);
     const date = [...trailing, ...headContext].find((s) => DATE.test(s)) ?? (o.fileDate && DATE.test(o.fileDate) ? o.fileDate : undefined);
     const outcomeNotes = trailing.map((s) => /^outcome:\s*(.+)$/i.exec(s)?.[1]).filter((s): s is string => Boolean(s)).map((s) => `Outcome: ${s}`);
@@ -133,14 +156,15 @@ export function parseParkingLot(text: string, o: { fileDate?: string; repo?: str
       : `Rejected the agent's default${disposition.text ? `: ${disposition.text}` : ''}`;
     const body = [
       question,
-      ...(context[0] ? [`Agent's default: ${withoutDefaultLabel(context[0])}`] : []),
-      ...(context.length > 1 ? [`Why: ${context.slice(1).join(SEP)}`] : []),
+      ...(defaults[0] ? [`Agent's default: ${defaults.join(SEP)}`] : []),
+      ...(whys.length ? [`Why: ${whys.join(SEP)}`] : []),
+      ...rollbacks.map((r) => `Rollback: ${r}`),
       ...wrapped,
       outcome,
       ...outcomeNotes,
     ];
     items.push({
-      source_url: nightshiftUrl(question, o.repo),
+      source_url: nightshiftUrl(key, o.repo),
       platform: 'nightshift',
       title: titleOf(question),
       raw_text: body.join('\n'),
