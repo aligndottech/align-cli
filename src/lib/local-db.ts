@@ -4,6 +4,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { deleteDecisionWithDependents, migrate, SCHEMA, SLACK_TOMBSTONE_TITLE } from './local-db-migrate.js';
 import type { DeciderKind } from './decider-kind.js';
+import type { ScopeRestrict } from './scope-unit.js';
 import { bumpRowSetEpoch, rowSetEpoch } from './local-db-epoch.js';
 import { createLexicalStore, type LexicalStore } from './lexical-store.js';
 import { foldKeylessTwin } from './local-db-v7.js';
@@ -30,6 +31,8 @@ export interface DecisionRow {
    *  path for a remoteless git repo) - null for anything that is not code, or code
    *  whose repo could not be identified. */
   repo: string | null;
+  /** The part of a connector the row came from (`jira:ALI`), or null when it names none or the row predates units. */
+  scopeUnit: string | null;
   /** Which kind of actor decided. Null for a row captured before the column
    *  existed - read as 'unknown', never backfilled (see migrate, step 5). */
   deciderKind: DeciderKind | null;
@@ -144,10 +147,26 @@ export function identifyingSourceUrl(raw: string | null): string | null {
 /** Audit action marking a row whose `decided_at` came from git history, not from the source text. */
 export const DATE_FIRST_COMMIT = 'date_first_commit';
 
+/**
+ * The SQL twin of unitVisible (scope-unit.ts): a row with no unit, or from a source the restriction does not name, passes;
+ * a row of a named source passes only when its unit is in that source's list (an empty list: none of them).
+ */
+function scopeUnitClause(col: string, restrict: ScopeRestrict | undefined): { sql: string; params: string[] } | null {
+  const parts: string[] = [];
+  const params: string[] = [];
+  for (const [source, units] of Object.entries(restrict ?? {})) {
+    if (units === undefined) continue;
+    const inList = units.length ? ` OR ${col} IN (${units.map(() => '?').join(',')})` : '';
+    parts.push(`(${col} IS NULL OR ${col} NOT LIKE ?${inList})`);
+    params.push(`${source}:%`, ...units);
+  }
+  return parts.length ? { sql: parts.join(' AND '), params } : null;
+}
+
 /** Every column a DecisionRow carries, aliased to its camelCase name. One writer, read by
  *  both row readers, so a new column cannot be added to one SELECT and missed by the other. */
 const DECISION_COLUMNS =
-  'id, title, summary, source_url as sourceUrl, platform, created_at as createdAt, repo, decided_at as decidedAt, ' +
+  'id, title, summary, source_url as sourceUrl, platform, created_at as createdAt, repo, scope_unit as scopeUnit, decided_at as decidedAt, ' +
   'decider_kind as deciderKind, confirmed_by as confirmedBy, confirmed_at as confirmedAt, ' +
   'ratified_by as ratifiedBy, ratified_at as ratifiedAt, ' +
   `EXISTS (SELECT 1 FROM decision_audit a WHERE a.decision_id = decisions.id AND a.action = '${DATE_FIRST_COMMIT}') as dateFirstCommit`;
@@ -239,6 +258,8 @@ export function createLocalDb(dbPath: string) {
        *  been fetched. Stored in `detail_pending` so the later drain can find it. A pending
        *  arrival never downgrades a row whose discussion is already stored (see the upsert). */
       detailPending?: boolean;
+      /** `jira:ALI`: the part of a connector the item came from (scope-unit.ts). Fills a missing unit; a stored one is kept. */
+      scopeUnit?: string | null;
     }): string {
       // L2: a one-item-per-URL connector item upserts on its source_key, and that branch takes
       // the new title, so an edited PR title updates the row instead of adding a twin. Every
@@ -254,12 +275,13 @@ export function createLocalDb(dbPath: string) {
       db.exec('SAVEPOINT decision_date');
       try {
       const inserted = db.prepare(
-        `INSERT INTO decisions (id, title, summary, source_url, platform, repo, decided_at, decider_kind, source_key, detail_pending) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO decisions (id, title, summary, source_url, platform, repo, decided_at, decider_kind, source_key, detail_pending, scope_unit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(source_key) WHERE source_key IS NOT NULL DO UPDATE SET
            title = CASE WHEN ${ATTESTED} THEN decisions.title ELSE excluded.title END,
            summary = CASE WHEN ${ATTESTED} THEN decisions.summary ELSE excluded.summary END,
            platform = excluded.platform,
            repo = COALESCE(excluded.repo, decisions.repo),
+           scope_unit = COALESCE(excluded.scope_unit, decisions.scope_unit),
            decided_at = COALESCE(excluded.decided_at, decisions.decided_at),
            -- An attested row keeps its text, so it keeps the flag that describes that text (review 8).
            -- A thin arrival whose body IS the stored body (ingestOne passed the stored text on
@@ -272,6 +294,7 @@ export function createLocalDb(dbPath: string) {
          ON CONFLICT(source_url, title) DO UPDATE SET
            summary = excluded.summary, platform = excluded.platform,
            repo = COALESCE(excluded.repo, decisions.repo),
+           scope_unit = COALESCE(excluded.scope_unit, decisions.scope_unit),
            decided_at = COALESCE(excluded.decided_at, decisions.decided_at),
            enriched_at = NULL
          RETURNING id`
@@ -288,6 +311,7 @@ export function createLocalDb(dbPath: string) {
         row.deciderKind ?? null,
         key,
         row.detailPending ? 1 : 0,
+        row.scopeUnit ?? null,
       ) as { id: string };
       if (row.decidedAt) {
         const marked = db.prepare('SELECT 1 AS hit FROM decision_audit WHERE decision_id = ? AND action = ?').get(inserted.id, DATE_FIRST_COMMIT) !== undefined;
@@ -414,6 +438,11 @@ export function createLocalDb(dbPath: string) {
       return row;
     },
 
+    /** Records the unit on a row that has none (a row stored before units existed). A stored unit is never rewritten here. */
+    fillScopeUnit(id: string, unit: string | null): void {
+      if (unit) db.prepare('UPDATE decisions SET scope_unit = ? WHERE id = ? AND scope_unit IS NULL').run(unit, id);
+    },
+
     /**
      * `filter.repo` scopes to one repo's rows. `includeUnattributed` (the own rule:
      * "repo = ? OR repo IS NULL") also returns rows with no repo at all - a Jira ticket, a
@@ -423,7 +452,7 @@ export function createLocalDb(dbPath: string) {
      * callers that want an exact match (repo resolution, tests) rather than the retrieval
      * default.
      */
-    listDecisions(filter: { repo?: string; includeUnattributed?: boolean; unratified?: boolean } = {}): DecisionRow[] {
+    listDecisions(filter: { repo?: string; includeUnattributed?: boolean; unratified?: boolean; scopeRestrict?: ScopeRestrict } = {}): DecisionRow[] {
       let sql = `SELECT ${DECISION_COLUMNS} FROM decisions`;
       const where: string[] = [];
       const params: string[] = [];
@@ -434,6 +463,8 @@ export function createLocalDb(dbPath: string) {
       // The human queue. Both predicates, because "unratified" alone would list every
       // human decision ever captured (nothing ratifies those) and the queue would be useless.
       if (filter.unratified) where.push(`decider_kind = 'agent' AND ratified_at IS NULL`);
+      const unit = scopeUnitClause('scope_unit', filter.scopeRestrict);
+      if (unit) { where.push(unit.sql); params.push(...unit.params); }
       if (where.length) sql += ` WHERE ${where.join(' AND ')}`;
       sql += ` ORDER BY created_at DESC`;
       return db.prepare(sql).all(...params) as unknown as DecisionRow[];
@@ -662,13 +693,15 @@ export function createLocalDb(dbPath: string) {
      * formats (SQLite treats a bare space-separated datetime as UTC, which matches what
      * `datetime('now')` writes) into a real instant before comparing.
      */
-    getAllEmbeddings(filter: { repo?: string; includeUnattributed?: boolean; model?: string; createdBefore?: string } = {}): Array<{ decisionId: string; embedding: Float32Array }> {
+    getAllEmbeddings(filter: { repo?: string; includeUnattributed?: boolean; model?: string; createdBefore?: string; scopeRestrict?: ScopeRestrict } = {}): Array<{ decisionId: string; embedding: Float32Array }> {
       let sql = `SELECT e.decision_id, e.embedding FROM decision_embeddings e`;
       const where: string[] = [];
       const params: string[] = [];
-      if (filter.repo !== undefined || filter.createdBefore !== undefined) {
+      const unit = scopeUnitClause('d.scope_unit', filter.scopeRestrict);
+      if (filter.repo !== undefined || filter.createdBefore !== undefined || unit) {
         sql += ` JOIN decisions d ON d.id = e.decision_id`;
       }
+      if (unit) { where.push(unit.sql); params.push(...unit.params); }
       if (filter.repo !== undefined) {
         where.push(filter.includeUnattributed ? `(d.repo = ? OR d.repo IS NULL)` : `d.repo = ?`);
         params.push(filter.repo);

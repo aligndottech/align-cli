@@ -102,8 +102,9 @@ export function decisionShapedRows(rows: ListedDecision[]): ListedDecision[] {
   return rows.filter((r) => r.platform !== 'docs').filter((r) => {
     // Chat and ticket importers already choose decision-shaped items; only commits and PRs are every reasoned change.
     if (!CODE_PLATFORMS.has(r.platform ?? '')) return true;
-    if (FEAT_PREFIX.test(r.title)) return DECISION_SHAPED.test(r.title.replace(FEAT_PREFIX, ''));
-    return !FIX_SHAPED.test(r.title) && DECISION_SHAPED.test(r.title);
+    // A feat: prefix is dropped first, so "feat: fix retry policy" is judged as the fix it is.
+    const title = r.title.replace(FEAT_PREFIX, '');
+    return !FIX_SHAPED.test(title) && DECISION_SHAPED.test(title);
   });
 }
 

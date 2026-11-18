@@ -10,8 +10,10 @@
 Align collects your team's decisions from commits, tickets, chat and meetings into one graph, and
 re-reads those sources in the background. Nobody updates it by hand.
 
-Where your agent supports hooks, an edit hook then checks every edit against that graph before it
-lands. It runs outside the model, so the agent doesn't have to remember to ask, and it shows the
+Where your agent supports hooks, an edit hook checks edits against that graph. On Claude Code it
+runs before the edit is written, and it is recorded only in headless runs. Cursor, Copilot CLI and
+Gemini CLI hand the result to the model after the edit lands
+([what is tested](docs/hook-coverage.md)). It runs outside the model, so the agent doesn't have to remember to ask, and it shows the
 decision behind the code and where it came from. It warns by default, and blocking is opt-in. The
 agent can also query the graph itself over MCP.
 
@@ -55,7 +57,7 @@ a reason. Then the first `align` in a repo asks how you want to use Align:
 
 ```text
 Align found Claude Code on this machine. How do you want to use Align?
-1. Keep Claude Code. Align checks each edit and answers questions inside it.
+1. Keep Claude Code. Align checks edits and answers questions inside it.
 2. Use Align's own coding agent.
 Change this later: align --switch
 ```
@@ -75,8 +77,8 @@ If you choose Align's own agent, you choose what runs behind it:
   no key Align drives your installed Claude Code and you stay on your plan. Align never sees your
   Claude login.
 
-`align --engine align` or `align --engine claude` picks one, and Align remembers it. Every edit is
-checked against the graph before it is written. An edit that rewrites lines a decision wrote
+`align --engine align` or `align --engine claude` picks one, and Align remembers it. Edits are
+checked against the graph before they are written. An edit that rewrites lines a decision wrote
 waits for you to allow it or stop it.
 
 Prefer your agent's own interface? `align -- <args>` still opens it with the graph connected.
@@ -89,7 +91,7 @@ MIT, no account needed. Beta, pre-1.0.
    `AGENTS.md` and recent merged PRs, and builds the graph in `~/.align/local.db`. Nothing to fill in.
 2. **Pick your agent.** Keep Claude Code, Codex or Cursor, or use Align's own. Setup lists the files
    it will write and asks first.
-3. **Work as normal.** Each edit is checked against the graph before it is written, and the agent
+3. **Work as normal.** On Claude Code, edits are checked against the graph before they are written. Cursor, Copilot CLI and Gemini CLI hand the result to the model after the edit lands ([hook coverage](docs/hook-coverage.md)). The agent
    can ask the graph why something is the way it is. You do nothing by hand.
 4. **Sources refresh when you start `align`**, in the background, at most every 15 minutes per source. There is no timer: if you only open your agent, nothing refreshes until you run `align` or the agent calls `align_sync` (`status` shows where it stands, `run` starts a refresh). A big GitHub repo backfills its pull-request discussions over several runs.
 5. **Add more sources when you want them:** `align connect` (Jira, Linear, Slack, Notion and more).
@@ -170,7 +172,7 @@ already adds the check. After that, `npx @aligndottech/cli connect docs` or `con
 in more.
 
 Already ran `align setup` in a project? It wrote the same checks into `.claude/settings.json`,
-so with the plugin each edit is checked twice. Remove the Align hooks from that file, or skip
+so with the plugin an edit can be checked twice. Remove the Align hooks from that file, or skip
 the plugin.
 
 If you installed it as `align@aligndottech` before the rename, run
@@ -184,11 +186,11 @@ codex plugin marketplace add aligndottech/align-cli
 codex plugin add align-cli@aligndottech
 ```
 
-This adds the same MCP server and an edit check that runs before each `apply_patch`. Codex
+This adds the same MCP server and an edit check that is meant to run before each `apply_patch`. Codex's hook is written from the vendor docs and has not been tested against a live session ([hook coverage](docs/hook-coverage.md)). Codex
 installs the plugin without trusting its hooks, so the check does nothing until you open Codex
 once and approve it in the hook review. `codex exec` never asks. Like the Claude Code plugin,
 installing it writes no hooks or settings into your config, and it stays silent until Align is set up. If you also ran
-`align setup`, remove one of the two Align hooks or each edit is checked twice.
+`align setup`, remove one of the two Align hooks or an edit can be checked twice.
 
 More in [docs/installation.md](docs/installation.md).
 
@@ -207,7 +209,7 @@ More in [docs/installation.md](docs/installation.md).
 | | |
 |---|---|
 | **MCP server** | Claude Code, Cursor, Claude Desktop, VS Code, Windsurf, Zed, Codex, Copilot CLI, Gemini CLI, pi, OpenCode |
-| **Edit hooks** | Each edit is checked against the graph. Advisory by default. Claude Code, pi, Gemini CLI, OpenCode, Codex, Cursor, Copilot CLI |
+| **Edit hooks** | Edits are checked against the graph. Advisory by default. Recorded real-host payloads exist for headless runs of Claude Code, pi and OpenCode. Interactive Claude Code sessions are not tested ([coverage](docs/hook-coverage.md)). Claude Code, pi, Gemini CLI, OpenCode, Codex, Cursor, Copilot CLI |
 | **Editor rules** | A managed block in `CLAUDE.md`, `AGENTS.md` and `.cursor/rules/align.md` |
 | **Shared `.mcp.json`** | One committed file sets up the whole team |
 
@@ -230,7 +232,7 @@ Hook limits worth knowing:
   That's a limit of their hook APIs.
 - Only Claude Code's hook has been run in a live session. pi, Gemini CLI and OpenCode are written
   from the vendors' docs or source, and Codex, Cursor and Copilot CLI have not been checked
-  against a real payload. The last three read hooks from a user-level file (`~/.codex/hooks.json`,
+  against a real payload. [Hook coverage](docs/hook-coverage.md) lists what has been captured, host by host. The last three read hooks from a user-level file (`~/.codex/hooks.json`,
   `~/.cursor/hooks.json`, `~/.copilot/hooks/align.json`).
 - pi reads MCP servers itself from 0.99 and later, and an older pi needs the third-party
   `pi-mcp-adapter` package installed in it. pi also blocks a repo's MCP servers until you trust
@@ -253,7 +255,7 @@ Setup ends with three prompts to type into your agent, built from your own repo:
    Check it with Align before writing anything.
 ```
 
-After that the check runs on its own on every edit, and the agent tells you in one line when it
+After that the check runs on its own where the hook is installed and supported, and the agent tells you in one line when it
 found a related decision. [Your first session](docs/first-session.md) has more, including how to
 tell whether the hooks are running.
 

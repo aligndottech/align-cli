@@ -72,7 +72,7 @@ function withoutComments(body: string): string {
  *  decision - the prose equivalent of git.ts's isDecisionCommit length filter. */
 const MIN_CHUNK_CHARS = 20;
 
-function humanizeFilename(file: string): string {
+export function humanizeFilename(file: string): string {
   return path
     .basename(file, path.extname(file))
     .replace(/^\d+[-_]?/, '') // ADR numeric prefixes: 0007-use-cockroachdb.md
