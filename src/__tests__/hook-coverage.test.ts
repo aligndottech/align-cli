@@ -49,7 +49,7 @@ async function sentByHandler(
   const work = mkdtempSync(join(tmpdir(), 'align-hook-coverage-'));
   const bin = join(work, 'bin');
   mkdirSync(bin);
-  writeFileSync(join(bin, 'align'), '#!/bin/sh\nd=$(dirname "$0")\nprintf \'%s\\n\' "$@" > "$d/args.txt"\ncat > "$d/stdin.json"\n');
+  writeFileSync(join(bin, 'align'), '#!/bin/sh\nd=$(dirname "$0")\nprintf \'%s\\0\' "$@" > "$d/args.txt"\ncat > "$d/stdin.json"\n');
   chmodSync(join(bin, 'align'), 0o755);
   const plugin = join(work, file);
   writeFileSync(plugin, source);
@@ -62,7 +62,8 @@ async function sentByHandler(
   }
   return {
     stdin: JSON.parse(readFileSync(join(bin, 'stdin.json'), 'utf8')),
-    args: readFileSync(join(bin, 'args.txt'), 'utf8').trim().split('\n'),
+    // NUL-separated, so an empty argument survives (a newline list with trim() would lose it).
+    args: readFileSync(join(bin, 'args.txt'), 'utf8').split('\0').slice(0, -1),
   };
 }
 const posix = process.platform !== 'win32';
@@ -145,8 +146,10 @@ describe.skipIf(!posix)('OpenCode, subagent edit in a headless run (opencode run
     expect(edit.event).toBe('tool.execute.before');
     expect(task.input.tool).toBe('task');
     expect(edit.input.tool).toBe('edit');
-    expect(task.input.sessionID).not.toBe('');
-    expect(edit.input.sessionID).not.toBe('');
+    for (const id of [task.input.sessionID, edit.input.sessionID]) {
+      expect(typeof id).toBe('string');
+      expect(id).not.toBe('');
+    }
     expect(edit.input.sessionID).not.toBe(task.input.sessionID);
   };
   it('both were captured at tool.execute.before, and the edit came from a session other than the one that called the task tool', evidence);
