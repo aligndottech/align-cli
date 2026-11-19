@@ -301,3 +301,29 @@ describe('trailers and the gap hint in the printed list', () => {
     expect(out).toMatch(/gitlab\n$/);
   });
 });
+
+describe('a commit trailer whose key is on no list, in the printed list', () => {
+  const META = '\n\nAuthor: Ann Dev\n\nDate: 2026-01-02T00:00:00Z\n\nURL: https://github.com/o/r/commit/abc1234';
+  const SESSION = 'Claude-Session: https://claude.ai/code/session_01ABC';
+  const BLOCK = `\n\nCo-Authored-By: Bob Dev <bob@example.test>\n${SESSION}\nSigned-off-by: Ann Dev <ann@example.test>`;
+
+  it('quotes the body of a stored commit without the trailer block', async () => {
+    respond([hit(1, 0.6, `Decision 1\n\nClamp the status code into the valid range.${BLOCK}${META}`)]);
+    const out = await ask();
+    expect(out).toContain('"Clamp the status code into the valid range."');
+    expect(out).not.toMatch(/Co-Authored-By|Claude-Session|Signed-off-by/);
+  });
+  it('prints no quote line when the body of a stored commit is only such a trailer', async () => {
+    respond([hit(1, 0.6, `Decision 1\n\n${SESSION}${META}`)]);
+    const out = await ask();
+    expect(out).toContain('Decision 1');
+    expect(out).not.toContain('Claude-Session');
+    expect(out).not.toContain('"');
+  });
+  it('states the reason of a stored commit without the trailer under it', async () => {
+    respond([hit(1, 0.6, `Decision 1\n\nWe clamp the code because clients crash on a status of 700 or more and nothing upstream checks it\n${SESSION}${META}`)]);
+    const out = await ask();
+    expect(out).toContain('Why: We clamp the code because');
+    expect(out).not.toContain('Claude-Session');
+  });
+});
