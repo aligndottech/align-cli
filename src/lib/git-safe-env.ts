@@ -9,20 +9,28 @@
  * diff and blame calls pass `--no-textconv` and `--no-ext-diff` themselves.
  */
 export function hardenGitEnv(env: Record<string, string | undefined> = process.env): void {
-  const raw = env['GIT_CONFIG_COUNT'];
-  // Git refuses a count it cannot read. That is the caller's to see, so nothing is written over it.
-  if (raw !== undefined && !/^\d+$/.test(raw)) return;
-  const count = Number(raw ?? '0');
+  // Git reads the count the way strtol does: leading spaces and a sign are fine, and empty is zero.
+  // Anything else it refuses. That is the caller's to see, so nothing is written over it.
+  const raw = /^\s*([+-]?\d+)?$/.exec(env['GIT_CONFIG_COUNT'] ?? '');
+  const count = raw ? Number(raw[1] ?? '0') : NaN;
+  if (!Number.isInteger(count) || count < 0) return;
+  // Git takes the last value for a key, so only the last entry says whether the watcher is already off.
+  let off = false;
   for (let i = 0; i < count; i++) {
-    if (env[`GIT_CONFIG_KEY_${i}`] === 'core.fsmonitor' && env[`GIT_CONFIG_VALUE_${i}`] === 'false') return;
+    if (env[`GIT_CONFIG_KEY_${i}`] === 'core.fsmonitor') off = env[`GIT_CONFIG_VALUE_${i}`] === 'false';
   }
+  if (off) return;
   env[`GIT_CONFIG_KEY_${count}`] = 'core.fsmonitor';
   env[`GIT_CONFIG_VALUE_${count}`] = 'false';
   env['GIT_CONFIG_COUNT'] = String(count + 1);
 }
 
-/** For `git diff`: no text converter and no external diff program, whatever the repository's config names. */
-export const PLAIN_DIFF_ARGS = ['--no-ext-diff', '--no-textconv'] as const;
+/**
+ * For `git diff`: no text converter and no external diff program, whatever the repository's config names.
+ * `--submodule=short` keeps git from running a second diff inside a changed submodule (`diff.submodule=diff`),
+ * which would take its settings from the submodule's own config and ignore the two flags before it.
+ */
+export const PLAIN_DIFF_ARGS = ['--no-ext-diff', '--no-textconv', '--submodule=short'] as const;
 
 /** The environment keys git reads extra config from. */
 export const GIT_ENV_CONFIG_KEY = /^GIT_CONFIG_(COUNT|KEY_\d+|VALUE_\d+)$/;

@@ -122,9 +122,61 @@ describe.skipIf(process.platform === 'win32')('git calls do not run programs a r
     expect(env['GIT_CONFIG_COUNT']).toBe('2');
   });
 
+  // Git reads these as a count (checked against git 2.43: empty and -0 are zero, the rest are one),
+  // so the override still has to be written, after whatever is there.
+  for (const [count, entries] of [['', 0], ['-0', 0], ['+1', 1], [' 1', 1], ['01', 1]] as const) {
+    it(`appends after a count git accepts: ${JSON.stringify(count)}`, () => {
+      const env: Record<string, string | undefined> = { GIT_CONFIG_COUNT: count, GIT_CONFIG_KEY_0: 'user.name', GIT_CONFIG_VALUE_0: 'someone' };
+      hardenGitEnv(env);
+      expect(env['GIT_CONFIG_COUNT']).toBe(String(entries + 1));
+      expect(env[`GIT_CONFIG_KEY_${entries}`]).toBe('core.fsmonitor');
+      expect(env[`GIT_CONFIG_VALUE_${entries}`]).toBe('false');
+      if (entries === 1) expect(env['GIT_CONFIG_KEY_0']).toBe('user.name');
+    });
+  }
+
+  // Git takes the last value for a key. An earlier `false` does not help when a later entry names a program.
+  it('appends when a later entry turns the file watcher back on', () => {
+    const env: Record<string, string | undefined> = {
+      GIT_CONFIG_COUNT: '2',
+      GIT_CONFIG_KEY_0: 'core.fsmonitor', GIT_CONFIG_VALUE_0: 'false',
+      GIT_CONFIG_KEY_1: 'core.fsmonitor', GIT_CONFIG_VALUE_1: './watcher.sh',
+    };
+    hardenGitEnv(env);
+    expect(env['GIT_CONFIG_COUNT']).toBe('3');
+    expect([env['GIT_CONFIG_KEY_2'], env['GIT_CONFIG_VALUE_2']]).toEqual(['core.fsmonitor', 'false']);
+  });
+
+  // With diff.submodule=diff, git runs a second diff inside each changed submodule, and that one
+  // takes its settings from the submodule's own config, not from the flags on the outer command.
+  it('a changed submodule does not get its own diff run', async () => {
+    const sub = path.join(dir, 'sub');
+    fs.mkdirSync(sub);
+    const g = (cwd: string, args: string[]) => execa('git', ['-c', 'user.email=a@example.com', '-c', 'user.name=tester', '-c', 'protocol.file.allow=always', ...args], { cwd });
+    await g(sub, ['init', '-q', '-b', 'main', '.']);
+    fs.writeFileSync(path.join(sub, 's.txt'), 'one\n');
+    await g(sub, ['add', '.']);
+    await g(sub, ['commit', '-q', '-m', 'one']);
+    await g(repo, ['submodule', '--quiet', 'add', sub, 'sub']);
+    await g(repo, ['commit', '-q', '-am', 'add sub']);
+    fs.appendFileSync(path.join(repo, 'sub', 's.txt'), 'two\n');
+    await g(path.join(repo, 'sub'), ['commit', '-q', '-am', 'two']);
+    await git(['config', 'diff.submodule', 'diff']);
+    const subConfig = path.join((await g(path.join(repo, 'sub'), ['rev-parse', '--absolute-git-dir'])).stdout.trim(), 'config');
+    await g(repo, ['config', '-f', subConfig, 'diff.external', script('subexternal')]);
+    hardenGitEnv();
+    clear();
+    // Control: the flags that protect the outer diff do not reach the one git runs inside the submodule.
+    await execa('git', ['diff', '--no-ext-diff', '--no-textconv', 'HEAD'], { cwd: repo, reject: false });
+    expect(ran()).toEqual(['subexternal']);
+    clear();
+    expect(await getHeadDiff()).toContain('Subproject commit');
+    expect(ran()).toEqual([]);
+  });
+
   // Git refuses a count it cannot read. Writing KEY_0 over it would replace the caller's own setting
   // and hide their mistake, so a count that is not a plain number is left for git to report.
-  for (const count of ['-1', '1e1', 'two', '']) {
+  for (const count of ['-1', '1e1', 'two', '1 ']) {
     it(`leaves the environment alone when the caller's count is ${JSON.stringify(count)}`, () => {
       const env = { GIT_CONFIG_COUNT: count, GIT_CONFIG_KEY_0: 'user.name', GIT_CONFIG_VALUE_0: 'someone' };
       hardenGitEnv(env);
