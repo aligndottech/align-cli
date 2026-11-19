@@ -1,5 +1,5 @@
 import type { HookToolInput } from '../hook-payload.js';
-import { findLineWriters, isWriterTitle } from '../blame-attribution.js';
+import { type CouldNotLook, findLineWriters, isWriterTitle } from '../blame-attribution.js';
 
 /**
  * `decided_at` is when the source says the decision was MADE (a commit's own date); `created_at` is
@@ -16,14 +16,24 @@ type DecisionLookup = { decisionsBySourceRefs?: (shas: string[], prUrls: string[
  * so it is skipped). Fail-open: any problem returns [] and the hook behaves as it did before.
  */
 export async function decisionsThatWroteTheseLines(client: unknown, input: HookToolInput | undefined, cwd: string): Promise<RelatedDecision[]> {
+  return (await lineWriterCheck(client, input, cwd)).wrote;
+}
+
+/** The decisions that wrote the lines, and whether blame could not look at all (a timeout or a git failure). */
+export async function lineWriterCheck(
+  client: unknown,
+  input: HookToolInput | undefined,
+  cwd: string,
+): Promise<{ wrote: RelatedDecision[]; couldNotLook: CouldNotLook['couldNotLook'] | null }> {
   try {
     const lookup = (client as DecisionLookup).decisionsBySourceRefs;
-    if (typeof lookup !== 'function') return [];
+    if (typeof lookup !== 'function') return { wrote: [], couldNotLook: null };
     const writers = await findLineWriters(input, cwd);
-    if (!writers) return [];
-    return lookup.call(client, writers.commitShas, writers.prUrls).filter((d) => isWriterTitle(d.title)).slice(0, 5);
+    if (!writers) return { wrote: [], couldNotLook: null };
+    if ('couldNotLook' in writers) return { wrote: [], couldNotLook: writers.couldNotLook };
+    return { wrote: lookup.call(client, writers.commitShas, writers.prUrls).filter((d) => isWriterTitle(d.title)).slice(0, 5), couldNotLook: null };
   } catch {
-    return [];
+    return { wrote: [], couldNotLook: null };
   }
 }
 

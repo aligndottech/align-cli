@@ -9,7 +9,7 @@ import { createGatewayClient } from '../lib/gateway-client.js';
 import { getBaseDiff, getCurrentBranch, getHeadDiff, getStagedDiff, isGitRepo, listBranchNames, pickBaseRef } from '../lib/git.js';
 import type { AlignmentResult } from '../lib/gateway-client.js';
 import { type HookPayload, readHookPayload } from '../lib/hook-payload.js';
-import { decisionsThatWroteTheseLines, proposedChangeText, type RelatedDecision } from '../lib/agent/edit-text.js';
+import { lineWriterCheck, proposedChangeText, type RelatedDecision } from '../lib/agent/edit-text.js';
 import { type AgentUse, recordAgentUse } from '../lib/agent-use-telemetry.js';
 import { markHookContext } from '../lib/hook-context.js';
 import { isAlignSetUp } from '../lib/setup-state.js';
@@ -492,7 +492,7 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
     const client = createGatewayClient(config.getEnvironment(envName));
 
     const format = opts.format ?? 'claude';
-    const renderOpts = { pre, format, blockOnCritical: opts.blockOnCritical ?? false };
+    const renderOpts: AdvisoryRenderOpts = { pre, format, blockOnCritical: opts.blockOnCritical ?? false };
     // One content-free event per real check (the class of the answer, nothing else), awaited under a
     // short cap right before the exit so the request is not killed by it. Rate-limited per tool inside
     // recordAgentUse, so most runs pay a config read and no network. Never throws.
@@ -587,7 +587,7 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
     // has to call the model, so it often will not fit, and then the titles go out as before.
     // Runs beside retrieval, not before it: blame is local and bounded, so it adds nothing to the
     // hook's wall clock. PRE only - a landed edit has no "lines about to change".
-    const writtenBy = pre ? decisionsThatWroteTheseLines(client, payload?.tool_input, cwd) : Promise.resolve<RelatedDecision[]>([]);
+    const writtenBy = pre ? lineWriterCheck(client, payload?.tool_input, cwd) : Promise.resolve({ wrote: [] as RelatedDecision[], couldNotLook: null });
     let found: RelatedDecision[] | null = null;
     let markNotes: string[] = [];
     // A dependency the edit adds is a sentence retrieval can match; raw JSON or an import line is not
@@ -615,7 +615,9 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
 
     // Decisions the sibling hook already showed the agent moments ago are not repeated.
     const seen = recentlySurfaced(dedupScope(cwd, payload?.session_id));
-    const wrote = (await writtenBy).filter((d) => !seen.has(d.id));
+    const lineWriters = await writtenBy;
+    const wrote = lineWriters.wrote.filter((d) => !seen.has(d.id));
+    if (lineWriters.couldNotLook) renderOpts.couldNotAttribute = lineWriters.couldNotLook;
 
     if (found === null) {
       // Never silent on a non-answer. The writers are a deterministic answer in their own right.
@@ -631,6 +633,8 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
     // Genuinely nothing related: a real answer, so staying quiet is honest here - unless blame
     // named the decision that wrote these lines.
     if (!found.length && !wrote.length) {
+      // Blame could not look, so "nothing related" is not the whole answer: say what was not checked.
+      if (renderOpts.couldNotAttribute) emit(renderForHost(blameNote(renderOpts.couldNotAttribute), renderOpts, false));
       await countUse('no_context');
       process.exit(0);
     }
@@ -1125,6 +1129,7 @@ export function buildRelatedOutput(
         ? ['Align could not reach a verdict on this change, so it is UNVERIFIED.']
         : []),
     ...(retrievalFailed ? ['Align could not check this change against the rest of the decision graph (retrieval failed or timed out); treat the rest as UNVERIFIED.'] : []),
+    ...(opts.couldNotAttribute ? [blameNote(opts.couldNotAttribute)] : []),
     // The model is the only reader of this text; without this line the user cannot tell the hook ran.
     'Tell the user in one line which of these you checked against and whether this change agrees with it.',
   ].join('\n');
@@ -1133,10 +1138,16 @@ export function buildRelatedOutput(
 
 // A check that could not run is not a pass. Silence here would be
 // indistinguishable from "nothing found", which is the exact fail-open both tickets closed.
+/** Blame could not look. A decision may have written these lines, so the answer is incomplete, not empty. */
+function blameNote(why: 'timed out' | 'git failed'): string {
+  return `Align could not check which decisions wrote the lines this edit changes (git blame ${why === 'timed out' ? 'timed out' : 'failed'}). One of them may have, so treat this edit as UNVERIFIED for that.`;
+}
+
 export function buildUnknownOutput(opts: AdvisoryRenderOpts): unknown | null {
   const summary = [
     'Align could not check this change against the decision graph (retrieval failed or timed out).',
     'Treat it as UNVERIFIED rather than approved - run `align check` manually if it matters.',
+    ...(opts.couldNotAttribute ? [blameNote(opts.couldNotAttribute)] : []),
   ].join('\n');
   return renderForHost(summary, opts, false);
 }
@@ -1203,6 +1214,8 @@ export interface AdvisoryRenderOpts {
   blockOnCritical: boolean;
   /** Epoch ms for the staleness cue; tests inject it. Defaults to the clock at the render edge. */
   now?: number;
+  /** Set when git blame could not look at the lines a pre-edit changes, so the output says so. */
+  couldNotAttribute?: 'timed out' | 'git failed';
 }
 
 // Called from runAdvisory's deferred-verdict short-circuit: the hook itself is
