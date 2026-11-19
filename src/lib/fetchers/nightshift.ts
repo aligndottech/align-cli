@@ -64,6 +64,11 @@ function dispositionOf(segment: string): Disposition | null {
 }
 
 const day = (d: string): string => `${d}T00:00:00.000Z`;
+/** A calendar day that exists. Node rolls 30 February over to 2 March instead of refusing it, so the day is read back. */
+const isRealDay = (d: string): boolean => {
+  const t = Date.parse(day(d));
+  return !Number.isNaN(t) && new Date(t).toISOString().slice(0, 10) === d;
+};
 
 /** The owner's dispositions. Unlike fixed/ignored, these never open an agent's default. */
 const OWNER = new Set<Disposition['kind']>(['answered', 'accepted-tradeoff', 'rejected-because']);
@@ -235,7 +240,7 @@ export function parsePlanRecord(text: string, o: { fileDate?: string; repo?: str
       if (!subject.trim() || (line.label === 'decided' && MENU_CHOICE.test(subject.trim()))) continue;
       const rejected = line.label === 'rejected';
       const noted = /\b\d{4}-\d{2}-\d{2}\b/.exec(line.note ?? '')?.[0];
-      const lineDate = noted && !Number.isNaN(Date.parse(day(noted))) ? noted : date;
+      const lineDate = noted && isRealDay(noted) ? noted : date;
       items.push({
         source_url: planRecordUrl(rejected ? 'rejected' : 'decided', entry.topic, subject, o.repo),
         platform: 'nightshift',

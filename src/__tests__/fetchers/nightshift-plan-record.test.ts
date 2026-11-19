@@ -204,9 +204,12 @@ describe('parsePlanRecord', () => {
       '  - Decided (docs, 2026-10-22): document the 2 GB limit',
       '  - Decided (perf): stream rows',
       '  - Decided (ticket 2026-13-45): keep the trailer',
+      '  - Decided (docs, 2026-02-30): name the limit in the changelog',
+      '  - Decided (docs, 2028-02-29): revisit the limit',
     ));
-    // The third note holds digits shaped like a date that is not one, so the entry's date stands.
-    expect(items.map((i) => i.created_at?.slice(0, 10))).toEqual(['2026-10-22', '2026-11-14', '2026-11-14']);
+    // The third and fourth notes hold digits shaped like a date that is not one, so the entry's date stands.
+    // Node rolls 30 February over to 2 March instead of refusing it. A real leap day is kept.
+    expect(items.map((i) => i.created_at?.slice(0, 10))).toEqual(['2026-10-22', '2026-11-14', '2026-11-14', '2026-11-14', '2028-02-29']);
   });
 });
 
