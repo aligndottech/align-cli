@@ -281,7 +281,13 @@ succeeds, cloud mode works, and local-only mode tells you so rather than failing
 The first import downloads the model from huggingface.co (~23MB) and the runtime from github.com once,
 and nothing local can be embedded or searched until both succeed. On a restricted network, check those
 hosts are reachable before you begin, or point `HF_ENDPOINT` and `ALIGN_ORT_RUNTIME_URL` at a mirror
-(the SHA-256 check still applies). An agent hook never downloads: it reports "could not check" until
+(the SHA-256 check still applies). The model is three files from the `Xenova/all-MiniLM-L6-v2` repo, fetched at a pinned revision (`751bff37182d3f1213fa05d7196b954e230abad9`) and each checked against a SHA-256 built into the CLI:
+
+- `onnx/model_quantized.onnx`
+- `tokenizer.json`
+- `tokenizer_config.json`
+
+A mirror must serve them at `<HF_ENDPOINT>/Xenova/all-MiniLM-L6-v2/resolve/<revision>/<file>`. For an offline install, place the files in `<cache>/hf/Xenova/all-MiniLM-L6-v2/751bff37182d/`, where `<cache>` is the models cache listed earlier on this page (`~/.cache/align-cli/models` by default, or `ALIGN_MODEL_CACHE` if set). Whether the CLI accepts files copied there by hand is not tested. An agent hook never downloads: it reports "could not check" until
 the first import has run.
 
 ## Privacy in one place

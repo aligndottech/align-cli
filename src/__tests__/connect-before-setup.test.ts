@@ -45,6 +45,8 @@ async function run(argv: string[]): Promise<{ code: number | undefined; err: str
   return { code, err: errs.join('\n') };
 }
 
+const NOT_SET_UP = 'Align is not set up on this machine. Run `align` to set it up, or in a script run `align local start` or `align --repo-only --approve`.';
+
 describe('align connect before Align is set up', () => {
   beforeEach(() => {
     for (const k of KEYS) { saved[k] = process.env[k]; delete process.env[k]; }
@@ -61,17 +63,23 @@ describe('align connect before Align is set up', () => {
     rmSync(home, { recursive: true, force: true });
   });
 
+  it('names the commands a script can run, since a script cannot answer the wizard', async () => {
+    const { err } = await run(['connect', 'git']);
+    expect(err).toContain('`align local start`');
+    expect(err).toContain('`align --repo-only --approve`');
+  });
+
   it('connect mirsad --file stops before reading the file or importing, exits 1, says what to run', async () => {
     const { code, err } = await run(['connect', 'mirsad', '--file', path.join(home, 'no-such-export.json')]);
     expect(code).toBe(1);
-    expect(err).toBe('Align is not set up on this machine. Run `align` to set it up.');
+    expect(err).toBe(NOT_SET_UP);
     expect(fetched.ingest).not.toHaveBeenCalled();
   });
 
   it.each([['git', fetched.gitHistory], ['docs', fetched.docs]])('connect %s stops before fetching, exits 1, says what to run', async (source, fetch) => {
     const { code, err } = await run(['connect', source]);
     expect(code).toBe(1);
-    expect(err).toBe('Align is not set up on this machine. Run `align` to set it up.');
+    expect(err).toBe(NOT_SET_UP);
     expect(fetch).not.toHaveBeenCalled();
     expect(fetched.ingest).not.toHaveBeenCalled();
   });
@@ -81,7 +89,7 @@ describe('align connect before Align is set up', () => {
     const { code, err } = await run(['connect', '--source', 'git', '--json']);
     expect(code).toBe(1);
     expect(err.split('\n')).toHaveLength(1);
-    expect(err).toContain('Run `align` to set it up.');
+    expect(err).toContain('Run `align` to set it up');
     expect(out).not.toHaveBeenCalled();
   });
 
