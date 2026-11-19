@@ -36,7 +36,12 @@ function clip(text: string, max: number): string {
   return space > max * 0.6 ? cut.slice(0, space) : cut;
 }
 
-/** The body the lexical index reads for a git decision. */
-export function indexBodyFor(title: string, summary: string): string {
+/**
+ * The body the lexical index reads. A git decision gives the start of its commit body. A docs decision is a
+ * whole section of a file with no trailers to drop, and the words someone searches for can sit anywhere in
+ * it, so it is read to its end.
+ */
+export function indexBodyFor(title: string, summary: string, platform: string = 'git'): string {
+  if (platform === 'docs') return summary;
   return clip(commitBodyOf(title, summary), INDEX_BODY_CHARS);
 }

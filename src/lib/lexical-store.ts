@@ -11,8 +11,12 @@ import { termCounts } from './lexical-terms.js';
  * the graph's own SQLite file, built lazily on the first search and refreshed only for rows that changed, so a
  * later process reads a few postings lists and tokenises nothing.
  *
- * Only git decisions are indexed. Every other platform keeps exactly the ranking it had before, because it
- * has no lexical list to fuse (hybrid-rank.ts), and the tables stay empty for a graph with no commits.
+ * Git and docs decisions are indexed. Every other platform keeps exactly the ranking it had before, because it
+ * has no lexical list to fuse (hybrid-rank.ts), and the tables stay empty for a graph with neither.
+ * A docs row is read to its end: on a real 131-section memory file an exact sentence from deep in a section
+ * came back in the top five 6 times in 30 without it. Measured on that graph (382 commits, 151 docs rows,
+ * 478,000 characters of docs): the first build takes about 140 ms against 55 ms for the commits alone, and a
+ * later search reads it in 0.1 ms.
  *
  * Tables are created lazily here, not in the schema migrations: an older CLI opening the same file ignores
  * them, and a graph that never searches never grows them.
@@ -54,9 +58,9 @@ export function createLexicalStore(db: DatabaseSync): LexicalStore {
     return `${version}:${changes}`;
   };
 
-  /** What differs between the git rows and the stored index. Read-only. */
+  /** What differs between the indexed rows (git and docs) and the stored index. Read-only. */
   function plan() {
-    const rows = db.prepare(`SELECT id, title, summary FROM decisions WHERE platform = 'git'`).all() as unknown as Array<{ id: string; title: string; summary: string }>;
+    const rows = db.prepare(`SELECT id, title, summary, platform FROM decisions WHERE platform IN ('git', 'docs')`).all() as unknown as Array<{ id: string; title: string; summary: string; platform: string }>;
     const stored = new Map((db.prepare('SELECT num, decision_id, sig, len FROM lex_doc').all() as unknown as Array<{ num: number; decision_id: string; sig: string; len: number }>)
       .map(r => [r.decision_id, r]));
     const live = new Set(rows.map(r => r.id));
@@ -67,7 +71,7 @@ export function createLexicalStore(db: DatabaseSync): LexicalStore {
     return { gone, fresh, stored, docs };
   }
 
-  /** Bring lex_doc and lex_term in line with the git rows. Only rows whose signature moved are tokenised. */
+  /** Bring lex_doc and lex_term in line with the indexed rows. Only rows whose signature moved are tokenised. */
   function refresh(): State {
     // A search must not sit behind an import's write lock for the graph's 30 s (the DDL below needs that lock
     // too): wait briefly, then the caller falls back to the dense order. Put back to 30 s afterwards.
@@ -103,7 +107,7 @@ export function createLexicalStore(db: DatabaseSync): LexicalStore {
         for (const d of p.gone) db.prepare('DELETE FROM lex_doc WHERE num = ?').run(d.num);
         for (const { r, sig } of p.fresh) {
           const { num } = upsert.get(r.id, sig) as { num: number };
-          const counts = termCounts(r.title, indexBodyFor(r.title, r.summary));
+          const counts = termCounts(r.title, indexBodyFor(r.title, r.summary, r.platform));
           let len = 0;
           for (const [term, tf] of counts) { putTerm.run(term, num, tf); len += tf; }
           setLen.run(len, num);

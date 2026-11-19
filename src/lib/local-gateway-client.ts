@@ -305,9 +305,9 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     // under commits that merely repeat X, so retrieve a wider pool and let titles reorder it
     // BEFORE the cut. The score each row reports stays its dense similarity.
     const poolSize = Math.max(limit * RERANK_POOL_FACTOR, RERANK_POOL_MIN) + hidden.size;
-    // The dense ranking and a lexical (BM25) ranking of git commits, fused by rank. The dense
+    // The dense ranking and a lexical (BM25) ranking of git commits and docs sections, fused by rank. The dense
     // order alone lost a commit that names a rare identifier ("find-my-way") or states its reason in
-    // words the title lacks to commits that merely sound like the question. A graph with no git rows,
+    // words the title lacks to commits that merely sound like the question. A graph with no git or docs rows,
     // or a query with no lexical hit, fuses an empty list, which leaves the dense-plus-title order as it was.
     const hybrid = async (text: string, vec: Float32Array) => {
       const all = orderTiesNewestFirst(
