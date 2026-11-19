@@ -12,6 +12,8 @@
  *  - what the importer embeds (Author/Date/Files changed/URL, see formatCommitAsText), commit
  *    trailers, "Fixes #N" lines, dependabot/renovate bodies, release-note dumps, tables, code,
  *    HTML comments and URLs are never reasons.
+ *  - a stored commit loses its trailers by shape, not by list: the run of "Key: value" lines that
+ *    ends its last paragraph (stripTrailers), so a key nobody listed ("Claude-Session") cannot leak.
  *  - a sentence that only repeats the title is dropped.
  *  - null when nothing qualifies. A wrong reason is worse than none.
  */
@@ -31,6 +33,11 @@ const IMPORTER_METADATA = /\n\nAuthor: [^\n]*\n\nDate: [^\n]*(?:\n\n(?:Files cha
 /** The Author/Date/Files changed/URL block the git importer appends, removed. Anything else is returned unchanged. */
 export function stripImporterMetadata(text: string): string {
   return text.replace(/\r\n?/g, '\n').replace(IMPORTER_METADATA, '');
+}
+
+/** True for a stored git commit: only the git importer appends the Author/Date block. */
+export function hasImporterMetadata(text: string): boolean {
+  return IMPORTER_METADATA.test(text.replace(/\r\n?/g, '\n'));
 }
 
 export const TRAILER = /^\s*(?:co-authored-by|signed-off-by|reviewed-by|reviewed-on|acked-by|tested-by|reported-by|suggested-by|helped-by|change-id|pr-url|cc|bug|jira|issue)\s*:/i;
@@ -68,6 +75,60 @@ const CONVENTIONAL_PREFIX = /^[a-z]+(?:\([^)]*\))?!?:\s+/;
 const TASK_ITEM = /^\s*(?:[*+-]|\d+[.)])\s+\[[ xX]\]/;
 const BULLET = /^\s*(?:[*+-]|\d+[.)])\s+/;
 const NOISE_SENTENCE = /^merge (?:pull request|branch|remote-tracking)\b|\b(?:sourced from|dependabot|renovate)\b/i;
+
+// A line shaped like a git trailer: one key token of letters, digits and hyphens, a colon, a space, a value.
+// The space is required, so a bare URL ("https://...") and a time ("12:30") are not keys. A line indented
+// by four spaces or a tab is a code or config example ("    Cache-Control: no-store"), not a trailer.
+const TRAILER_SHAPE = /^ {0,3}([A-Za-z][A-Za-z0-9-]*):[ \t]+(\S.*)$/;
+// Keys that introduce prose, never provenance: the reason labels (LABEL below) and a closing note.
+const PROSE_KEY = /^(?:why|reason|rationale|motivation|note)$/i;
+// "Issue: users get a 500 when the token expires" states the problem and "Issue: #123" points at one.
+// Only the pointer is a trailer.
+const REFERENCE_KEY = /^(?:issue|bug)$/i;
+const REFERENCE = `(?:${ISSUE_REF}|[A-Z][A-Z0-9]+-\\d+|\\d+)`;
+const REFERENCES_ONLY = new RegExp(`^${REFERENCE}(?:[\\s,;&]+(?:and\\s+)?${REFERENCE})*\\s*[.]?\\s*$`);
+/** A longer value is a sentence, not a list of references. It also bounds what REFERENCES_ONLY reads. */
+const MAX_REFERENCE_VALUE_CHARS = 200;
+
+function isTrailerLine(line: string): boolean {
+  const m = TRAILER_SHAPE.exec(line);
+  if (!m) return false;
+  const key = m[1];
+  const value = m[2].trim();
+  // "fix: retry on 503", "refs: #12": conventional-commit form is a sub-commit subject in a squash body.
+  if (PROSE_KEY.test(key) || CONVENTIONAL_PREFIX.test(line.trim())) return false;
+  if (REFERENCE_KEY.test(key)) return value.length <= MAX_REFERENCE_VALUE_CHARS && REFERENCES_ONLY.test(value);
+  return true;
+}
+
+/**
+ * A commit message without its trailers: the run of `Key: value` lines that ends its last paragraph
+ * (Co-Authored-By, Signed-off-by, Claude-Session, or any other key). Trailers are provenance, not
+ * reasons, and the fixed TRAILER list misses every key nobody thought to add to it.
+ *
+ * Only that trailing run goes, with the blank lines above it. A `Key: value` line in an earlier
+ * paragraph, or one with a prose line under it in the same paragraph, stays. Never a trailer: a
+ * prose label (Why, Reason, Rationale, Motivation, Note), `Issue:` / `Bug:` followed by prose rather
+ * than only a reference, and a line in conventional-commit form. `subject`, when given, is the
+ * commit's own first line, which is never a trailer whatever its shape.
+ *
+ * Text with no trailer is returned as the same string. This is for a commit message: a PR or ticket
+ * body ends with `Key: value` lines that are content ("Status: merged"), so callers apply it only to
+ * a stored commit (hasImporterMetadata). Read-time only: the stored summary keeps its trailers, which
+ * still feed search and ref extraction.
+ */
+export function stripTrailers(text: string, subject?: string): string {
+  const lines = text.split('\n');
+  let end = lines.length;
+  while (end > 0 && !lines[end - 1].trim()) end -= 1;
+  let start = end;
+  while (start > 0 && isTrailerLine(lines[start - 1])) start -= 1;
+  const flat = (s: string): string => s.replace(/\s+/g, ' ').trim();
+  if (start === 0 && end > 0 && subject !== undefined && flat(lines[0]) === flat(subject)) start = 1;
+  if (start === end) return text;
+  while (start > 0 && !lines[start - 1].trim()) start -= 1;
+  return lines.slice(0, start).join('\n');
+}
 
 // A removed URL leaves a marker, so a reason whose OBJECT was the link ("because of <url>") can be
 // dropped rather than printed with a hole in it. Only real HTML tags are stripped: `<path>` in a
@@ -177,7 +238,9 @@ const SENTENCE_SPLIT = /(?<=[.!?])(?<!\b(?:e\.g|i\.e|etc|vs|cf|[Mm]r|[Mm]rs|[Mm]
 
 export function extractReason(title: string, body: string | null | undefined): string | null {
   if (!body) return null;
-  let text = stripImporterMetadata(body).slice(0, MAX_INPUT_CHARS);
+  // Trailers come off before the cut, so the paragraph read as the last one is the message's own.
+  const bare = stripImporterMetadata(body);
+  let text = (hasImporterMetadata(body) ? stripTrailers(bare, title) : bare).slice(0, MAX_INPUT_CHARS);
 
   // The summary opens with its own title; the caller already prints it.
   const flatTitle = (title ?? '').replace(/\s+/g, ' ').trim();
