@@ -2,6 +2,7 @@ import { type ChildProcess, spawn as nodeSpawn, type SpawnOptions } from 'node:c
 import os from 'node:os';
 import path from 'node:path';
 import type { LaunchSpec } from './adapters/claude-code.js';
+import { GIT_ENV_CONFIG_KEY } from '../git-safe-env.js';
 import { PROVIDER_ENV_VARS } from '../llm-providers.js';
 import { STARTUP_ENV } from '../startup-env.js';
 
@@ -28,6 +29,9 @@ export function childEnv(
   specEnv: Record<string, string> | undefined,
 ): Record<string, string | undefined> {
   const env = { ...parent };
+  // Git config align added for its own git calls stays with align: the agent is the user's tool.
+  for (const name of Object.keys(env)) if (GIT_ENV_CONFIG_KEY.test(name)) delete env[name];
+  for (const [name, value] of Object.entries(startup)) if (GIT_ENV_CONFIG_KEY.test(name)) env[name] = value;
   for (const name of PROVIDER_ENV_VARS) {
     if (startup[name] === undefined) delete env[name];
     else env[name] = startup[name];

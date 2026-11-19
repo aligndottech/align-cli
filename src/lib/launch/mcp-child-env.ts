@@ -68,6 +68,7 @@ export const CHILD_ENV_NOT_PINNED: Record<string, string> = {
   VITEST: 'set by the test runner only; the token store refuses to start a tool under it',
   SYSTEMROOT: 'always set on Windows; read to find PowerShell by absolute path for the token store',
   PATH: 'always set; dotenv never overrides it',
+  GIT_CONFIG_COUNT: 'git reads it whether or not align does; align only appends core.fsmonitor=false after what is there, and the later entry wins',
   Path: 'Windows spelling of PATH; always set',
   PATHEXT: 'always set on Windows',
   NO_COLOR: 'output colour only',

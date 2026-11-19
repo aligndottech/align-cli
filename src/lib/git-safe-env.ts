@@ -9,8 +9,10 @@
  * diff and blame calls pass `--no-textconv` and `--no-ext-diff` themselves.
  */
 export function hardenGitEnv(env: Record<string, string | undefined> = process.env): void {
-  const parsed = Number(env['GIT_CONFIG_COUNT'] ?? '0');
-  const count = Number.isInteger(parsed) && parsed >= 0 ? parsed : 0;
+  const raw = env['GIT_CONFIG_COUNT'];
+  // Git refuses a count it cannot read. That is the caller's to see, so nothing is written over it.
+  if (raw !== undefined && !/^\d+$/.test(raw)) return;
+  const count = Number(raw ?? '0');
   for (let i = 0; i < count; i++) {
     if (env[`GIT_CONFIG_KEY_${i}`] === 'core.fsmonitor' && env[`GIT_CONFIG_VALUE_${i}`] === 'false') return;
   }
@@ -21,3 +23,6 @@ export function hardenGitEnv(env: Record<string, string | undefined> = process.e
 
 /** For `git diff`: no text converter and no external diff program, whatever the repository's config names. */
 export const PLAIN_DIFF_ARGS = ['--no-ext-diff', '--no-textconv'] as const;
+
+/** The environment keys git reads extra config from. */
+export const GIT_ENV_CONFIG_KEY = /^GIT_CONFIG_(COUNT|KEY_\d+|VALUE_\d+)$/;

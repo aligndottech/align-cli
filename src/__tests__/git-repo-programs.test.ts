@@ -121,4 +121,14 @@ describe.skipIf(process.platform === 'win32')('git calls do not run programs a r
     hardenGitEnv(env);
     expect(env['GIT_CONFIG_COUNT']).toBe('2');
   });
+
+  // Git refuses a count it cannot read. Writing KEY_0 over it would replace the caller's own setting
+  // and hide their mistake, so a count that is not a plain number is left for git to report.
+  for (const count of ['-1', '1e1', 'two', '']) {
+    it(`leaves the environment alone when the caller's count is ${JSON.stringify(count)}`, () => {
+      const env = { GIT_CONFIG_COUNT: count, GIT_CONFIG_KEY_0: 'user.name', GIT_CONFIG_VALUE_0: 'someone' };
+      hardenGitEnv(env);
+      expect(env).toEqual({ GIT_CONFIG_COUNT: count, GIT_CONFIG_KEY_0: 'user.name', GIT_CONFIG_VALUE_0: 'someone' });
+    });
+  }
 });
