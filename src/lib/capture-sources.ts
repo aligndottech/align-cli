@@ -23,4 +23,5 @@ export const CAPTURE_SOURCES = {
   sessions: { label: 'Agent sessions', unit: 'decisions' },
   mirsad: { label: 'MIRSAD', unit: 'decisions' },
   nightshift: { label: 'nightshift', unit: 'decisions' },
+  'adr-guard': { label: 'ADR Guard', unit: 'replacements' },
 } as const satisfies Record<string, { label: string; unit: string }>;

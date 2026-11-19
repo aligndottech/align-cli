@@ -32,9 +32,19 @@ export function confirmMirsadLinks(dbPath: string, links: MirsadLink[], ctx: { j
   } finally {
     local.close();
   }
-  for (const r of resolved) {
+  return { ...out, ...applyReplacements(dbPath, resolved, ctx.judge) };
+}
+
+/**
+ * Write each "newer replaces older" pair (graph ids) as a person's mark, through the same function
+ * `align mark` uses, so its rules apply. A pair the mark rules refuse (the older one is ratified) is
+ * counted, not written. Shared by every importer whose source records replacements itself.
+ */
+export function applyReplacements(dbPath: string, pairs: Array<{ newer: string; older: string }>, judge: Judge): { confirmed: number; refused: number } {
+  const out = { confirmed: 0, refused: 0 };
+  for (const r of pairs) {
     try {
-      applyJudgement({ dbPath, judge: ctx.judge, origin: { via: 'cli' } }, { action: 'replaces', ...r });
+      applyJudgement({ dbPath, judge, origin: { via: 'cli' } }, { action: 'replaces', ...r });
       out.confirmed++;
     } catch (e) {
       if (!(e instanceof MarkError && e.code === 'refused')) throw e;

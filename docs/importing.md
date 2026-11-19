@@ -462,7 +462,7 @@ supported from the CLI yet. Over MCP, `align_capture` accepts text too, in local
 A decision is identified by its source URL and title, so running the same import twice updates
 what changed rather than duplicating the graph.
 
-## MIRSAD and nightshift
+## MIRSAD, nightshift and ADR Guard
 
 To import decisions from a MIRSAD JSON export, run `align connect mirsad --file <path>`. Each decision is one item,
 so exporting and importing again updates it instead of adding a copy. MIRSAD's `supersedes` links arrive as
@@ -470,3 +470,15 @@ confirmed, the same as if you had run `align mark <newer> replaces <older>`, and
 
 To import the decisions you answered in [nightshift](https://github.com/orwa-mahmoud/nightshift)'s parking lot or plan record, run
 `align connect nightshift` in the repo. Open entries stay in nightshift until you answer them.
+
+To record which of your ADRs replaced which, as [ADR Guard](https://github.com/rodri-oliveira-dev/adr-guard)
+validated them, run `adr-guard export relationships` (ADR Guard 1.12.0 or later), then `align connect docs` and
+`align connect adr-guard` in the repo. It reads `.adr-guard/relationships.json`, or `--file <path>`.
+
+- Each replacement is recorded as confirmed, the same as `align mark <newer> replaces <older>`, and needs a terminal.
+- The ADRs themselves come from `align connect docs`. The export only says which replaced which, so an ADR that is
+  not in your graph yet is counted and skipped.
+- A replacement is held back when ADR Guard reports an error on either ADR, a supersession cycle for example. A
+  target that did not resolve to exactly one ADR is skipped.
+- `depends-on` links are counted and not imported.
+- Local graph only. A cloud environment works out its own links.

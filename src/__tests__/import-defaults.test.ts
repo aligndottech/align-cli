@@ -39,9 +39,9 @@ describe('SYNC_CEILINGS (was IMPORT_LIMITS; L3 made it the one table)', () => {
       const src = readFileSync(path.join(IMPORT_DIR, `${id}.ts`), 'utf8');
       // The default is either the table reference or a quoted literal; capturing both
       // forms is what lets a literal FAIL the equality below rather than not match at all.
-      const m = src.match(/\.option\('--limit <n>', '[^']*', (String\((?:SYNC_CEILINGS\.\w+|GIT_DEFAULT_LIMIT)\)|'[^']*')\)/);
+      const m = src.match(/\.option\('--limit <n>', '[^']*', (String\((?:SYNC_CEILINGS\.\w+|SYNC_CEILINGS\['[\w-]+'\]|GIT_DEFAULT_LIMIT)\)|'[^']*')\)/);
       expect(m, `${id}.ts declares --limit`).not.toBeNull();
-      expect(m![1], `${id}.ts --limit default`).toBe(id === 'git' ? 'String(GIT_DEFAULT_LIMIT)' : `String(SYNC_CEILINGS.${id})`);
+      expect(m![1], `${id}.ts --limit default`).toBe(id === 'git' ? 'String(GIT_DEFAULT_LIMIT)' : /^\w+$/.test(id) ? `String(SYNC_CEILINGS.${id})` : `String(SYNC_CEILINGS['${id}'])`);
     }
   });
 
@@ -56,8 +56,8 @@ describe('SYNC_CEILINGS (was IMPORT_LIMITS; L3 made it the one table)', () => {
     // per-tenant fetch, and refuses any environment but the local graph outright - there is
     // nothing for `align setup`'s cloud/local onboarding to wire up, so it is exempt from
     // this loop the same way docs is, rather than forcing a fetch-shaped entry that would
-    // not fire. mirsad reads a file the person names, and nightshift reads the repo's own .nightshift folder, so both are exempt for the same reason.
-    for (const id of commandIds.filter((c) => c !== 'docs' && c !== 'sessions' && c !== 'mirsad' && c !== 'nightshift' && c !== 'git')) {
+    // not fire. mirsad reads a file the person names, nightshift reads the repo's own .nightshift folder, and adr-guard reads the export ADR Guard wrote, so all three are exempt for the same reason.
+    for (const id of commandIds.filter((c) => c !== 'docs' && c !== 'sessions' && c !== 'mirsad' && c !== 'nightshift' && c !== 'adr-guard' && c !== 'git')) {
       expect(buildSources, `setup reads SYNC_CEILINGS.${id} through fetchWindow`).toContain(`fetchWindow('${id}'`);
     }
     // git is unwindowed by default (L3 review 7): it reads GIT_DEFAULT_LIMIT, not the window table.
@@ -73,7 +73,7 @@ describe('SYNC_CEILINGS (was IMPORT_LIMITS; L3 made it the one table)', () => {
   it('carries the numbers the plan set (L3 table)', () => {
     expect(SYNC_CEILINGS).toEqual({
       github: 3_000, slack: 2_000, jira: 2_000, linear: 2_000, gitlab: 2_000, confluence: 2_000,
-      notion: 1_000, teams: 1_000, zoom: 200, git: 5_000, docs: 500, sessions: 250, mirsad: 1_000, nightshift: 1_000,
+      notion: 1_000, teams: 1_000, zoom: 200, git: 5_000, docs: 500, sessions: 250, mirsad: 1_000, nightshift: 1_000, 'adr-guard': 1_000,
     });
     expect(SYNC_WINDOW_DEFAULT_DAYS).toBe(180);
     expect(SYNC_TIME_BUDGET_MS).toBe(8 * 60_000);
@@ -84,7 +84,7 @@ describe('SYNC_CEILINGS (was IMPORT_LIMITS; L3 made it the one table)', () => {
   it('marks exactly the ceilings P0 could not measure as PROVISIONAL, and says why on the line', () => {
     const src = readFileSync(path.join(HERE, '..', 'lib', 'import-defaults.ts'), 'utf8');
     const table = src.slice(src.indexOf('export const SYNC_CEILINGS'), src.indexOf('} as const', src.indexOf('export const SYNC_CEILINGS')));
-    const lines = table.split('\n').filter((l) => /^\s+\w+:\s+[\d_]+,/.test(l));
+    const lines = table.split('\n').filter((l) => /^\s+(?:\w+|'[\w-]+'):\s+[\d_]+,/.test(l));
     expect(lines.length).toBe(Object.keys(SYNC_CEILINGS).length);    // the slice found every entry
     const provisional = lines.filter((l) => l.includes('PROVISIONAL')).map((l) => l.trim().split(':')[0]);
     expect(provisional.sort()).toEqual(['confluence', 'gitlab', 'jira', 'linear', 'notion', 'teams', 'zoom']);

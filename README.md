@@ -124,7 +124,8 @@ and no file is ever replaced.
 Git history, the repo's ADRs and RFCs, decision logs, `CLAUDE.md`, `AGENTS.md`, tenets and
 architecture docs. With `align connect`: GitHub, GitLab, Jira, Confluence, Linear, Notion, Slack,
 Teams and Zoom. Also [nightshift](https://github.com/orwa-mahmoud/nightshift)'s parking lot and
-plan record (`align connect nightshift`), and MIRSAD exports. All read-only.
+plan record (`align connect nightshift`), MIRSAD exports, and the ADR replacements
+[ADR Guard](https://github.com/rodri-oliveira-dev/adr-guard) validated (`align connect adr-guard`). All read-only.
 [Importing](docs/importing.md) has every source and its flags.
 
 Connected sources refresh in the background when you start `align`, at most every 15 minutes per
