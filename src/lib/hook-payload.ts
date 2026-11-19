@@ -19,6 +19,8 @@ export interface HookPayload {
    * so without this the check would look at the wrong directory.
    */
   cwd?: string;
+  /** The host's id for the conversation, when it sends one (`session_id`, or Copilot CLI's `sessionId`). */
+  session_id?: string;
 }
 
 type Raw = Record<string, unknown>;
@@ -108,6 +110,9 @@ export function normalizeHookPayload(raw: unknown): HookPayload | null {
   const p = asRecord(raw);
   if (!p) return null;
   const cwd = cwdOf(p);
+  const session = [p['session_id'], p['sessionId']].find((v): v is string => typeof v === 'string' && v !== '');
+  // What every shape carries alongside its tool: the workspace and the session, when the host names them.
+  const shared = { ...(cwd !== undefined ? { cwd } : {}), ...(session !== undefined ? { session_id: session } : {}) };
 
   // pi: the event type is explicit on the payload.
   if (p['type'] === 'tool_call' || p['type'] === 'tool_result') {
@@ -116,7 +121,7 @@ export function normalizeHookPayload(raw: unknown): HookPayload | null {
       hook_event_name: p['type'] === 'tool_call' ? 'PreToolUse' : 'PostToolUse',
       tool_name: typeof p['toolName'] === 'string' ? p['toolName'] : undefined,
       tool_input: fromPiInput(input),
-      ...(cwd !== undefined ? { cwd } : {}),
+      ...shared,
     };
   }
 
@@ -126,7 +131,7 @@ export function normalizeHookPayload(raw: unknown): HookPayload | null {
       hook_event_name: p['type'] === 'tool.execute.before' ? 'PreToolUse' : 'PostToolUse',
       tool_name: typeof p['tool'] === 'string' ? p['tool'] : undefined,
       tool_input: fromOpenCodeArgs(asRecord(p['args']) ?? {}),
-      ...(cwd !== undefined ? { cwd } : {}),
+      ...shared,
     };
   }
 
@@ -135,7 +140,7 @@ export function normalizeHookPayload(raw: unknown): HookPayload | null {
     const tool_input: HookToolInput = {};
     if (typeof p['file_path'] === 'string') tool_input.file_path = p['file_path'];
     if (Array.isArray(p['edits'])) tool_input.edits = p['edits'] as HookToolInput['edits'];
-    return { hook_event_name: 'PostToolUse', tool_name: 'Edit', tool_input, ...(cwd !== undefined ? { cwd } : {}) };
+    return { hook_event_name: 'PostToolUse', tool_name: 'Edit', tool_input, ...shared };
   }
 
   // Claude Code / Codex / Gemini CLI / Cursor: all speak tool_name + tool_input.
@@ -151,7 +156,7 @@ export function normalizeHookPayload(raw: unknown): HookPayload | null {
       hook_event_name: event,
       tool_name,
       tool_input: fromCodexInput(tool_name, asRecord(p['tool_input']) ?? {}),
-      ...(cwd !== undefined ? { cwd } : {}),
+      ...shared,
     };
   }
 
@@ -165,7 +170,7 @@ export function normalizeHookPayload(raw: unknown): HookPayload | null {
       hook_event_name: p['toolResult'] !== undefined ? 'PostToolUse' : 'PreToolUse',
       tool_name: p['toolName'],
       tool_input: (asRecord(p['toolArgs']) ?? {}) as HookToolInput,
-      ...(cwd !== undefined ? { cwd } : {}),
+      ...shared,
     };
   }
 

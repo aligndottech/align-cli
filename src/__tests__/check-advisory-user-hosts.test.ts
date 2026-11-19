@@ -111,7 +111,7 @@ vi.mock('node:child_process', () => ({ spawn: vi.fn(() => ({ unref: vi.fn(), on:
 vi.mock('../lib/gateway-client.js', () => ({ createGatewayClient: vi.fn(() => ({ checkAlignment: mockCheckAlignment })) }));
 const mockReadHookPayload = vi.fn(() => Promise.resolve<unknown>(null));
 vi.mock('../lib/hook-payload.js', () => ({ readHookPayload: () => mockReadHookPayload() }));
-vi.mock('../lib/advisory-dedup.js', () => ({ recentlySurfaced: () => new Set<string>(), markSurfaced: vi.fn() }));
+vi.mock('../lib/advisory-dedup.js', () => ({ dedupScope: (cwd: string) => cwd, recentlySurfaced: () => new Set<string>(), markSurfaced: vi.fn() }));
 
 async function runAdvisory(args: string[]): Promise<void> {
   const program = new Command();

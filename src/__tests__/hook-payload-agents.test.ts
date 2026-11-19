@@ -202,3 +202,21 @@ describe('normalizeHookPayload - OpenCode', () => {
     expect(got?.hook_event_name).toBe('PostToolUse');
   });
 });
+
+// The advisory dedup is scoped to a session, so the id has to survive normalising.
+describe('normalizeHookPayload - the session id', () => {
+  it('is carried from the Claude Code and Codex shape', () => {
+    const p = normalizeHookPayload({ hook_event_name: 'PreToolUse', session_id: 'abc-1', tool_name: 'Edit', tool_input: { file_path: 'a.ts', old_string: 'x', new_string: 'y' } });
+    expect(p?.session_id).toBe('abc-1');
+  });
+
+  it("is carried from Copilot CLI's sessionId", () => {
+    expect(normalizeHookPayload({ sessionId: 'cop-9', toolName: 'edit', toolArgs: { path: 'a.ts' } })?.session_id).toBe('cop-9');
+  });
+
+  it('is absent when the host sends none, or sends something that is not text', () => {
+    expect(normalizeHookPayload({ tool_name: 'Edit', tool_input: {} })).not.toHaveProperty('session_id');
+    expect(normalizeHookPayload({ session_id: 42, tool_name: 'Edit', tool_input: {} })).not.toHaveProperty('session_id');
+  });
+});
+

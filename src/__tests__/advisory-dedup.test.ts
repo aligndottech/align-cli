@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { markSurfaced, recentlySurfaced } from '../lib/advisory-dedup.js';
+import { dedupScope, markSurfaced, recentlySurfaced } from '../lib/advisory-dedup.js';
 
 // Unique cwd per test so the per-dir marker files never collide.
 const dirs: string[] = [];
@@ -48,5 +48,25 @@ describe('advisory dedup', () => {
     const seen = recentlySurfaced(cwd, now + 2_000);
     expect(seen.has('d-1')).toBe(true);
     expect(seen.has('d-2')).toBe(true);
+  });
+
+  // The window exists so one edit's pre and post hooks do not repeat each other. Keyed on the folder
+  // alone it also silenced a second session, or a subagent, working in the same checkout: seen on a
+  // real run, session B got nothing for 20 seconds after session A was told.
+  it('a second session in the same folder is told what the first was told', () => {
+    const cwd = freshCwd();
+    const now = 4_000_000;
+    markSurfaced(dedupScope(cwd, 'session-a'), ['d-1'], now);
+    expect(recentlySurfaced(dedupScope(cwd, 'session-b'), now + 1_000).has('d-1')).toBe(false);
+    // Control: the same session still gets its pre and post hooks deduplicated.
+    expect(recentlySurfaced(dedupScope(cwd, 'session-a'), now + 1_000).has('d-1')).toBe(true);
+  });
+
+  it('with no session id from the host, the folder is the scope, as before', () => {
+    const cwd = freshCwd();
+    const now = 5_000_000;
+    markSurfaced(dedupScope(cwd, undefined), ['d-1'], now);
+    expect(recentlySurfaced(cwd, now + 1_000).has('d-1')).toBe(true);
+    expect(dedupScope(cwd, '')).toBe(cwd);
   });
 });
