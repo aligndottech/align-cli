@@ -33,6 +33,16 @@ const CHANGELOG_CATEGORY = /^(?:added|changed|deprecated|removed|fixed|security)
 /** `[1.2.0] - 2026-01-01`, `2026-07-07`, `v2`, `Unreleased`: a release entry, never a rule. */
 const RELEASE_HEADING = /^\[?v?\d+(?:\.\d+)|^\[?unreleased\b|\d{4}-\d{2}(?:-\d{2})?/i;
 
+/**
+ * `Release: 1.2.0 batch landing`, `Release 2.0`: a heading that names a release by its version. Narrower than
+ * RELEASE_HEADING on purpose. That one counts any heading with a date in it, which is right for a changelog
+ * and wrong for a log of dated checkpoints, where `Checkpoint 2026-06-10` is a section worth reading.
+ * "Release process" and "Releasing the installer" carry no version, so they are not release entries.
+ */
+export function isVersionedReleaseHeading(heading: string): boolean {
+  return /^release:?\s+v?\d/i.test(heading.trim());
+}
+
 export type DocKind = 'readme' | 'contributing' | 'changelog';
 
 /** A changelog that uses `# 1.2.0` as a release heading puts the whole release inside the
