@@ -179,7 +179,7 @@ const MENU_CHOICE = /^(planning depth|evidence lines|edge-case pass|pre-mortem|o
 /** A decision is parted from its why by a dash: nightshift writes an em dash, a hyphen is read too. */
 const WHY_SPLIT = /\s+(?:\u2014|\u2013|-)\s+/;
 
-interface PlanEntry { topic: string; date?: string; closed: 'captured' | 'dropped' | null; lines: { label: string; text: string }[] }
+interface PlanEntry { topic: string; date?: string; closed: 'captured' | 'dropped' | null; lines: { label: string; text: string; note?: string }[] }
 
 /** The plan record's entries: a `- **topic**` bullet, its labelled notes indented under it, wrapped lines joined. */
 function planEntries(text: string): PlanEntry[] {
@@ -198,8 +198,12 @@ function planEntries(text: string): PlanEntry[] {
       out.push(current);
       continue;
     }
-    const note = /^\s+- (Where we are|Decided|Rejected|Open):\s*(.*)$/i.exec(raw);
-    if (current && note) current.lines.push({ label: note[1]!.toLowerCase(), text: note[2]!.replace(/\*\*/g, '').trim() });
+    // A label can carry a note before the colon: `Decided (docs, 2026-10-22): ...`.
+    const note = /^\s+- (Where we are|Decided|Rejected|Open)(?:\s*\(([^)]*)\))?:\s*(.*)$/i.exec(raw);
+    if (current && note) {
+      const aside = note[2]?.trim();
+      current.lines.push({ label: note[1]!.toLowerCase(), text: note[3]!.replace(/\*\*/g, '').trim(), ...(aside ? { note: aside } : {}) });
+    }
     else if (current && /^\s+\S/.test(raw) && current.lines.length > 0) {
       const last = current.lines[current.lines.length - 1]!;
       last.text = `${last.text} ${raw.trim()}`;
@@ -230,12 +234,14 @@ export function parsePlanRecord(text: string, o: { fileDate?: string; repo?: str
       const reason = why.join(' - ').trim();
       if (!subject.trim() || (line.label === 'decided' && MENU_CHOICE.test(subject.trim()))) continue;
       const rejected = line.label === 'rejected';
+      const noted = /\b\d{4}-\d{2}-\d{2}\b/.exec(line.note ?? '')?.[0];
+      const lineDate = noted && !Number.isNaN(Date.parse(day(noted))) ? noted : date;
       items.push({
         source_url: planRecordUrl(rejected ? 'rejected' : 'decided', entry.topic, subject, o.repo),
         platform: 'nightshift',
         title: titleOf(rejected ? `Rejected: ${subject.trim()}` : subject.trim()),
-        raw_text: [rejected ? `Rejected: ${subject.trim()}` : subject.trim(), ...(reason ? [`Why: ${reason}`] : []), `Plan: ${entry.topic}`].join('\n'),
-        ...(date ? { created_at: day(date) } : {}),
+        raw_text: [rejected ? `Rejected: ${subject.trim()}` : subject.trim(), ...(reason ? [`Why: ${reason}`] : []), ...(line.note ? [`Note: ${line.note}`] : []), `Plan: ${entry.topic}`].join('\n'),
+        ...(lineDate ? { created_at: day(lineDate) } : {}),
       });
     }
   }
