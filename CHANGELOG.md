@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.90.0](https://github.com/aligndottech/align-cli/compare/cli-v0.89.0...cli-v0.90.0) (2026-11-19)
+
+
+### Features
+
+* **check:** ALIGN_HOOK_VERDICT_DEADLINE_MS moves the edit hook's verdict wait (ALI-2143) ([#689](https://github.com/aligndottech/align-cli/issues/689)) ([68ea95c](https://github.com/aligndottech/align-cli/commit/68ea95cad218f9ca2b18a27c0514b698d214f8e6))
+
+
+### Bug Fixes
+
+* **ask:** strip commit trailers from the stated reason and the ask quote ([#690](https://github.com/aligndottech/align-cli/issues/690)) ([f576995](https://github.com/aligndottech/align-cli/commit/f5769957d7ed856411d437d4754c443323f6117a))
+
 ## [0.89.0](https://github.com/aligndottech/align-cli/compare/cli-v0.88.0...cli-v0.89.0) (2026-11-19)
 
 
