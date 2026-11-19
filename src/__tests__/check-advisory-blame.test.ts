@@ -171,4 +171,28 @@ describe('only decisions worth honouring count as writers', () => {
     expect(out).toContain(WRITER.title);
     expect(out).not.toContain(DOCS.title);
   });
+
+  // Blame could not look: say so. Silence would read as "no decision wrote these lines".
+  describe('when blame could not look', () => {
+    it('says so even when nothing else was found, where it used to stay silent', async () => {
+      mockFindLineWriters.mockResolvedValue({ couldNotLook: 'timed out' });
+      mockCheckAlignment.mockResolvedValue({ status: 'retrieved', relevant_decisions: [], conflicts: [] });
+      const out = await run();
+      expect(out).toContain('could not check which decisions wrote the lines this edit changes (git blame timed out)');
+    });
+
+    it('adds the line beside the related list', async () => {
+      mockFindLineWriters.mockResolvedValue({ couldNotLook: 'git failed' });
+      const out = await run();
+      expect(out).toContain(RELATED.title);
+      expect(out).toContain('(git blame failed)');
+    });
+
+    it('control: a file with nothing to blame stays silent when nothing else was found', async () => {
+      mockFindLineWriters.mockResolvedValue(null);
+      mockCheckAlignment.mockResolvedValue({ status: 'retrieved', relevant_decisions: [], conflicts: [] });
+      expect(await run()).toBe('');
+    });
+  });
 });
+

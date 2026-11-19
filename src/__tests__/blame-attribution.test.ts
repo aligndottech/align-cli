@@ -106,12 +106,19 @@ describe('findLineWriters', () => {
     expect(await findLineWriters({ file_path: 'sub/wip.js', old_string: 'wip', new_string: 'x' }, dir)).toBeNull();
   });
 
-  it('gives up (null) when blame never answers within its budget, whatever the machine speed', async () => {
+  // "Could not look" and "nothing there" are different answers. A pause built on this has to tell them apart.
+  it('says it could not look when blame never answers within its budget, whatever the machine speed', async () => {
     const hangs = (): Promise<{ stdout: string }> => new Promise(() => {});
     const t0 = Date.now();
     const got = await findLineWriters({ file_path: 'a.js', old_string: 'line one', new_string: 'x' }, dir, { timeoutMs: 20, runGit: hangs });
-    expect(got).toBeNull();
+    expect(got).toEqual({ couldNotLook: 'timed out' });
     expect(Date.now() - t0).toBeLessThan(1500);
+  });
+
+  it('says it could not look when git fails for a reason that is not "nothing to blame"', async () => {
+    const breaks = (): Promise<{ stdout: string }> => Promise.reject(new Error('fatal: unable to read tree 0f0f'));
+    const got = await findLineWriters({ file_path: 'a.js', old_string: 'line one', new_string: 'x' }, dir, { timeoutMs: 5000, runGit: breaks });
+    expect(got).toEqual({ couldNotLook: 'git failed' });
   });
 
   it('positive control: a blame that answers inside the budget returns its writers', async () => {

@@ -13,6 +13,18 @@ import type { HookToolInput } from './hook-payload.js';
  * untracked or missing file, text not found, a blame error or a timeout all mean "no
  * attribution", and the hook carries on exactly as it did before.
  */
+/**
+ * Blame ran into something other than "nothing to attribute": it timed out, or git failed. That is a
+ * different answer from null. Null means there is nothing here to attribute (no repo, a new or untracked
+ * file, text not found). This means Align could not look, so the lines may well belong to a decision.
+ */
+export interface CouldNotLook {
+  couldNotLook: 'timed out' | 'git failed';
+}
+
+/** Git saying the file has nothing to blame: not in a repository, not tracked, or a repo with no commits. */
+const NOTHING_TO_BLAME = /no such path|not a git repository|outside repository|no such ref|bad revision 'HEAD'/i;
+
 export interface LineWriters {
   /** Full SHAs of the commits that wrote the lines the edit replaces. */
   commitShas: string[];
@@ -159,7 +171,7 @@ export async function findLineWriters(
   input: HookToolInput | undefined,
   cwd: string,
   opts: BlameOpts = {},
-): Promise<LineWriters | null> {
+): Promise<LineWriters | CouldNotLook | null> {
   try {
     if (!input || typeof input.file_path !== 'string' || !input.file_path) return null;
     if (isProseOrGeneratedFile(input.file_path)) return null;
@@ -177,7 +189,14 @@ export async function findLineWriters(
     if (!ranges.length) return null;
 
     const run = makeGitRunner(opts, path.dirname(file));
-    const commits = await blameCommits(file, ranges, run);
+    let commits: BlamedCommit[];
+    try {
+      commits = await blameCommits(file, ranges, run);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (NOTHING_TO_BLAME.test(message)) return null;
+      return { couldNotLook: message.includes('blame budget exceeded') ? 'timed out' : 'git failed' };
+    }
     if (!commits.length) return null;
     return { commitShas: commits.map((c) => c.sha), prUrls: await prUrlsFor(commits, run) };
   } catch {
