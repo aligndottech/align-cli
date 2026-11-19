@@ -78,6 +78,14 @@ describe('parseAdrGuardExport', () => {
     expect(warned.replacements).toHaveLength(1);
   });
 
+  // A replaces B and B replaces A cannot both be true. ADR Guard reports this as a cycle; the reader does
+  // not rely on that report being present.
+  it('holds back a pair declared in both directions even when no issue says so', () => {
+    const read = parseAdrGuardExport(doc([OLD, NEW], [rel(OLD, 'superseded-by', NEW), rel(OLD, 'supersedes', NEW)]));
+    expect(read.replacements).toEqual([]);
+    expect(read.heldBack).toBe(2);
+  });
+
   it('counts depends-on and records no replacement for it', () => {
     const read = parseAdrGuardExport(doc([NEW, ENC], [rel(NEW, 'depends-on', ENC)]));
     expect(read.replacements).toEqual([]);

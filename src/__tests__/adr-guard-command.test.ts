@@ -134,6 +134,28 @@ describe('align connect adr-guard', () => {
     expect(out.join('\n')).toMatch(/0 replacement\(s\) confirmed, as the ADRs record them; 1 not in your graph \(run align connect docs/);
   });
 
+  it('refuses a --limit that is not a positive whole number', async () => {
+    await importAdrs([OLD, NEW]);
+    setTty(true);
+    for (const bad of ['abc', '0', '-2']) {
+      expect(await run(['--limit', bad])).toBe('exit:1');
+    }
+    expect(supersedes()).toHaveLength(0);
+    expect(err.join('\n')).toMatch(/--limit/);
+  });
+
+  it('reads the paths against the repository the --file export is in, not the one it is run from', async () => {
+    await importAdrs([OLD, NEW]);
+    const elsewhere = path.join(dir, 'elsewhere');
+    fs.mkdirSync(elsewhere);
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: elsewhere, stdio: 'pipe' });
+    execFileSync('git', ['remote', 'add', 'origin', 'https://github.com/acme/other.git'], { cwd: elsewhere, stdio: 'pipe' });
+    process.chdir(elsewhere);
+    setTty(true);
+    expect(await run(['--file', path.join(repo, '.adr-guard', 'relationships.json')])).toBeUndefined();
+    expect(supersedes()).toHaveLength(1);
+  });
+
   it('in a cloud environment writes no local link', async () => {
     state.env = { mode: 'auth', gatewayUrl: 'https://example.test', authToken: 't' };
     setTty(true);

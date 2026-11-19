@@ -10,9 +10,9 @@ export interface AdrGuardLinkOutcome { confirmed: number; unmatched: number; ref
  * graph holds them as docs rows keyed by the file's blob URL, written by `align connect docs`.
  *
  * `urlFor(path)` is the URL that path gets on the branch being read now. A row imported on another
- * branch has the same URL with another branch in it, so it is accepted by path when exactly one
- * docs row of this repository ends in that path. Two candidates are a guess, so the pair is counted
- * unmatched. A section of a file (`CLAUDE.md#heading`) never ends in an ADR path, so it is never taken.
+ * branch has the same URL with another branch in it, so it is accepted when the text between `/blob/`
+ * and the path is one of `ctx.branches` and exactly one docs row of this repository matches. Two
+ * candidates are a guess, so the pair is counted unmatched. A section of a file (`CLAUDE.md#heading`) never ends in an ADR path, so it is never taken.
  *
  * Like `align mark ... replaces`, this needs a terminal: declaring a decision replaced is a person's act.
  */
@@ -20,7 +20,7 @@ export function confirmAdrGuardLinks(
   dbPath: string,
   replacements: AdrReplacement[],
   urlFor: (path: string) => string,
-  ctx: { judge: Judge; terminal: boolean },
+  ctx: { judge: Judge; terminal: boolean; branches?: ReadonlySet<string> },
 ): AdrGuardLinkOutcome {
   const out: AdrGuardLinkOutcome = { confirmed: 0, unmatched: 0, refused: 0, needsTerminal: false };
   if (replacements.length === 0) return out;
@@ -38,7 +38,13 @@ export function confirmAdrGuardLinks(
       const here = urlFor(path);
       if (!/^https?:\/\//.test(here) || !here.includes('/blob/')) return null;
       const base = here.slice(0, here.indexOf('/blob/') + '/blob/'.length);
-      const candidates = docsUrls.filter((r) => r.source_url !== null && r.source_url.startsWith(base) && r.source_url.endsWith(`/${path}`));
+      // What sits between `/blob/` and the path must be a branch this repository has. Otherwise
+      // `.../blob/main/vendor/docs/adr/0001.md` would pass for `docs/adr/0001.md` on a branch "main/vendor".
+      const candidates = docsUrls.filter((r) => {
+        if (r.source_url === null || !r.source_url.startsWith(base) || !r.source_url.endsWith(`/${path}`)) return false;
+        const branch = r.source_url.slice(base.length, r.source_url.length - path.length - 1);
+        return ctx.branches?.has(branch) ?? false;
+      });
       return candidates.length === 1 ? candidates[0]!.id : null;
     };
     for (const r of replacements) {

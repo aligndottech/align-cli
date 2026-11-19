@@ -56,11 +56,20 @@ describe('confirmAdrGuardLinks', () => {
     try { expect(local.isSuperseded(idOf(urlFor(OLD)))).toBe(true); expect(local.isSuperseded(idOf(urlFor(NEW)))).toBe(false); } finally { local.close(); }
   });
 
-  it('finds ADRs imported from another branch by their path', async () => {
+  it('finds ADRs imported from another branch of this repository by their path', async () => {
     const onBranch = (p: string) => `${WEB}/blob/feature/storage/${p}`;
     await importDocs([{ url: onBranch(OLD), title: 'Use legacy storage' }, { url: onBranch(NEW), title: 'Use managed storage' }]);
-    const out = confirmAdrGuardLinks(dbPath, [{ newer: NEW, older: OLD }], urlFor, { judge: JUDGE, terminal: true });
+    const out = confirmAdrGuardLinks(dbPath, [{ newer: NEW, older: OLD }], urlFor, { judge: JUDGE, terminal: true, branches: new Set(['main', 'feature/storage']) });
     expect(out).toMatchObject({ confirmed: 1, unmatched: 0 });
+  });
+
+  // `.../blob/main/x/docs/adr/0001.md` ends in `/docs/adr/0001.md` too: a copy in a subfolder, not the ADR.
+  // Read as branch "main/x", it is refused because no such branch exists.
+  it('does not take a file in a subfolder that ends in the same path', async () => {
+    const sub = (p: string) => `${WEB}/blob/main/vendor/${p}`;
+    await importDocs([{ url: sub(OLD), title: 'Vendored legacy storage' }, { url: sub(NEW), title: 'Vendored managed storage' }]);
+    const out = confirmAdrGuardLinks(dbPath, [{ newer: NEW, older: OLD }], (p) => `${WEB}/blob/feature/other/${p}`, { judge: JUDGE, terminal: true, branches: new Set(['main', 'feature/other']) });
+    expect(out).toMatchObject({ confirmed: 0, unmatched: 1 });
   });
 
   it('counts a path with no ADR row as unmatched, and does not take a section of another file', async () => {

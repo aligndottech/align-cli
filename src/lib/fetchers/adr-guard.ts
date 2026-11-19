@@ -82,6 +82,12 @@ export function parseAdrGuardExport(value: unknown): AdrGuardRead {
     seen.add(key);
     out.replacements.push(pair);
   }
+  // A replaced B and B replaced A cannot both be true. ADR Guard reports that as a cycle, but the pair is
+  // held back here whether or not the report is there.
+  const declared = new Set(out.replacements.map((r) => `${r.newer}\n${r.older}`));
+  const contradicted = out.replacements.filter((r) => declared.has(`${r.older}\n${r.newer}`));
+  out.heldBack += contradicted.length;
+  out.replacements = out.replacements.filter((r) => !contradicted.includes(r));
   return out;
 }
 
