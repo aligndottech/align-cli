@@ -49,6 +49,24 @@ const RETRIEVAL_TIMEOUT_MS = 2500;
 // which is worse than a titles-only answer. A verdict that does not fit degrades to
 // the titles with a line saying so (see buildRelatedOutput).
 const VERDICT_DEADLINE_MS = 7000;
+// A host whose hook timeout allows more than the default can say so. The variable moves the verdict deadline and nothing else: it does not
+// move the host's timeout, which is set where the hook is registered (the Codex plugin ships 10 seconds). A deadline at or past that timeout
+// gets the hook killed with nothing printed, which is worse than UNVERIFIED, so set the two together. Anything that is not a whole number
+// of milliseconds from 1000 to 60000 is ignored and the default stays: this runs on every edit and must not throw.
+const VERDICT_DEADLINE_ENV = 'ALIGN_HOOK_VERDICT_DEADLINE_MS';
+const MIN_VERDICT_DEADLINE_MS = 1000;
+const MAX_VERDICT_DEADLINE_MS = 60_000;
+
+function verdictDeadlineMs(): number {
+  const raw = process.env[VERDICT_DEADLINE_ENV];
+  if (raw === undefined || raw === '') return VERDICT_DEADLINE_MS;
+  const n = /^\d+$/.test(raw) ? Number(raw) : NaN;
+  if (Number.isInteger(n) && n >= MIN_VERDICT_DEADLINE_MS && n <= MAX_VERDICT_DEADLINE_MS) return n;
+  process.stderr.write(
+    `align: ${VERDICT_DEADLINE_ENV}=${JSON.stringify(raw)} is not a whole number of milliseconds from ${MIN_VERDICT_DEADLINE_MS} to ${MAX_VERDICT_DEADLINE_MS}, so the default ${VERDICT_DEADLINE_MS} is used.\n`,
+  );
+  return VERDICT_DEADLINE_MS;
+}
 // Below this there is no point opening an adjudication request: only a cached or
 // deterministic answer returns that fast, and retrieval has already used the time.
 const MIN_VERDICT_WINDOW_MS = 500;
@@ -648,7 +666,7 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
     // egress (#143 turned it off by default, deliberately), and this must not erode that.
     let verdict: VerdictOutcome = { kind: 'not_requested' };
     if (fresh.length && envName !== 'local') {
-      verdict = await requestVerdict(client, text, context, VERDICT_DEADLINE_MS - (Date.now() - startedAt));
+      verdict = await requestVerdict(client, text, context, verdictDeadlineMs() - (Date.now() - startedAt));
     }
     const judged = verdict.kind === 'conflicting' || verdict.kind === 'aligned';
 

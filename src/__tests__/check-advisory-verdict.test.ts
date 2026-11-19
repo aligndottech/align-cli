@@ -14,6 +14,10 @@
  *   5. the verdict request fails, or comes back `unknown` -> titles plus "no verdict"; never aligned.
  *   6. nothing related -> no verdict request (no extra latency or spend on a clean edit).
  *   7. local mode -> no verdict request (adjudication there is the provider egress #143 turned off).
+ *   9. ALIGN_HOOK_VERDICT_DEADLINE_MS moves the verdict deadline for a host whose hook timeout allows it:
+ *      a verdict that lands after the default 7s is rendered when the variable allows it, still degrades to UNVERIFIED
+ *      past the longer deadline, and a value that is not a whole number of milliseconds from 1000 to 60000 is ignored
+ *      (default kept, one stderr line). Unset is the old 7s.
  *   8. --block-on-critical keeps its meaning: it denies a RETRY, never the first attempt, and the
  *      verdict the hook just got is stored so that retry is answered without a second adjudication.
  *      Without the flag, a critical conflict never denies.
@@ -153,6 +157,7 @@ async function runCheckPastDeadline(args: string[]): Promise<{ exitCode: number 
 
 beforeEach(() => {
   vi.clearAllMocks();
+  delete process.env.ALIGN_HOOK_VERDICT_DEADLINE_MS; // the deadline variable is an input: every test states it or leaves it unset
   mockEnvName = 'prod';
   mockReadHookPayload.mockResolvedValue(PRE_PAYLOAD);
   gateway(() => Promise.resolve(conflictingVerdict('warning')));
@@ -160,6 +165,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  delete process.env.ALIGN_HOOK_VERDICT_DEADLINE_MS;
 });
 
 describe('the hook asks for a verdict', () => {
@@ -266,6 +272,78 @@ describe('when no verdict is requested', () => {
     expect(fullCalls()).toHaveLength(0);
     // And it still gives the titles it always gave.
     expect(stdout).toContain('Use Postgres for persistence');
+  });
+});
+
+describe('ALIGN_HOOK_VERDICT_DEADLINE_MS moves the verdict deadline', () => {
+  /** A verdict that arrives `afterMs` after the request, the way a ~11s adjudication would. */
+  const arrivesAfter = (afterMs: number) => () =>
+    new Promise((resolve) => setTimeout(() => resolve(conflictingVerdict('warning')), afterMs));
+
+  it('unset, a verdict that lands at 9s misses the 7s deadline and the hook says UNVERIFIED', async () => {
+    vi.useFakeTimers();
+    gateway(arrivesAfter(9000));
+    const { stdout } = await runCheckPastDeadline(['--advisory']);
+    expect(stdout).toContain('Use Postgres for persistence'); // positive control: this is the degraded output, not an empty one
+    expect(stdout).toContain('UNVERIFIED');
+    expect(stdout).not.toContain('may conflict');
+  });
+
+  it('set to 12000, the same 9s verdict is rendered', async () => {
+    vi.useFakeTimers();
+    process.env.ALIGN_HOOK_VERDICT_DEADLINE_MS = '12000';
+    gateway(arrivesAfter(9000));
+    const { exitCode, stdout } = await runCheckPastDeadline(['--advisory']);
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain('may conflict');
+    expect(stdout).not.toContain('UNVERIFIED');
+  });
+
+  it('set to 11000, a verdict that lands at 14s is still past the deadline and degrades', async () => {
+    vi.useFakeTimers();
+    process.env.ALIGN_HOOK_VERDICT_DEADLINE_MS = '11000';
+    gateway(arrivesAfter(14000));
+    const { stdout } = await runCheckPastDeadline(['--advisory']);
+    expect(stdout).toContain('UNVERIFIED');
+    expect(stdout).not.toContain('may conflict');
+  });
+
+  it.each(['abc', '7e3', '12.5', '-8000', '999', '60001', '120000', ' 12000'])(
+    'the value %j is ignored: the default 7s applies and one line says so on stderr', async (bad) => {
+      vi.useFakeTimers();
+      process.env.ALIGN_HOOK_VERDICT_DEADLINE_MS = bad;
+      const err = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      gateway(arrivesAfter(9000));
+      const { stdout } = await runCheckPastDeadline(['--advisory']);
+      const said = err.mock.calls.map((c) => String(c[0])).filter((l) => l.includes('ALIGN_HOOK_VERDICT_DEADLINE_MS'));
+      err.mockRestore();
+      expect(stdout).toContain('UNVERIFIED');
+      expect(said).toHaveLength(1);
+    },
+  );
+
+  it.each(['1000', '60000'])('the bounds %s are accepted without a warning', async (edge) => {
+    vi.useFakeTimers();
+    process.env.ALIGN_HOOK_VERDICT_DEADLINE_MS = edge;
+    const err = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    gateway(() => Promise.resolve(conflictingVerdict('warning')));
+    const { stdout } = await runCheckPastDeadline(['--advisory']);
+    const said = err.mock.calls.map((c) => String(c[0])).filter((l) => l.includes('ALIGN_HOOK_VERDICT_DEADLINE_MS'));
+    err.mockRestore();
+    expect(said).toHaveLength(0);
+    expect(stdout).toContain('may conflict'); // an immediate verdict is rendered under any accepted deadline
+  });
+
+  it('an empty value is the same as unset and says nothing', async () => {
+    vi.useFakeTimers();
+    process.env.ALIGN_HOOK_VERDICT_DEADLINE_MS = '';
+    const err = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    gateway(arrivesAfter(9000));
+    const { stdout } = await runCheckPastDeadline(['--advisory']);
+    const said = err.mock.calls.map((c) => String(c[0])).filter((l) => l.includes('ALIGN_HOOK_VERDICT_DEADLINE_MS'));
+    err.mockRestore();
+    expect(stdout).toContain('UNVERIFIED');
+    expect(said).toHaveLength(0);
   });
 });
 
