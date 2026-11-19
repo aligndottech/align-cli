@@ -52,7 +52,7 @@ const VERDICT_DEADLINE_MS = 7000;
 // A host whose hook timeout allows more than the default can say so. The variable moves the verdict deadline and nothing else: it does not
 // move the host's timeout, which is set where the hook is registered (the Codex plugin ships 10 seconds). A deadline at or past that timeout
 // gets the hook killed with nothing printed, which is worse than UNVERIFIED, so set the two together. Anything that is not a whole number
-// of milliseconds from 1000 to 60000 is ignored and the default stays: this runs on every edit and must not throw (ALI-2143).
+// of milliseconds from 1000 to 60000 is ignored and the default stays: this runs on every edit and must not throw.
 const VERDICT_DEADLINE_ENV = 'ALIGN_HOOK_VERDICT_DEADLINE_MS';
 const MIN_VERDICT_DEADLINE_MS = 1000;
 const MAX_VERDICT_DEADLINE_MS = 60_000;

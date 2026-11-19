@@ -14,7 +14,7 @@
  *   5. the verdict request fails, or comes back `unknown` -> titles plus "no verdict"; never aligned.
  *   6. nothing related -> no verdict request (no extra latency or spend on a clean edit).
  *   7. local mode -> no verdict request (adjudication there is the provider egress #143 turned off).
- *   9. ALIGN_HOOK_VERDICT_DEADLINE_MS (ALI-2143) moves the verdict deadline for a host whose hook timeout allows it:
+ *   9. ALIGN_HOOK_VERDICT_DEADLINE_MS moves the verdict deadline for a host whose hook timeout allows it:
  *      a verdict that lands after the default 7s is rendered when the variable allows it, still degrades to UNVERIFIED
  *      past the longer deadline, and a value that is not a whole number of milliseconds from 1000 to 60000 is ignored
  *      (default kept, one stderr line). Unset is the old 7s.
