@@ -1,7 +1,7 @@
 {
   "name": "align-cli",
   "displayName": "Align CLI",
-  "version": "0.87.1",
+  "version": "0.88.0",
   "description": "Teaches Claude to check a change against your team's recorded decisions with the Align CLI before it edits, and to stop and ask when one conflicts.",
   "author": {
     "name": "Align Tech Ltd",
