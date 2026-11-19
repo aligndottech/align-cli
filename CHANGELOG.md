@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.87.1](https://github.com/aligndottech/align-cli/compare/cli-v0.87.0...cli-v0.87.1) (2026-11-19)
+
+
+### Bug Fixes
+
+* **context:** a linked decisions file may only point at this repo's own private file ([#677](https://github.com/aligndottech/align-cli/issues/677)) ([3378543](https://github.com/aligndottech/align-cli/commit/3378543f0ed3793c5d3dabf387669282f6c41ee8))
+* **git:** align's git calls no longer run programs a repository's config names ([#679](https://github.com/aligndottech/align-cli/issues/679)) ([cc1ed84](https://github.com/aligndottech/align-cli/commit/cc1ed84f0f111c189853ccdfbe7066a3ecfbb91c))
+* **nightshift:** a plan record label can carry a note before the colon ([#680](https://github.com/aligndottech/align-cli/issues/680)) ([2def37b](https://github.com/aligndottech/align-cli/commit/2def37bc56eab8da65b4858938ba890e03e81462))
+
 ## [0.87.0](https://github.com/aligndottech/align-cli/compare/cli-v0.86.1...cli-v0.87.0) (2026-11-18)
 
 
