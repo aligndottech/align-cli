@@ -1,6 +1,7 @@
 import { execa } from 'execa';
 import os from 'node:os';
 import { CONVENTIONAL_PREFIX, isOneOffChangeTitle, isReleaseOrBumpSubject, MECHANICAL_SUBJECT_PREFIXES, mechanicalSubjectRegex, MIN_DECISION_SUBJECT_CHARS, STATED_WHY, statesNumericBound, statesSubjectRule } from './commit-shape.js';
+import { PLAIN_DIFF_ARGS } from './git-safe-env.js';
 import { mergeAddsNothing } from './local-merge-dedupe.js';
 
 export interface GitCommit {
@@ -531,12 +532,12 @@ export function formatCommitAsText(commit: GitCommit, commitUrl?: string): strin
 }
 
 export async function getStagedDiff(): Promise<string> {
-  const result = await execa('git', ['diff', '--staged']);
+  const result = await execa('git', ['diff', ...PLAIN_DIFF_ARGS, '--staged']);
   return result.stdout;
 }
 
 export async function getHeadDiff(): Promise<string> {
-  const result = await execa('git', ['diff', 'HEAD']);
+  const result = await execa('git', ['diff', ...PLAIN_DIFF_ARGS, 'HEAD']);
   return result.stdout;
 }
 
@@ -553,7 +554,7 @@ export async function getHeadDiff(): Promise<string> {
  * conflict this branch did not cause fail it.
  */
 export async function getBaseDiff(baseRef: string): Promise<string> {
-  const result = await execa('git', ['diff', `${baseRef}...HEAD`]);
+  const result = await execa('git', ['diff', ...PLAIN_DIFF_ARGS, `${baseRef}...HEAD`]);
   return result.stdout;
 }
 

@@ -3,7 +3,7 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { runAgent, type RunDeps } from '../lib/launch/run-agent.js';
+import { childEnv as buildChildEnv, runAgent, type RunDeps } from '../lib/launch/run-agent.js';
 import type { LaunchSpec } from '../lib/launch/adapters/claude-code.js';
 
 const spec: LaunchSpec = { bin: 'claude', args: ['--resume', 'abc'], env: { ALIGN_WRAPPED: '1' }, files: [] };
@@ -180,5 +180,20 @@ describe('runAgent never hands the agent a provider key align added', () => {
     expect(env.ALIGN_LLM_PROVIDER).toBeUndefined();
     expect(env.SOME_OTHER_VAR).toBe('x');
     expect(env.ALIGN_WRAPPED).toBe('1'); // the spec's own env still lands on top
+  });
+});
+
+// align switches git's file watcher off for its own git calls through git's environment config.
+// The agent it starts is the user's tool in the user's repo, so it gets git config as the shell had it.
+describe('childEnv hands the agent the git config the shell had', () => {
+  const hardened = { GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'user.name', GIT_CONFIG_VALUE_0: 'someone', GIT_CONFIG_KEY_1: 'core.fsmonitor', GIT_CONFIG_VALUE_1: 'false', PATH: '/bin' };
+
+  it('drops the keys align added when the shell had none', () => {
+    expect(buildChildEnv({ GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.fsmonitor', GIT_CONFIG_VALUE_0: 'false', PATH: '/bin' }, { PATH: '/bin' }, undefined)).toEqual({ PATH: '/bin' });
+  });
+
+  it('restores the keys the shell exported and drops the one align appended', () => {
+    const startup = { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'user.name', GIT_CONFIG_VALUE_0: 'someone', PATH: '/bin' };
+    expect(buildChildEnv(hardened, startup, undefined)).toEqual(startup);
   });
 });
