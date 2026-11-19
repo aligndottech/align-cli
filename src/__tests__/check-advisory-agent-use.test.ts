@@ -37,7 +37,7 @@ vi.mock('../lib/gateway-client.js', () => ({
 }));
 
 vi.mock('../lib/advisory-dedup.js', () => ({
-  recentlySurfaced: vi.fn(() => new Set<string>()),
+  dedupScope: (cwd: string) => cwd, recentlySurfaced: vi.fn(() => new Set<string>()),
   markSurfaced: vi.fn(),
 }));
 

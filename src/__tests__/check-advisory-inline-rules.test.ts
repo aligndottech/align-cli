@@ -36,7 +36,7 @@ vi.mock('../lib/gateway-client.js', () => ({
   createGatewayClient: vi.fn(() => ({ checkAlignment: mockCheckAlignment, getStarterRules: mockGetStarterRules })),
 }));
 vi.mock('../lib/advisory-dedup.js', () => ({
-  recentlySurfaced: vi.fn(() => new Set<string>()),
+  dedupScope: (cwd: string) => cwd, recentlySurfaced: vi.fn(() => new Set<string>()),
   markSurfaced: vi.fn(),
 }));
 

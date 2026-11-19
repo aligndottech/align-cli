@@ -50,7 +50,7 @@ vi.mock('../lib/gateway-client.js', () => ({
 
 const mockMarkSurfaced = vi.fn();
 vi.mock('../lib/advisory-dedup.js', () => ({
-  recentlySurfaced: vi.fn(() => new Set<string>()),
+  dedupScope: (cwd: string) => cwd, recentlySurfaced: vi.fn(() => new Set<string>()),
   markSurfaced: (...a: unknown[]) => mockMarkSurfaced(...a),
 }));
 

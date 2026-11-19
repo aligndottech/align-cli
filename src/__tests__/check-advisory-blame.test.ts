@@ -38,7 +38,7 @@ vi.mock('../lib/hook-payload.js', () => ({ readHookPayload: () => mockReadHookPa
 vi.mock('../lib/gateway-client.js', () => ({
   createGatewayClient: vi.fn(() => ({ checkAlignment: mockCheckAlignment, ...(clientHasLookup ? { decisionsBySourceRefs: mockBySourceRefs } : {}) })),
 }));
-vi.mock('../lib/advisory-dedup.js', () => ({ recentlySurfaced: () => mockRecently(), markSurfaced: (...a: unknown[]) => mockMark(...a) }));
+vi.mock('../lib/advisory-dedup.js', () => ({ dedupScope: (cwd: string) => cwd, recentlySurfaced: () => mockRecently(), markSurfaced: (...a: unknown[]) => mockMark(...a) }));
 vi.mock('../lib/blame-attribution.js', async (orig) => ({ ...(await orig<typeof BlameModule>()), findLineWriters: (...a: unknown[]) => mockFindLineWriters(...a) }));
 
 const pre = { hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: 'lib/error-status.js', old_string: 'x >= 400', new_string: 'x >= 100' } };

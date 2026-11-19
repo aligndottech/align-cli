@@ -49,7 +49,7 @@ vi.mock('../lib/hook-payload.js', () => ({ readHookPayload: () => mockReadHookPa
 const mockRecentlySurfaced = vi.fn(() => new Set<string>());
 const mockMarkSurfaced = vi.fn();
 vi.mock('../lib/advisory-dedup.js', () => ({
-  recentlySurfaced: () => mockRecentlySurfaced(),
+  dedupScope: (cwd: string) => cwd, recentlySurfaced: () => mockRecentlySurfaced(),
   markSurfaced: (...args: unknown[]) => mockMarkSurfaced(...args),
 }));
 

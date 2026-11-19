@@ -13,7 +13,7 @@ import { decisionsThatWroteTheseLines, proposedChangeText, type RelatedDecision 
 import { type AgentUse, recordAgentUse } from '../lib/agent-use-telemetry.js';
 import { markHookContext } from '../lib/hook-context.js';
 import { isAlignSetUp } from '../lib/setup-state.js';
-import { markSurfaced, recentlySurfaced } from '../lib/advisory-dedup.js';
+import { dedupScope, markSurfaced, recentlySurfaced } from '../lib/advisory-dedup.js';
 import {
   adjudicationExistsFor,
   adjudicationPayloadPath,
@@ -574,7 +574,7 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
         if (rendered !== null) {
           // Record the decisions as surfaced, or the sibling PostToolUse hook repeats them
           // moments later - the duplication advisory-dedup exists to prevent.
-          markSurfaced(cwd, verdict.conflicts.map((c) => c.decision_id).filter(Boolean));
+          markSurfaced(dedupScope(cwd, payload?.session_id), verdict.conflicts.map((c) => c.decision_id).filter(Boolean));
           emit(rendered);
           process.exit(0);
         }
@@ -614,12 +614,12 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
     }
 
     // Decisions the sibling hook already showed the agent moments ago are not repeated.
-    const seen = recentlySurfaced(cwd);
+    const seen = recentlySurfaced(dedupScope(cwd, payload?.session_id));
     const wrote = (await writtenBy).filter((d) => !seen.has(d.id));
 
     if (found === null) {
       // Never silent on a non-answer. The writers are a deterministic answer in their own right.
-      if (wrote.length) markSurfaced(cwd, wrote.map((d) => d.id));
+      if (wrote.length) markSurfaced(dedupScope(cwd, payload?.session_id), wrote.map((d) => d.id));
       emit(wrote.length ? buildRelatedOutput([], renderOpts, wrote, true) : buildUnknownOutput(renderOpts));
       await countUse('unknown');
       process.exit(0);
@@ -680,7 +680,7 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
     }
 
     if (fresh.length || wrote.length) {
-      markSurfaced(cwd, [...wrote, ...fresh].map((d) => d.id));
+      markSurfaced(dedupScope(cwd, payload?.session_id), [...wrote, ...fresh].map((d) => d.id));
       emit(buildRelatedOutput(fresh, renderOpts, wrote, false, verdict, text));
     }
     // Decisions found. Only a verdict that actually came back says aligned or conflicting; a failed

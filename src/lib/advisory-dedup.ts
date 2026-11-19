@@ -36,7 +36,14 @@ function readMarker(cwd: string, now: number): Marker | null {
   }
 }
 
-// Decision ids surfaced within the dedup window for this project dir.
+// What one dedup window covers: a project dir and, when the host names one, the session in it. Two sessions
+// (or a subagent) in the same checkout each get told once. A host that sends no session id keeps the
+// folder-wide window it had.
+export function dedupScope(cwd: string, sessionId: string | undefined): string {
+  return sessionId ? `${cwd}\0${sessionId}` : cwd;
+}
+
+// Decision ids surfaced within the dedup window for this scope (see dedupScope).
 export function recentlySurfaced(cwd: string, now: number = Date.now()): Set<string> {
   return new Set(readMarker(cwd, now)?.ids ?? []);
 }
