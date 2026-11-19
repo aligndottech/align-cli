@@ -18,7 +18,7 @@ export function notSetUpMessage(env: EnvironmentConfig, gatewayUrl: string = env
   const name = (['prod', 'preview'] as const).find((n) => defaultGatewayUrlFor(n) === gatewayUrl);
   if (!name) return null;
   return name === 'prod'
-    ? 'Align is not set up on this machine. Run `align` to set it up.'
+    ? 'Align is not set up on this machine. Run `align` to set it up, or in a script run `align local start` or `align --repo-only --approve`.'
     : 'Align is not set up for preview on this machine. Run `align login --env preview`.';
 }
 

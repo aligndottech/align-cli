@@ -40,6 +40,28 @@ Use the PR check. When a repository runs `align check` in CI against the pull re
 and an edit the hook missed is not checked at all. The PR check runs after the edit is written,
 so it flags a conflict later than the hook does.
 
+## Which edit tools the Claude Code hook covers
+
+Verified in the code: the hook align writes into `.claude/settings.json` uses the matcher
+`Write|Edit` (`EDIT_HOOK_MATCHER` in `src/lib/agent-rules.ts`). The Claude Code plugin uses the
+same matcher in `plugins/align/hooks/hooks.json`.
+
+- The hook runs for the `Write` and `Edit` tools.
+- The hook does not run for `MultiEdit` or `NotebookEdit`, because the matcher does not name them.
+- The hook does not run for a file written through `Bash`, such as `sed -i` or a redirect, for the same reason.
+
+This comes from reading the matcher. No capture shows a `MultiEdit`, `NotebookEdit` or `Bash`
+write going unchecked. The PR check below is the fallback for these edits.
+
+## Locked-down headless runners
+
+A tester reported this. We have not tested it. A Claude Code run started with
+`--setting-sources user`, with `--strict-mcp-config`, or with a settings file that sets
+`disableAllHooks: true` loads none of Align's project hooks and none of the `.mcp.json` entry.
+Those are Claude Code flags, so check the current Claude Code documentation before you rely on
+this. If you run agents that way, pass Align's hooks and its MCP entry to the run explicitly.
+Until you do, treat edits from that runner as unchecked and rely on the PR check.
+
 ## Evidence and documentation, per cell
 
 The captures are in `src/__tests__/fixtures/hook-payloads/by-cell/`. Each file has a
