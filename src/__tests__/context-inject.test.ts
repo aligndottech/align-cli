@@ -31,6 +31,7 @@ import path from 'node:path';
 const fromGraph = vi.hoisted(() => vi.fn());
 vi.mock('../lib/context-from-graph.js', () => ({ decisionsFromLocalGraph: fromGraph }));
 import { registerContextCommand } from '../commands/context.js';
+import { externalContextPath } from '../lib/decisions-context.js';
 
 let repo: string;
 let prevCwd: string;
@@ -303,5 +304,76 @@ describe('align context inject --format <host>', () => {
     } finally {
       fs.rmSync(secret, { force: true });
     }
+  });
+
+  // A repo you cloned can link .align/decisions.md at Align's own folder. Only this repo's own
+  // private decisions file there may be read: config.json holds tokens when there is no OS
+  // credential store, and contexts/ holds other repos' decisions.
+  describe('a link into the Align folder', () => {
+    let home: string;
+
+    beforeEach(() => {
+      home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ali-home-')));
+      vi.stubEnv('HOME', home);
+      vi.stubEnv('USERPROFILE', home);
+      fs.mkdirSync(path.join(repo, '.align'), { recursive: true });
+    });
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+      fs.rmSync(home, { recursive: true, force: true });
+    });
+
+    const linkTo = (target: string): boolean => {
+      const link = path.join(repo, '.align', 'decisions.md');
+      fs.rmSync(link, { force: true });
+      try {
+        fs.symlinkSync(target, link);
+        return true;
+      } catch {
+        return false; // no symlink permission (Windows without developer mode): nothing to test
+      }
+    };
+
+    const write = (file: string, text: string): string => {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, text);
+      return file;
+    };
+
+    it('injects this repo\'s own private decisions file', async () => {
+      const own = write(externalContextPath(fs.realpathSync(repo)), 'own decisions');
+      if (!linkTo(own)) return;
+      for (const extra of [[], ['--format', 'codex']]) {
+        const { stdout } = await runInject(extra, JSON.stringify({ cwd: repo }));
+        expect(JSON.parse(stdout.trim()).hookSpecificOutput.additionalContext).toBe('own decisions');
+      }
+    });
+
+    it('injects the repo\'s own file when the host names the workspace through a symlink', async () => {
+      // sync keyed the file on the real path; the payload spells the same folder another way.
+      const own = write(externalContextPath(fs.realpathSync(repo)), 'own decisions');
+      if (!linkTo(own)) return;
+      const alias = path.join(home, 'alias');
+      fs.symlinkSync(repo, alias);
+      const { stdout } = await runInject(['--format', 'codex'], JSON.stringify({ cwd: alias }));
+      expect(JSON.parse(stdout.trim()).hookSpecificOutput.additionalContext).toBe('own decisions');
+    });
+
+    it('does not send config.json', async () => {
+      const config = write(path.join(home, '.align', 'config.json'), '{"connectorTokens":{"github":"TOKEN"}}');
+      if (!linkTo(config)) return;
+      for (const extra of [[], ['--format', 'codex']]) {
+        expect((await runInject(extra, JSON.stringify({ cwd: repo }))).stdout).toBe('');
+      }
+    });
+
+    it('does not send another repo\'s private decisions file', async () => {
+      const other = write(externalContextPath(path.join(home, 'some-other-repo')), 'other repo decisions');
+      if (!linkTo(other)) return;
+      for (const extra of [[], ['--format', 'codex']]) {
+        expect((await runInject(extra, JSON.stringify({ cwd: repo }))).stdout).toBe('');
+      }
+    });
   });
 });
