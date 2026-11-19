@@ -26,6 +26,7 @@
  * 12. archive.layout name or shift: the folder has no date, so it comes from the filed shift policy
  * 13. an unreadable or unsafe setting falls back to the default archive folder, and never files a live record
  * 14. the older flat plan record is not read
+ * 16. a label can carry a note in parentheses before the colon; a date in it dates that decision
  * 15. a layout belongs to its own root: an unsafe root takes its layout with it, and two roots keep their own layouts
  */
 import { afterEach, describe, expect, it } from 'vitest';
@@ -162,6 +163,53 @@ describe('parsePlanRecord', () => {
     ));
     expect(items.map((i) => i.title)).toEqual(['stream rows instead of buffering the whole result set', 'report a partial export with an error trailer']);
     expect(items[1]!.raw_text).toContain('Why: the client can tell it was cut short');
+  });
+
+  // Seen on a real plan record (AdaptTable, 0.87.0): `Decided (docs, 2026-10-22): ...`. Read as a wrapped
+  // line, it vanished into the why of the row above.
+  it('a label can carry a note in parentheses before the colon, and the line is still its own decision', () => {
+    const { items, open } = parsePlanRecord(record(
+      '- **Session export** · open since 2026-11-14 09:12 (UTC+04:00)',
+      '  - Decided: stream rows instead of buffering — exports reach 2 GB',
+      '  - Decided (docs, 2026-10-22): document the 2 GB limit in the API guide — support keeps being asked',
+      '  - Rejected (perf): a second worker pool — one pool already idles',
+      '  - Open (ask Sam): who owns the retention window',
+    ));
+    expect(items.map((i) => i.title)).toEqual(['stream rows instead of buffering', 'document the 2 GB limit in the API guide', 'Rejected: a second worker pool']);
+    expect(items[0]!.raw_text).toBe('stream rows instead of buffering\nWhy: exports reach 2 GB\nPlan: Session export');
+    expect(items[1]!.raw_text).toBe('document the 2 GB limit in the API guide\nWhy: support keeps being asked\nNote: docs, 2026-10-22\nPlan: Session export');
+    expect(items[2]!.raw_text).toContain('Note: perf');
+    expect(open).toBe(1);
+  });
+
+  // The line itself, as it sits in that plan record, with the row that follows it.
+  it('the real line imports whole, and ends where the next Decided line starts', () => {
+    const real = "  - Decided (docs, 2026-10-22): no host sends a read/write flag in its before-tool hook. Claude Code PreToolUse: tool_name, tool_input, tool_use_id + common permission_mode (default/plan/acceptEdits/auto/dontAsk/bypassPermissions). Codex PreToolUse: tool_name, tool_input, tool_use_id, turn_id + permission_mode. Cursor: beforeShellExecution command/cwd/sandbox; beforeMCPExecution tool_name/tool_input/mcp_server_name. So a hook can read the conversation's mode, never a tool's type.";
+    const { items } = parsePlanRecord(record(
+      '- **Hook modes** · open since 2026-10-20 09:12 (UTC+04:00)',
+      '  - Decided: read the mode from the payload — hosts already send it',
+      real,
+      '  - Decided: the threat is an honest model — not a hostile one',
+    ));
+    expect(items).toHaveLength(3);
+    expect(items[0]!.raw_text).toBe('read the mode from the payload\nWhy: hosts already send it\nPlan: Hook modes');
+    expect(items[1]!.raw_text).toBe(`${real.slice(real.indexOf('no host'))}\nNote: docs, 2026-10-22\nPlan: Hook modes`);
+    expect(items[1]!.created_at).toBe('2026-10-22T00:00:00.000Z');
+    expect(items[2]!.raw_text).toBe('the threat is an honest model\nWhy: not a hostile one\nPlan: Hook modes');
+  });
+
+  it('a date in the label note is that decision\'s date; a note without one keeps the entry\'s', () => {
+    const { items } = parsePlanRecord(record(
+      '- **Session export** · open since 2026-11-14 09:12 (UTC+04:00)',
+      '  - Decided (docs, 2026-10-22): document the 2 GB limit',
+      '  - Decided (perf): stream rows',
+      '  - Decided (ticket 2026-13-45): keep the trailer',
+      '  - Decided (docs, 2026-02-30): name the limit in the changelog',
+      '  - Decided (docs, 2028-02-29): revisit the limit',
+    ));
+    // The third and fourth notes hold digits shaped like a date that is not one, so the entry's date stands.
+    // Node rolls 30 February over to 2 March instead of refusing it. A real leap day is kept.
+    expect(items.map((i) => i.created_at?.slice(0, 10))).toEqual(['2026-10-22', '2026-11-14', '2026-11-14', '2026-11-14', '2028-02-29']);
   });
 });
 
