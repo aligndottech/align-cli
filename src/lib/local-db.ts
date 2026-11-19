@@ -916,7 +916,7 @@ export function createLocalDb(dbPath: string) {
       return (db.prepare('SELECT COUNT(*) AS n FROM decision_embeddings').get() as { n: number }).n;
     },
 
-    /** The persisted lexical index of this graph's git decisions (lexical-store.ts), built on first use. */
+    /** The persisted lexical index of this graph's git and docs decisions (lexical-store.ts), built on first use. */
     lexicalStore(): LexicalStore {
       return (lexical ??= createLexicalStore(db));
     },

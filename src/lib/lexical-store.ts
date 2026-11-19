@@ -14,7 +14,9 @@ import { termCounts } from './lexical-terms.js';
  * Git and docs decisions are indexed. Every other platform keeps exactly the ranking it had before, because it
  * has no lexical list to fuse (hybrid-rank.ts), and the tables stay empty for a graph with neither.
  * A docs row is read to its end: on a real 131-section memory file an exact sentence from deep in a section
- * came back in the top five 6 times in 30 without it.
+ * came back in the top five 6 times in 30 without it. Measured on that graph (382 commits, 151 docs rows,
+ * 478,000 characters of docs): the first build takes about 140 ms against 55 ms for the commits alone, and a
+ * later search reads it in 0.1 ms.
  *
  * Tables are created lazily here, not in the schema migrations: an older CLI opening the same file ignores
  * them, and a graph that never searches never grows them.
