@@ -30,12 +30,12 @@ import { createConfigStore } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { resolveEnv } from '../lib/resolve-env.js';
 import { readSessionStartCwd } from '../lib/hook-payload.js';
-import { alignConfigDir } from '../lib/private-files.js';
 import { committableFromRepo, ensureGitignored, ignoringRule, isTrackedByGit, removeGitignoreLine } from '../lib/context-local-only.js';
 import { contextDecisionOf, decisionsFromLocalGraph, LOCAL_FILE_CAP, LOCAL_SCAN, selectForFile } from '../lib/context-from-graph.js';
 import {
   ALIGN_CONTEXT_PATH,
   type ContextDecision,
+  externalContextPath,
   writeDecisionsContext,
 } from '../lib/decisions-context.js';
 import type { EnvName } from '../lib/config.js';
@@ -45,15 +45,30 @@ const inside = (base: string, target: string): boolean => {
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 };
 
-// A decisions file is only injected when it really lives in the workspace it was found in, or in
-// Align's own config dir (where a local graph's file is kept and symlinked from). A workspace
-// you did not write can symlink `.align/decisions.md` at any readable file, and a user-level hook
-// would send that file to the model.
+// The one file in Align's own folder a workspace may link to: the private decisions file `sync`
+// keeps for that workspace. `sync` keys it on the path it ran in, so both spellings are tried.
+function isOwnPrivateDecisions(dir: string, realDir: string, real: string): boolean {
+  for (const root of new Set([dir, realDir])) {
+    try {
+      if (fs.realpathSync(externalContextPath(root)) === real) return true;
+    } catch {
+      // No private file for this spelling.
+    }
+  }
+  return false;
+}
+
+// A decisions file is only injected when it really lives in the workspace it was found in, or is
+// that workspace's own private file in Align's folder. A workspace you did not write can symlink
+// `.align/decisions.md` at any readable file, and a user-level hook would send that file to the
+// model. The rest of Align's folder stays out: config.json can hold tokens, and contexts/ holds
+// other repos' decisions.
 function readableDecisions(dir: string): string | null {
   const file = path.join(dir, ALIGN_CONTEXT_PATH);
   try {
     const real = fs.realpathSync(file);
-    if (!inside(fs.realpathSync(dir), real) && !inside(fs.realpathSync(alignConfigDir()), real)) return null;
+    const realDir = fs.realpathSync(dir);
+    if (!inside(realDir, real) && !isOwnPrivateDecisions(dir, realDir, real)) return null;
     return fs.readFileSync(real, 'utf8');
   } catch {
     return null;
