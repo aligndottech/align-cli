@@ -106,7 +106,7 @@ codex plugin marketplace add aligndottech/align-cli
 codex plugin add align-cli@aligndottech
 ```
 
-This adds the same MCP server and an edit check that is meant to run before each `apply_patch`. Codex's hook is written from the vendor docs and has not been tested against a live session ([hook coverage](hook-coverage.md)). Codex
+This adds the same MCP server and an edit check that is meant to run before each `apply_patch`. Codex's hook is written from the vendor docs. We have seen it run in `codex exec` on Codex CLI 0.153.0 (18 Nov 2026), before and after each of 9 edits, once it was approved. No payload from those runs is saved, so [hook coverage](hook-coverage.md) still lists it as not tested, and an interactive session has not been checked. Codex
 installs the plugin without trusting its hooks, so the check does nothing until you open Codex
 once and approve it in the hook review. `codex exec` never asks. Like the Claude Code plugin,
 installing it writes no hooks or settings into your config, and it stays silent until Align is set up. If you also ran

@@ -393,8 +393,8 @@ Hook limits worth knowing:
 - Cursor, Copilot CLI and Gemini CLI only hand the result to the model after the edit lands.
   That's a limit of their hook APIs.
 - Only Claude Code's hook has been run in a live session. pi, Gemini CLI and OpenCode are written
-  from the vendors' docs or source, and Codex, Cursor and Copilot CLI have not been checked
-  against a real payload. [Hook coverage](hook-coverage.md) lists what has been captured, host by host. The last three read hooks from a user-level file (`~/.codex/hooks.json`,
+  from the vendors' docs or source, and Cursor and Copilot CLI have not been checked
+  against a real payload. Codex's hook has been seen to run in `codex exec` (Codex CLI 0.153.0, 18 Nov 2026), with no payload saved. [Hook coverage](hook-coverage.md) lists what has been captured, host by host. The last three read hooks from a user-level file (`~/.codex/hooks.json`,
   `~/.cursor/hooks.json`, `~/.copilot/hooks/align.json`).
 - pi reads MCP servers itself from 0.99 and later, and an older pi needs the third-party
   `pi-mcp-adapter` package installed in it. pi also blocks a repo's MCP servers until you trust
