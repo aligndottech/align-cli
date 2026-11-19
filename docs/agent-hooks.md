@@ -325,6 +325,15 @@ hook window closes and records a verdict, with a 15-minute expiry. A later PreTo
 proposing the same change is answered from that verdict - denied if it holds a critical
 conflict, surfaced as context on the hosts that have a channel for it.
 
+**Without the flag, there is no verdict by default.** The hook waits 7 seconds for a verdict and a
+model-backed one usually takes about 11, so the usual output is the related decision titles and a
+line saying the change is UNVERIFIED. A host whose hook timeout allows more can move the wait:
+`ALIGN_HOOK_VERDICT_DEADLINE_MS=12000` (a whole number from 1000 to 60000; anything else is ignored
+with one line on stderr). The variable moves only Align's own wait. Set the host's hook `timeout`
+to a few seconds more than it, in the place the hook is registered. The Codex plugin ships
+`timeout: 10`, and a hook that outlives its host timeout is killed with nothing printed, which is
+worse than UNVERIFIED. It stays non-blocking either way, and the edit still goes through.
+
 **A deny lands on a retry, never on a first proposal.** The verdict is keyed on the tool, the
 target file and the text together, so it can only answer a re-presentation of the change that
 was actually adjudicated. An agent that adjusts its approach, or edits a different file, keys
