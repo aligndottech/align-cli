@@ -5,7 +5,7 @@
  * (formatCommitAsText: Author/Date/Files changed/URL).
  */
 import { describe, expect, it } from 'vitest';
-import { extractReason } from '../lib/reason-extract.js';
+import { extractReason, stripTrailers } from '../lib/reason-extract.js';
 import { formatCommitAsText } from '../lib/git.js';
 
 const commit = (subject: string, body: string) => ({
@@ -345,5 +345,106 @@ describe('PR template checklists', () => {
   it('still reads the because-sentence that sits next to a checklist', () => {
     const body = 'The router rebuilt its table on every call because the cache key ignored the prefix.\n\n- [ ] tests added\n- [x] docs updated';
     expect(extractReason('fix: router cache', body)).toBe('The router rebuilt its table on every call because the cache key ignored the prefix.');
+  });
+});
+
+describe('commit trailers are never part of the stated reason', () => {
+  const subject = 'fix(pool): cap the worker pool';
+  const session = 'Claude-Session: https://claude.ai/code/session_01ABC';
+
+  it('drops a trailer that sits right under the reason line, with no blank line and a key on no list', () => {
+    const reason = 'We cap the pool at 12 because the gateway rejects more than twelve concurrent calls from one token';
+    expect(extractReason(subject, full(subject, `${reason}\n${session}`))).toBe(reason);
+  });
+
+  it('does not read a trailer as the reason because its value holds a marker word', () => {
+    const body = `Cap the pool.\n\nChange-Reason: because the gateway rejects more than 12 concurrent calls today\n${session}`;
+    expect(extractReason(subject, full(subject, body))).toBeNull();
+  });
+
+  it('leaves the reason paragraph above a blank line and a trailer block as it was', () => {
+    const body = `We cap the pool because the gateway rejects bigger ones.\n\nCo-Authored-By: X <x@y.test>\n${session}\nSigned-off-by: T <t@e.test>`;
+    expect(extractReason(subject, full(subject, body))).toBe('We cap the pool because the gateway rejects bigger ones.');
+  });
+
+  it('still reads a labelled reason and a closing note: both are prose, not provenance', () => {
+    expect(extractReason('fix: bound the cache', full('fix: bound the cache', 'Reason: the cache grew without bound under load.')))
+      .toBe('the cache grew without bound under load.');
+    const note = 'Note: this keeps the default at 12 because the gateway rejects more than that.';
+    expect(extractReason(subject, full(subject, `Sizing was hard-coded.\n\n${note}`))).toBe(note);
+  });
+
+  it('applies the rule to a stored commit only: a PR or ticket body keeps its closing "Key: value" line', () => {
+    const body = 'Sizing was hard-coded.\n\nResult: the import is three times faster because syncs are batched.';
+    expect(extractReason('Batch the syncs', body)).toBe('Result: the import is three times faster because syncs are batched.');
+    expect(extractReason('Batch the syncs', full('Batch the syncs', body))).toBeNull();
+  });
+});
+
+describe('stripTrailers', () => {
+  it('removes the run of "Key: value" lines that ends the last paragraph, and the blank line above it', () => {
+    const block = 'Co-Authored-By: X <x@y.test>\nClaude-Session: https://claude.ai/code/session_01ABC\nSigned-off-by: T <t@e.test>';
+    expect(stripTrailers(`Why we did it.\n\n${block}`)).toBe('Why we did it.');
+    expect(stripTrailers(`Why we did it.\n\n${block}\n\n`)).toBe('Why we did it.');
+    expect(stripTrailers('First.\n\nSecond.\n\nRefs: PROJ-12\nCloses: #45')).toBe('First.\n\nSecond.');
+    expect(stripTrailers('A long reason line with no full stop\nClaude-Session: https://x.test/s')).toBe('A long reason line with no full stop');
+    expect(stripTrailers('Claude-Session: https://x.test/s')).toBe('');
+  });
+
+  it('leaves a "Key: value" line in an earlier paragraph, or with a prose line under it', () => {
+    const earlier = 'Intro.\n\nCc: a mid-body note\n\nMore text.';
+    expect(stripTrailers(earlier)).toBe(earlier);
+    const proseUnder = 'It changes two things. The pool size, and\nSecond: the timeout, which was never read\nby the gateway at all.';
+    expect(stripTrailers(proseUnder)).toBe(proseUnder);
+    expect(stripTrailers('Intro.\n\nCc: a mid-body note\n\nMore text.\n\nSigned-off-by: A <a@b.test>')).toBe(earlier);
+  });
+
+  it('never treats a prose label as a trailer: Why, Reason, Rationale, Motivation, Note', () => {
+    for (const label of ['Why', 'Reason', 'Rationale', 'Motivation', 'Note', 'note', 'REASON']) {
+      const text = `Changed the cap.\n\n${label}: the gateway rejects bigger pools.`;
+      expect(stripTrailers(text)).toBe(text);
+    }
+    expect(stripTrailers('Changed the cap.\n\nNote: the gateway rejects bigger pools.\nSigned-off-by: A <a@b.test>'))
+      .toBe('Changed the cap.\n\nNote: the gateway rejects bigger pools.');
+  });
+
+  it('reads Issue and Bug as trailers only when the value is a reference, not prose', () => {
+    expect(stripTrailers('Issue: users get a 500 when the token expires')).toBe('Issue: users get a 500 when the token expires');
+    expect(stripTrailers('Fixed the guard.\n\nBug: crash on empty input')).toBe('Fixed the guard.\n\nBug: crash on empty input');
+    expect(stripTrailers('Fixed the guard.\n\nIssue: #123')).toBe('Fixed the guard.');
+    expect(stripTrailers('Fixed the guard.\n\nBug: PROJ-12, #4 and https://x.test/issues/9.')).toBe('Fixed the guard.');
+    expect(stripTrailers('Fixed the guard.\n\nBug: 1234567')).toBe('Fixed the guard.');
+  });
+
+  it('keeps a line in conventional-commit form: it is a sub-commit subject, not a trailer', () => {
+    const last = 'Squashed.\n\nfix: retry on 503 because the gateway drops idle sockets';
+    expect(stripTrailers(last)).toBe(last);
+    const scoped = 'Squashed.\n\nfeat(pool)!: size the pool from config';
+    expect(stripTrailers(scoped)).toBe(scoped);
+    expect(stripTrailers('Squashed.\n\nfix: retry on 503\nSigned-off-by: A <a@b.test>')).toBe('Squashed.\n\nfix: retry on 503');
+  });
+
+  it('needs a one-token key and a space after the colon: a URL, a time and a sentence are not trailers', () => {
+    for (const text of ['See the report.\n\nhttps://example.test/only-a-url', 'The deadline is\n12:30 sharp', 'We changed two things: the cap and the timeout', 'Breaking change: the cap is now 12']) {
+      expect(stripTrailers(text)).toBe(text);
+    }
+  });
+
+  it('keeps an indented block: four spaces is a code or config example, not a trailer', () => {
+    const text = 'Set the headers in the proxy:\n\n    Cache-Control: no-store\n    X-Pool-Size: 12';
+    expect(stripTrailers(text)).toBe(text);
+    expect(stripTrailers('Why we did it.\n\n  Signed-off-by: A <a@b.test>')).toBe('Why we did it.');
+  });
+
+  it('returns the same string when there is no trailer', () => {
+    for (const text of ['', 'Just prose here.', 'First.\n\nSecond paragraph, because of a reason.\n', '  \n\n ']) {
+      expect(stripTrailers(text)).toBe(text);
+    }
+  });
+
+  it('never strips the commit subject, whatever its shape', () => {
+    expect(stripTrailers('Release: cut the 1.2 line\nSigned-off-by: A <a@b.test>', 'Release: cut the 1.2 line')).toBe('Release: cut the 1.2 line');
+    expect(stripTrailers('Release: cut the 1.2 line', 'Release: cut the 1.2 line')).toBe('Release: cut the 1.2 line');
+    expect(stripTrailers('Release: cut the 1.2 line\n\nSigned-off-by: A <a@b.test>', 'Release: cut the 1.2 line')).toBe('Release: cut the 1.2 line');
   });
 });

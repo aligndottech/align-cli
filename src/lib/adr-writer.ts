@@ -110,8 +110,11 @@ export function adrCandidates(rows: AdrRow[], repoRoot: string): AdrCandidate[] 
   for (const r of rows) {
     if (r.platform === 'docs') continue;
     if (r.source_url && existing.has(r.source_url)) continue;
-    const body = stripImporterMetadata(r.body ?? r.summary ?? '');
-    out.push({ title: r.title, sourceUrl: r.source_url, reason: extractReason(r.title, body), excerpt: body.slice(0, 1200), date: r.created_at?.slice(0, 10) ?? null });
+    const stored = r.body ?? r.summary ?? '';
+    const body = stripImporterMetadata(stored);
+    // The reason is read from the stored text: extractReason drops a commit's trailers, and it knows a
+    // commit by the importer block that `body` no longer has.
+    out.push({ title: r.title, sourceUrl: r.source_url, reason: extractReason(r.title, stored), excerpt: body.slice(0, 1200), date: r.created_at?.slice(0, 10) ?? null });
   }
   return out;
 }

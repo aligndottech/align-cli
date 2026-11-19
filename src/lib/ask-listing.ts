@@ -7,7 +7,7 @@
  * trailers. Printed whole, one `ask` on a 4,906-commit repo was 516 lines. The list is for
  * scanning: title, a short excerpt, where it came from.
  */
-import { stripImporterMetadata, TRAILER } from './reason-extract.js';
+import { hasImporterMetadata, stripImporterMetadata, stripTrailers, TRAILER } from './reason-extract.js';
 import { RELATES_THRESHOLD } from './local-thresholds.js';
 
 /** Characters of summary shown per match. A display choice, not a calibrated number. */
@@ -71,13 +71,21 @@ export function withoutTitle(summary: string, title: string): string {
 const SEPARATOR_LINE = /^\s*-{3,}\s*$/;
 
 /**
- * A commit body without its TRAILING block of git trailers (reason-extract's TRAILER list) and
- * the `---------` rule squash merges add above them. Only the end is stripped, as git defines
- * trailers: a mid-body or opening "Issue: ..." line, or a markdown rule, stays. Line-based, so
- * it must run BEFORE whitespace is flattened. Display only: the stored summary keeps its
- * trailers, which are provenance and still feed search.
+ * A commit body without its TRAILING block of git trailers and the `---------` rule squash merges
+ * add above them. Two passes. First the generic rule (reason-extract's stripTrailers): the run of
+ * `Key: value` lines that ends the last paragraph, whatever the key, so a key on no list
+ * ("Claude-Session") cannot hold the block in place. Then the walk below over reason-extract's
+ * TRAILER list, blank lines and dashed rules. Only the end is stripped, as git defines trailers: a
+ * mid-body or opening "Issue: ..." line, or a markdown rule, stays. Line-based, so it must run
+ * BEFORE whitespace is flattened. Display only: the stored summary keeps its trailers, which are
+ * provenance and still feed search.
  */
 export function withoutTrailers(summary: string): string {
+  return withoutListedTrailers(stripTrailers(summary));
+}
+
+/** The trailing block by the TRAILER list alone. All a text that is not a commit message gets. */
+function withoutListedTrailers(summary: string): string {
   const lines = summary.split('\n');
   let end = lines.length;
   // Walk up from the end over trailer lines, blanks and dashed rules; the first other line ends the block.
@@ -101,6 +109,9 @@ const normTitle = (t: string): string =>
  * title (whitespace, case and a trailing "(#123)" ignored): the caller then prints no quote.
  */
 export function excerptBody(summary: string, title: string): string {
-  const body = withoutTitle(withoutTrailers(stripImporterMetadata(summary)), title);
+  const bare = stripImporterMetadata(summary);
+  // The generic rule is for a commit message. A PR or ticket summary ends with `Key: value` lines
+  // that are content ("Status: merged"), so only a stored commit is read by it.
+  const body = withoutTitle(hasImporterMetadata(summary) ? withoutTrailers(bare) : withoutListedTrailers(bare), title);
   return normTitle(body) === normTitle(title) ? '' : body;
 }

@@ -145,3 +145,17 @@ describe('adrCandidates and git:// links', () => {
   });
 });
 
+describe('adrCandidates and commit trailers', () => {
+  it('states the reason of a stored commit without the trailer under it', () => {
+    const reason = 'We cap the pool at 12 because the gateway rejects more than twelve concurrent calls from one token';
+    const summary = [
+      'fix(pool): cap the worker pool',
+      `${reason}\nClaude-Session: https://claude.ai/code/session_01ABC`,
+      'Author: Ada Lovelace', 'Date: 2026-05-01T10:00:00Z', 'URL: https://github.com/o/r/commit/ccc3333',
+    ].join('\n\n');
+    const [candidate] = adrCandidates([{ title: 'fix(pool): cap the worker pool', platform: 'git', summary, source_url: 'https://github.com/o/r/commit/ccc3333' }], repo);
+    expect(candidate?.reason).toBe(reason);
+    // The excerpt is the stored text, minus the importer block: it is not a reason, and it is not rewritten.
+    expect(candidate?.excerpt).toContain('Claude-Session:');
+  });
+});

@@ -163,3 +163,47 @@ describe('excerptBody', () => {
     expect(excerptBody(summary, title)).toBe('We require a signed-off-by line now.');
   });
 });
+
+describe('trailers whose key is on no list', () => {
+  const title = 'fix(pool): cap the worker pool';
+  const meta = '\n\nAuthor: A\n\nDate: 2026-10-15T15:01:35+05:30\n\nURL: https://example.test/c/1';
+  const session = 'Claude-Session: https://claude.ai/code/session_01ABC';
+  const reason = 'The gateway rejects bigger pools, so the size has to be tunable per deployment.';
+
+  it('excerptBody is the reason paragraph only, under Co-Authored-By, Claude-Session and Signed-off-by', () => {
+    const summary = `${title}\n\n${reason}\n\nCo-Authored-By: X <x@y.test>\n${session}\nSigned-off-by: T <t@e.test>${meta}`;
+    expect(excerptBody(summary, title)).toBe(reason);
+  });
+
+  it('excerptBody is empty when the body is only a Claude-Session line', () => {
+    expect(excerptBody(`${title}\n\n${session}${meta}`, title)).toBe('');
+  });
+
+  it('excerptBody drops Refs and Closes lines that end the body', () => {
+    const summary = `${title}\n\n${reason}\n\nRefs: PROJ-123\nCloses: #45${meta}`;
+    expect(excerptBody(summary, title)).toBe(reason);
+  });
+
+  it('excerptBody drops a trailer that sits right under the text, with no blank line', () => {
+    expect(excerptBody(`${title}\n\n${reason}\n${session}${meta}`, title)).toBe(reason);
+  });
+
+  it('excerptBody returns the body of a commit with no trailer as before', () => {
+    expect(excerptBody(`${title}\n\n${reason}\n\nIt is read from config at start.${meta}`, title)).toBe(`${reason} It is read from config at start.`);
+  });
+
+  it('excerptBody leaves a PR or ticket summary alone: its closing "Status:" lines are content, not trailers', () => {
+    const pr = `${title}\n\n${reason}\n\nStatus: merged\nRepo: o/r`;
+    expect(excerptBody(pr, title)).toBe(`${reason} Status: merged Repo: o/r`);
+  });
+
+  it('withoutTrailers drops the whole trailing block when a key on no list sits inside it', () => {
+    expect(withoutTrailers(`${reason}\n\nCo-Authored-By: X <x@y.test>\n${session}\nSigned-off-by: T <t@e.test>`)).toBe(reason);
+    expect(withoutTrailers(`${reason}\n\n---------\n\n${session}\nCo-authored-by: B <b@c.test>`)).toBe(reason);
+  });
+
+  it('withoutTrailers keeps a single "Issue: <reason>" line, also with a trailer under it', () => {
+    expect(withoutTrailers('Issue: users get a 500 when the token expires')).toBe('Issue: users get a 500 when the token expires');
+    expect(withoutTrailers(`Issue: users get a 500 when the token expires\n\n${session}`)).toBe('Issue: users get a 500 when the token expires');
+  });
+});
