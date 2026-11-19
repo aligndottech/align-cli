@@ -39,9 +39,11 @@ CREATE TABLE IF NOT EXISTS lex_term (term TEXT NOT NULL, num INTEGER NOT NULL, t
 
 interface State { key: string; n: number; avgLen: number; docs: Map<number, { id: string; len: number }> }
 
-function signature(title: string, summary: string): string {
+// A commit and a doc with the same text are read differently, so the platform is part of how a row was read.
+// A git row keeps the signature it always had, so no stored commit is read again because docs joined the index.
+function signature(title: string, summary: string, platform: string): string {
   const h = createHash('sha1').update(title).update('\0').update(summary).digest('base64').slice(0, 16);
-  return `${LEXICAL_RECIPE}:${h}`;
+  return platform === 'git' ? `${LEXICAL_RECIPE}:${h}` : `${LEXICAL_RECIPE}:${platform}:${h}`;
 }
 
 export interface LexicalStore {
@@ -65,7 +67,7 @@ export function createLexicalStore(db: DatabaseSync): LexicalStore {
       .map(r => [r.decision_id, r]));
     const live = new Set(rows.map(r => r.id));
     const gone = [...stored.values()].filter(d => !live.has(d.decision_id));
-    const fresh = rows.map(r => ({ r, sig: signature(r.title, r.summary) })).filter(x => stored.get(x.r.id)?.sig !== x.sig);
+    const fresh = rows.map(r => ({ r, sig: signature(r.title, r.summary, r.platform) })).filter(x => stored.get(x.r.id)?.sig !== x.sig);
     const docs = new Map<number, { id: string; len: number }>();
     for (const d of stored.values()) if (live.has(d.decision_id)) docs.set(d.num, { id: d.decision_id, len: d.len });
     return { gone, fresh, stored, docs };

@@ -103,6 +103,20 @@ describe('lexical store: ranking', () => {
     expect(db.lexicalStore().search(queryTerms('zorblax nine installer floor'), 5).map(r => r.id)).toEqual([id]);
   });
 
+  // The stored signature says how a row was read. The same text is read differently as a commit and as a doc,
+  // so a row that changes platform has to be read again.
+  it('re-reads a row whose platform changes, in both directions', () => {
+    const filler = 'The checkpoint records ordinary housekeeping notes for the release. '.repeat(60);
+    const id = db.insertDecision({ title: 'Checkpoint 2026-06-10', summary: `${filler}Installer floor is zorblax-nine.`, sourceUrl: `https://github.com/o/r/commit/${'a'.repeat(40)}`, platform: 'git', keyed: true });
+    const found = () => db.lexicalStore().search(queryTerms('zorblax'), 5).map(r => r.id);
+    const setPlatform = (platform: string) => { const raw = new DatabaseSync(dbPath); try { raw.prepare('UPDATE decisions SET platform = ? WHERE id = ?').run(platform, id); } finally { raw.close(); } };
+    expect(found()).toEqual([]);
+    setPlatform('docs');
+    expect(found()).toEqual([id]);
+    setPlatform('git');
+    expect(found()).toEqual([]);
+  });
+
   it('still reads only the start of a git commit body', () => {
     const filler = 'The commit message carries on with ordinary detail about the change. '.repeat(60);
     add('feat: adopt the new installer', `${filler}Installer floor is zorblax-nine.`);
