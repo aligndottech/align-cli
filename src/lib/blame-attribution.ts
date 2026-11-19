@@ -130,7 +130,7 @@ export interface BlamedCommit {
 
 /** `git blame -w -M --porcelain` over the given 1-based line ranges; commits in first-seen order, uncommitted lines dropped. */
 export async function blameCommits(file: string, ranges: Range[], run: GitRun): Promise<BlamedCommit[]> {
-  const blame = await run(['blame', '-w', '-M', '--porcelain', ...ranges.flatMap(([s, e]) => ['-L', `${s},${e}`]), '--', path.basename(file)]);
+  const blame = await run(['blame', '--no-textconv', '-w', '-M', '--porcelain', ...ranges.flatMap(([s, e]) => ['-L', `${s},${e}`]), '--', path.basename(file)]);
   const commits = new Map<string, BlamedCommit>();
   let current: BlamedCommit | null = null;
   for (const line of blame.stdout.split('\n')) {

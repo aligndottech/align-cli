@@ -94,8 +94,8 @@ export function parseSource(url: string | null): Source | null {
   return null;
 }
 
-async function blameRanges(git: Git, ref: string, file: string, sha: string): Promise<LineRange[]> {
-  const out = await git(['blame', '-w', '-M', '--line-porcelain', ref, '--', file]);
+export async function blameRanges(git: Git, ref: string, file: string, sha: string): Promise<LineRange[]> {
+  const out = await git(['blame', '--no-textconv', '-w', '-M', '--line-porcelain', ref, '--', file]);
   const lines: number[] = [];
   for (const row of out.split('\n')) {
     const m = /^([0-9a-f]{40}) \d+ (\d+)/.exec(row);

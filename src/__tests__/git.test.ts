@@ -38,7 +38,7 @@ describe('git helpers', () => {
     // Three dots, not two. `git diff main..HEAD` also reports everything that landed on
     // main since this branch diverged, so a long-lived branch would submit other people's
     // changes for alignment analysis and could be failed by a conflict it did not cause.
-    expect(vi.mocked(execa)).toHaveBeenCalledWith('git', ['diff', 'origin/main...HEAD']);
+    expect(vi.mocked(execa)).toHaveBeenCalledWith('git', ['diff', '--no-ext-diff', '--no-textconv', 'origin/main...HEAD']);
   });
 
   it('getCurrentBranch returns trimmed branch name', async () => {

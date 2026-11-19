@@ -2,6 +2,7 @@
 import './lib/startup-env.js'; // FIRST: snapshot the shell's env before any module can change it
 import './lib/startup-xdg.js'; // SECOND: drop a relative XDG_* before anything computes a directory from it
 import './lib/startup-backfill-track.js'; // THIRD: if align_backfill started this process, record how it ends
+import './lib/startup-git-env.js'; // FOURTH: no git call may start the file watcher a repository's config names
 import fs, { writeSync } from 'node:fs';
 import path from 'node:path';
 import envPaths from 'env-paths';
