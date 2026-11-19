@@ -8,7 +8,7 @@ import type { PersonalImportItem } from '../personal-import.js';
 import type { CaptureFetchResult } from './capture.js';
 import type { CoChangeRule } from '../co-change-rule.js';
 import {
-  CHANGELOG_FILES, CONTRIBUTING_FILES, type DocKind, inferCoChangeRule, isReleaseHeading, isRuleSection, README_FILES, sectionBody,
+  CHANGELOG_FILES, CONTRIBUTING_FILES, type DocKind, inferCoChangeRule, isRuleSection, isVersionedReleaseHeading, README_FILES, sectionBody,
 } from './docs-conventions.js';
 import { entryDate, findDecisionLogFiles, readLogFile, splitDecisionLog } from './docs-decision-log.js';
 
@@ -208,7 +208,7 @@ async function readAgentRulesItems(
     const seenSlugs = new Map<string, number>();
     for (const section of splitIntoSections(stripped)) {
       if (!section.heading && NO_PREAMBLE.has(candidate)) continue;
-      if (section.heading && NO_PREAMBLE.has(candidate) && isReleaseHeading(section.heading)) {
+      if (section.heading && NO_PREAMBLE.has(candidate) && isVersionedReleaseHeading(section.heading)) {
         droppedRelease++;
         continue;
       }
