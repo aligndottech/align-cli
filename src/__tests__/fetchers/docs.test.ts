@@ -349,6 +349,43 @@ describe('fetchDocsItems - CLAUDE.md / AGENTS.md', () => {
     expect(items.find((i) => i.title === 'Checkpoint 2026-06-10 07:23')!.raw_text).toContain('30-line cap');
   });
 
+  // Release batch landing notes ("## Release: 1.43.0 batch landing 2026-11-07") are history, not
+  // decisions. They are the same release entries the changelog filter already drops.
+  it('does not import "## Release: x.y.z" sections of project.md, and counts them as skipped', async () => {
+    repo = mkdtempSync(join(tmpdir(), 'align-ccrel-'));
+    mkdirSync(join(repo, '.claude', 'memory'), { recursive: true });
+    writeFileSync(join(repo, '.claude', 'memory', 'project.md'), [
+      '# Project Memory',
+      '',
+      '## Release: 1.43.0 batch landing 2026-11-07',
+      '',
+      '- Landed the export fix and the retry budget change for the worker pool',
+      '',
+      '## Release: 1.52.4 batch landing 2026-11-19',
+      '',
+      '- Landed the checkpoint pruning change and the new default branch rule',
+      '',
+      '## Release: 1.52.1',
+      '',
+      '- Landed a patch release with no date in the heading at all, just notes',
+      '',
+      '## Releasing the installer',
+      '',
+      '- Installer builds are signed on the release machine, never in CI',
+      '',
+      '## Checkpoint 2026-06-11',
+      '',
+      '### Conventions',
+      '- Plans must include task IDs on every checkbox line',
+    ].join('\n'));
+    mockGit(null);
+
+    const { items, report } = await fetchDocsItems({ limit: 100, cwd: repo });
+
+    expect(items.map((i) => i.title).sort()).toEqual(['Checkpoint 2026-06-11', 'Releasing the installer']);
+    expect(report.skips.find((s) => s.detail.includes('release entries'))?.count).toBe(3);
+  });
+
   it('returns no agent-rules items, without throwing, when neither file exists', async () => {
     repo = mkdtempSync(join(tmpdir(), 'align-793-'));
     mockGit(null);

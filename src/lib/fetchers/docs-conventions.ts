@@ -30,8 +30,14 @@ const CHANGELOG_POLICY_HEADING = /versioning|convention|policy|deprecat|contribu
 /** Keep a Changelog's category headings: entries of one release, never policy. */
 const CHANGELOG_CATEGORY = /^(?:added|changed|deprecated|removed|fixed|security)$/i;
 
-/** `[1.2.0] - 2026-01-01`, `2026-07-07`, `v2`, `Unreleased`: a release entry, never a rule. */
-const RELEASE_HEADING = /^\[?v?\d+(?:\.\d+)|^\[?unreleased\b|\d{4}-\d{2}(?:-\d{2})?/i;
+/** `[1.2.0] - 2026-01-01`, `2026-07-07`, `v2`, `Unreleased`, `Release: 1.2.0 batch`: a release
+ *  entry, never a rule. "Release process" and "Releasing the installer" carry no version, so they stay. */
+const RELEASE_HEADING = /^\[?v?\d+(?:\.\d+)|^\[?unreleased\b|^release:?\s+v?\d|^\[?\d{4}-\d{2}(?:-\d{2})?/i;
+
+/** The one definition of "a release entry" heading, shared by changelogs and project.md. */
+export function isReleaseHeading(heading: string): boolean {
+  return RELEASE_HEADING.test(heading.trim());
+}
 
 export type DocKind = 'readme' | 'contributing' | 'changelog';
 
@@ -46,7 +52,7 @@ export function isRuleSection(kind: DocKind, heading: string, body: string): boo
   // as plain description ("breaking changes create a new dated version") with no "must" in it.
   if (kind === 'changelog') {
     const h = heading.trim();
-    return !RELEASE_HEADING.test(h) && !CHANGELOG_CATEGORY.test(h) && CHANGELOG_POLICY_HEADING.test(h);
+    return !isReleaseHeading(h) && !CHANGELOG_CATEGORY.test(h) && CHANGELOG_POLICY_HEADING.test(h);
   }
   if (!RULE_MARKER.test(body)) return false;
   return kind === 'contributing' || CONVENTION_HEADING.test(heading);

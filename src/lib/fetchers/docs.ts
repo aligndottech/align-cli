@@ -8,7 +8,7 @@ import type { PersonalImportItem } from '../personal-import.js';
 import type { CaptureFetchResult } from './capture.js';
 import type { CoChangeRule } from '../co-change-rule.js';
 import {
-  CHANGELOG_FILES, CONTRIBUTING_FILES, type DocKind, inferCoChangeRule, isRuleSection, README_FILES, sectionBody,
+  CHANGELOG_FILES, CONTRIBUTING_FILES, type DocKind, inferCoChangeRule, isReleaseHeading, isRuleSection, README_FILES, sectionBody,
 } from './docs-conventions.js';
 import { entryDate, findDecisionLogFiles, readLogFile, splitDecisionLog } from './docs-decision-log.js';
 
@@ -173,12 +173,14 @@ async function readAgentRulesItems(
   repoRoot: string,
   remoteUrl: string | null,
   branch: string,
-): Promise<{ items: PersonalImportItem[]; droppedShort: number }> {
+): Promise<{ items: PersonalImportItem[]; droppedShort: number; droppedRelease: number }> {
   const items: PersonalImportItem[] = [];
   // Headed sections the length floor dropped, so the capture report can name
   // them. The headingless preamble (an H1 line, an intro sentence) is not counted when it
   // is dropped: nobody wrote it as a section, so nobody will look for it in the graph.
   let droppedShort = 0;
+  // Release batch notes in project.md: history, counted so the report can say they were left out.
+  let droppedRelease = 0;
   const seenReal = new Set<string>(); // a case-insensitive filesystem answers tenets.md and TENETS.md with one file
   for (const candidate of AGENT_RULES_FILES) {
     let raw: string;
@@ -206,6 +208,10 @@ async function readAgentRulesItems(
     const seenSlugs = new Map<string, number>();
     for (const section of splitIntoSections(stripped)) {
       if (!section.heading && NO_PREAMBLE.has(candidate)) continue;
+      if (section.heading && NO_PREAMBLE.has(candidate) && isReleaseHeading(section.heading)) {
+        droppedRelease++;
+        continue;
+      }
       if (withoutComments(section.body).length < MIN_CHUNK_CHARS) {
         if (section.heading) droppedShort++;
         continue;
@@ -226,7 +232,7 @@ async function readAgentRulesItems(
       });
     }
   }
-  return { items, droppedShort };
+  return { items, droppedShort, droppedRelease };
 }
 
 
@@ -342,18 +348,18 @@ async function readDocsItems(opts: { limit: number; cwd?: string }): Promise<{
   // limit was already full, so something may have been left out and nobody counted it.
   if (remaining <= 0) return { items: adrItems, scanned: adrFiles.length, capped: true, droppedShort: 0, droppedNonRule: 0 };
 
-  const { items: agentRulesItems, droppedShort } = await readAgentRulesItems(repoRoot, remoteUrl, branch);
+  const { items: agentRulesItems, droppedShort, droppedRelease } = await readAgentRulesItems(repoRoot, remoteUrl, branch);
   const conventions = await readConventionItems(repoRoot, remoteUrl, branch);
   const logItems = await readDecisionLogItems(repoRoot, remoteUrl, branch);
   const candidates = adrFiles.length + agentRulesItems.length + conventions.items.length + logItems.length;
   return {
     items: [...adrItems, ...agentRulesItems, ...conventions.items, ...logItems].slice(0, opts.limit),
-    scanned: candidates + droppedShort + conventions.droppedShort + conventions.droppedNonRule,
+    scanned: candidates + droppedShort + conventions.droppedShort + conventions.droppedNonRule + droppedRelease,
     // Strictly more than the limit: everything was read, so the cap bound the read only
     // if the slice actually cut something.
     capped: candidates > opts.limit,
     droppedShort: droppedShort + conventions.droppedShort,
-    droppedNonRule: conventions.droppedNonRule,
+    droppedNonRule: conventions.droppedNonRule + droppedRelease,
   };
 }
 
