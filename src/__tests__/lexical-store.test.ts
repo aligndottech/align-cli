@@ -88,10 +88,26 @@ describe('lexical store: ranking', () => {
     expect(ids('pino', 2)).toHaveLength(2);
   });
 
-  it('indexes git decisions only: a slack row naming the term is invisible to it', () => {
+  it('indexes git and docs decisions only: a slack row naming the term is invisible to it', () => {
     add('pino in slack', 'pino', 'slack');
     expect(ids('pino')).toEqual([]);
     expect(rawCount('SELECT COUNT(*) FROM lex_doc')).toBe(0);
+  });
+
+  // A docs row is a whole section of a file, and the words someone searches for can sit anywhere in it.
+  // On a real 131-section memory file, an exact sentence from deep in a section came back 6 times in 30.
+  it('reads a docs row to its end, so a word far into the section is found', () => {
+    const filler = 'The checkpoint records ordinary housekeeping notes for the release. '.repeat(60);
+    expect(filler.length).toBeGreaterThan(3000);
+    const id = db.insertDecision({ title: 'Checkpoint 2026-06-10', summary: `${filler}Installer floor is zorblax-nine.`, sourceUrl: 'https://github.com/o/r/blob/main/.claude/memory/project.md#checkpoint-2026-06-10', platform: 'docs', keyed: true });
+    expect(db.lexicalStore().search(queryTerms('zorblax nine installer floor'), 5).map(r => r.id)).toEqual([id]);
+  });
+
+  it('still reads only the start of a git commit body', () => {
+    const filler = 'The commit message carries on with ordinary detail about the change. '.repeat(60);
+    add('feat: adopt the new installer', `${filler}Installer floor is zorblax-nine.`);
+    expect(ids('zorblax')).toEqual([]);
+    expect(ids('installer')).toEqual(['feat: adopt the new installer']);
   });
 });
 
