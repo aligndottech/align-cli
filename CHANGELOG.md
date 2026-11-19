@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.88.0](https://github.com/aligndottech/align-cli/compare/cli-v0.87.1...cli-v0.88.0) (2026-11-19)
+
+
+### Features
+
+* **search:** docs rows join the keyword index, read to their end ([#681](https://github.com/aligndottech/align-cli/issues/681)) ([be0a72f](https://github.com/aligndottech/align-cli/commit/be0a72fd0c03c78a5681a34cf229518907eb7962))
+
+
+### Bug Fixes
+
+* **check:** the advisory dedup window is per session, not per folder ([#684](https://github.com/aligndottech/align-cli/issues/684)) ([dbca125](https://github.com/aligndottech/align-cli/commit/dbca1252c86c2aef5d0dbfd56d6fee324a43a8a8))
+* **docs:** skip Release sections of project.md as release entries ([#685](https://github.com/aligndottech/align-cli/issues/685)) ([815c5d8](https://github.com/aligndottech/align-cli/commit/815c5d8d69a8eca2ae8fb5b672c1b728afc97222))
+* **search:** a row that changes platform is read into the keyword index again ([#683](https://github.com/aligndottech/align-cli/issues/683)) ([bfe46ed](https://github.com/aligndottech/align-cli/commit/bfe46eddeeea3c05efaeb5746e5cf75245170555))
+
 ## [0.87.1](https://github.com/aligndottech/align-cli/compare/cli-v0.87.0...cli-v0.87.1) (2026-11-19)
 
 
