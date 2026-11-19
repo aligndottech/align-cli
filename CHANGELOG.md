@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.89.0](https://github.com/aligndottech/align-cli/compare/cli-v0.88.0...cli-v0.89.0) (2026-11-19)
+
+
+### Features
+
+* **check:** the edit hook says when it could not check who wrote the lines ([#687](https://github.com/aligndottech/align-cli/issues/687)) ([e141c0c](https://github.com/aligndottech/align-cli/commit/e141c0c6695285177f17a624d5957f01bd398231))
+
 ## [0.88.0](https://github.com/aligndottech/align-cli/compare/cli-v0.87.1...cli-v0.88.0) (2026-11-19)
 
 
