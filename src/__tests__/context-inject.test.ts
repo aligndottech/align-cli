@@ -350,6 +350,16 @@ describe('align context inject --format <host>', () => {
       }
     });
 
+    it('injects the repo\'s own file when the host names the workspace through a symlink', async () => {
+      // sync keyed the file on the real path; the payload spells the same folder another way.
+      const own = write(externalContextPath(fs.realpathSync(repo)), 'own decisions');
+      if (!linkTo(own)) return;
+      const alias = path.join(home, 'alias');
+      fs.symlinkSync(repo, alias);
+      const { stdout } = await runInject(['--format', 'codex'], JSON.stringify({ cwd: alias }));
+      expect(JSON.parse(stdout.trim()).hookSpecificOutput.additionalContext).toBe('own decisions');
+    });
+
     it('does not send config.json', async () => {
       const config = write(path.join(home, '.align', 'config.json'), '{"connectorTokens":{"github":"TOKEN"}}');
       if (!linkTo(config)) return;
