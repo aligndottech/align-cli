@@ -92,6 +92,15 @@ describe('repoFromSourceUrl on a docs row (a /blob/ URL)', () => {
     ['https://github.com/acme/api/blob/feature/storage/CLAUDE.md#testing', 'github.com/acme/api'],
     ['https://gitlab.com/group/sub/repo/-/blob/main/docs/a.md', 'gitlab.com/group/sub/repo'],
     ['https://github.com/Acme/API/blob/main/README.md', 'github.com/acme/api'],
+    // A branch or folder named like one of the commit-URL verbs must not be read as one.
+    ['https://github.com/acme/api/blob/issues/123/README.md', 'github.com/acme/api'],
+    ['https://github.com/acme/api/blob/pull/5/docs/a.md', 'github.com/acme/api'],
+    ['https://github.com/acme/api/blob/main/docs/commit/abc123/notes.md', 'github.com/acme/api'],
+    // GitLab's own marker is the boundary, even when `blob` is also a subgroup name.
+    ['https://gitlab.com/acme/platform/blob/docs/-/blob/main/README.md', 'gitlab.com/acme/platform/blob/docs'],
+    // Controls: the commit, pull and issue shapes still read as before, including a repo that is named `blob`.
+    ['https://github.com/acme/blob/pull/5', 'github.com/acme/blob'],
+    ['https://github.com/acme/api/commit/abc1234', 'github.com/acme/api'],
   ])('%s -> %s', (url, expected) => {
     expect(repoFromSourceUrl(url)).toBe(expected);
   });
@@ -107,6 +116,8 @@ describe('repoFromSourceUrl on a docs row (a /blob/ URL)', () => {
   ])('agrees with the remote reader for %s', (remote, expected) => {
     expect(repoFromRemoteUrl(remote)).toBe(expected);
     expect(repoFromSourceUrl(buildBlobUrl(remote, 'main', 'docs/adr/0001-x.md'))).toBe(expected);
+    // Whatever the branch is called, the same remote gives the same repo.
+    expect(repoFromSourceUrl(buildBlobUrl(remote, 'issues/123', 'docs/adr/0001-x.md'))).toBe(expected);
   });
 });
 

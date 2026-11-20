@@ -38,15 +38,26 @@ const HOSTED_REPO = /^https?:\/\/([^/\s]+)\/(.+?)(?:\/-)?\/(?:commit|pull|issues
  * Without this every docs row was stored with no repo, and a row with no repo is shown in every repo: one
  * project's rules reached every other project on the machine.
  */
-const HOSTED_FILE = /^https?:\/\/([^/\s]+)\/(.+?)(?:\/-)?\/blob\/[^\s]+/;
+const GITLAB_FILE = /^https?:\/\/([^/\s]+)\/(.+?)\/-\/blob\/[^\s]+/;
+const HOSTED_FILE = /^https?:\/\/([^/\s]+)\/(.+?)\/blob\/[^\s]+/;
 
+/**
+ * The repository a source URL names, or null.
+ *
+ * The order matters. A file URL is tried before the commit-shaped one, because a branch or folder can be
+ * called like one of that pattern's verbs (`.../blob/issues/123/README.md`, branch `issues/123`), and the
+ * commit pattern would read the repo as `acme/api/blob`. Stored once, a wrong repo is never repaired: the
+ * backfill fills empty repos only. GitLab's `/-/blob/` is the boundary when it is there, since `blob` can
+ * also be a subgroup name. A candidate with no owner (a repo called `blob`, `acme/blob/pull/5`) is not a
+ * file URL, so the next pattern gets its turn.
+ */
 export function repoFromSourceUrl(sourceUrl: string | null | undefined): string | null {
   if (!sourceUrl) return null;
-  const m = HOSTED_REPO.exec(sourceUrl) ?? HOSTED_FILE.exec(sourceUrl);
-  if (!m) return null;
-  const ownerPath = m[2];
-  if (!ownerPath.includes('/')) return null;
-  return `${m[1]}/${ownerPath}`.toLowerCase();
+  for (const pattern of [GITLAB_FILE, HOSTED_FILE, HOSTED_REPO]) {
+    const m = pattern.exec(sourceUrl);
+    if (m && m[2]!.includes('/')) return `${m[1]}/${m[2]}`.toLowerCase();
+  }
+  return null;
 }
 
 /**
