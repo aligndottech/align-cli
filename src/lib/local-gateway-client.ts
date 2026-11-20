@@ -586,13 +586,14 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
           // A docs section is the whole source of its rule, so every docs item re-syncs it, with or
           // without one: the absence of the field is how a README that dropped the rule says so.
           // Stamped with the repo the import runs in (the docs fetcher reads only that one), which
-          // is what `align check` compares. A docs decision's own repo is NULL (a blob URL names
-          // no repo to repoFromSourceUrl), and NULL on a rule means "every repo": with no repo to
-          // stamp, the rule is neither stored nor removed: one already stored from inside the repo stays.
+          // is what `align check` compares. Not the decision's own repo, which a blob URL now names:
+          // the rule has always been stamped from where the import ran, and NULL on a rule means "every
+          // repo", so with no repo to stamp the rule is neither stored nor removed: one already stored
+          // from inside the repo stays.
           // A failure to write it (a lock, an in-memory graph) warns and leaves the import running:
           // the decision is already stored, and one missing rule must not cost every later item.
           if ((item.platform ?? 'cli') === 'docs') {
-            const repo = db.getDecisionById(r.id)?.repo ?? await getCurrentRepo();
+            const repo = await getCurrentRepo();
             if (repo !== null) {
               try {
                 syncImportedCoChangeRule(dbPath, r.id, repo, item.co_change_rule);

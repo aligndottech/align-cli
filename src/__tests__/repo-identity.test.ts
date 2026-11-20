@@ -18,7 +18,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { buildCommitUrl } from '../lib/git.js';
+import { buildBlobUrl, buildCommitUrl } from '../lib/git.js';
 import { currentRepoIdentity, currentRepoIdentitySync, mainRootOfLinkedWorktree, repoFromRemoteUrl, repoFromSourceUrl, resolveScopeOpts } from '../lib/repo-identity.js';
 
 describe('repoFromSourceUrl', () => {
@@ -81,6 +81,43 @@ describe('repoFromSourceUrl(buildCommitUrl(...)) === repoFromRemoteUrl(...) - on
   it('a remoteless repo agrees on both sides: no identity either way', () => {
     expect(repoFromRemoteUrl(null)).toBeNull();
     expect(repoFromSourceUrl(buildCommitUrl(null, 'abc1234567'))).toBeNull();
+  });
+});
+
+// A docs row's URL is a file in the repo, not a commit. Reading only commit-shaped URLs left every docs row
+// with no repo, and a row with no repo is shown in every repo.
+describe('repoFromSourceUrl on a docs row (a /blob/ URL)', () => {
+  it.each([
+    ['https://github.com/acme/api/blob/main/docs/adr/0001-x.md', 'github.com/acme/api'],
+    ['https://github.com/acme/api/blob/feature/storage/CLAUDE.md#testing', 'github.com/acme/api'],
+    ['https://gitlab.com/group/sub/repo/-/blob/main/docs/a.md', 'gitlab.com/group/sub/repo'],
+    ['https://github.com/Acme/API/blob/main/README.md', 'github.com/acme/api'],
+    // A branch or folder named like one of the commit-URL verbs must not be read as one.
+    ['https://github.com/acme/api/blob/issues/123/README.md', 'github.com/acme/api'],
+    ['https://github.com/acme/api/blob/pull/5/docs/a.md', 'github.com/acme/api'],
+    ['https://github.com/acme/api/blob/main/docs/commit/abc123/notes.md', 'github.com/acme/api'],
+    // GitLab's own marker is the boundary, even when `blob` is also a subgroup name.
+    ['https://gitlab.com/acme/platform/blob/docs/-/blob/main/README.md', 'gitlab.com/acme/platform/blob/docs'],
+    // Controls: the commit, pull and issue shapes still read as before, including a repo that is named `blob`.
+    ['https://github.com/acme/blob/pull/5', 'github.com/acme/blob'],
+    ['https://github.com/acme/api/commit/abc1234', 'github.com/acme/api'],
+  ])('%s -> %s', (url, expected) => {
+    expect(repoFromSourceUrl(url)).toBe(expected);
+  });
+
+  it('a remoteless repo has no identity from its git://blob/ URL', () => {
+    expect(repoFromSourceUrl('git://blob/main/docs/adr/0001-x.md')).toBeNull();
+  });
+
+  it.each([
+    ['git@github.com:aligndottech/align-cli.git', 'github.com/aligndottech/align-cli'],
+    ['https://gitlab.com/group/repo.git', 'gitlab.com/group/repo'],
+    ['git@bitbucket.org:acme/repo.git', null],
+  ])('agrees with the remote reader for %s', (remote, expected) => {
+    expect(repoFromRemoteUrl(remote)).toBe(expected);
+    expect(repoFromSourceUrl(buildBlobUrl(remote, 'main', 'docs/adr/0001-x.md'))).toBe(expected);
+    // Whatever the branch is called, the same remote gives the same repo.
+    expect(repoFromSourceUrl(buildBlobUrl(remote, 'issues/123', 'docs/adr/0001-x.md'))).toBe(expected);
   });
 });
 
