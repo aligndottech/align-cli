@@ -381,3 +381,19 @@ describe('the agent tells the user what Align surfaced', () => {
     expect(text).not.toContain('surface conflicting decisions');
   });
 });
+
+// A repo with only git and docs connected was told its graph spans Slack, Jira, GitHub and Linear. The block
+// is written for every repo, so it names no tool: it says what the graph holds, from what the project connected.
+describe('the instruction block does not name sources the project may not have', () => {
+  it.each([
+    ['CLAUDE.md', () => writeManagedNudge(dir)],
+    ['AGENTS.md', () => writeAgentsNudge(dir)],
+    ['.cursor/rules/align.md', () => writeCursorRule(dir)],
+  ] as const)('%s', (file, write) => {
+    expect(write()).toBe(true);
+    const text = readFileSync(join(dir, file), 'utf8');
+    expect(text).toMatch(/what was decided, why, and by whom/);
+    expect(text).not.toMatch(/Slack|Jira|Linear/);
+    expect(text).toMatch(/connected/);
+  });
+});

@@ -106,6 +106,21 @@ describe('advisory output carries what each decision says', () => {
       expect(out).not.toMatch(/Signed-off-by|Co-Authored-By|Files changed|Author:/);
     });
 
+    // Seen in a field test: the excerpt ended in "Claude-Session: https://claude.ai/code/session_...", because the hook
+    // only knew two trailer keys. The shared rule (reason-extract's stripTrailers) takes any key.
+    it('strips a trailer block of any key, not only two', () => {
+      const trailers = 'Co-Authored-By: B <b@x>\nClaude-Session: https://claude.ai/code/session_01ABC\nRefs: PROJ-12';
+      const out = ctx(buildRelatedOutput([], claude, [{ id: 'w', title: subject, url, summary: `${subject}\n\n${body}\n\n${trailers}\n\nAuthor: Dev\n\nDate: d\n\nFiles changed:\nsrc/store.ts` }]));
+      expect(out).toContain(`- ${subject} by Dev (no decision date: confirm it still holds)\n  ${body}\n`);
+      expect(out).not.toMatch(/Claude-Session|Refs:|Co-Authored-By|session_01ABC/);
+    });
+
+    it('keeps a labelled reason and a sentence that happens to contain a colon', () => {
+      const reason = 'Reason: stale carts after logout.';
+      const out = ctx(buildRelatedOutput([], claude, [{ id: 'w', title: subject, url, summary: `${subject}\n\n${reason}\n\nAuthor: Dev\n\nDate: d` }]));
+      expect(out).toContain(reason);
+    });
+
     it('keeps the title alone when only the title and metadata are left', () => {
       const out = ctx(buildRelatedOutput([], claude, [{ id: 'w', title: subject, url, summary: `${subject}\n\nAuthor: Dev\n\nDate: d` }]));
       expect(out).toContain(`- ${subject} by Dev (no decision date: confirm it still holds)\nCheck that`);
