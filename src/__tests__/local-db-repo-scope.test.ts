@@ -22,6 +22,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createLocalDb, SCHEMA_VERSION } from '../lib/local-db.js';
+import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
 
 let dir: string;
 let dbPath: string;
@@ -154,3 +155,45 @@ describe('getAllEmbeddings scopes by repo the same way listDecisions does', () =
     expect(unscoped).toHaveLength(3);
   });
 });
+
+// code-conductor's rules were shown in an unrelated repo because a docs row (a /blob/ URL) was stored with no repo.
+describe('docs rows are tied to their repo', () => {
+  const docsUrl = (repo: string, file: string) => `https://github.com/${repo}/blob/main/${file}`;
+
+  it('an imported docs row is stamped with its repo, so another repo does not list it', async () => {
+    const c = createLocalGatewayClient(dbPath);
+    try {
+      await c.ingestBatch([{ source_url: docsUrl('acme/api', 'docs/adr/1.md'), platform: 'docs', title: 'Use Postgres', raw_text: '# Use Postgres\n\nWe chose it for the JSON support.' }] as never, { classify: false, keyed: true });
+    } finally { c.close(); }
+    db = createLocalDb(dbPath);
+    expect(db.listDecisions({ repo: 'github.com/acme/api', includeUnattributed: true }).map((r) => r.title)).toEqual(['Use Postgres']);
+    expect(db.listDecisions({ repo: 'github.com/someone/other', includeUnattributed: true })).toEqual([]);
+  });
+
+  it('opening a graph that already holds unattributed docs rows fills their repo in, once, and leaves other rows alone', () => {
+    db = createLocalDb(dbPath);
+    db.insertDecision({ title: 'A rule', summary: 's', sourceUrl: docsUrl('acme/api', 'CLAUDE.md#a-rule'), platform: 'docs', keyed: true });
+    db.insertDecision({ title: 'No remote rule', summary: 's', sourceUrl: 'git://blob/main/CLAUDE.md#no-remote', platform: 'docs', keyed: true });
+    db.insertDecision({ title: 'A ticket', summary: 's', sourceUrl: 'https://acme.atlassian.net/browse/P-1', platform: 'jira', keyed: true });
+    db.close();
+    db = undefined;
+    const raw = new DatabaseSync(dbPath);
+    const repos = () => Object.fromEntries((raw.prepare('SELECT title, repo FROM decisions').all() as Array<{ title: string; repo: string | null }>).map((r) => [r.title, r.repo]));
+    expect(repos()).toEqual({ 'A rule': null, 'No remote rule': null, 'A ticket': null });
+    raw.close();
+    db = createLocalDb(dbPath);
+    db.close();
+    db = undefined;
+    const after = new DatabaseSync(dbPath);
+    try {
+      expect(Object.fromEntries((after.prepare('SELECT title, repo FROM decisions').all() as Array<{ title: string; repo: string | null }>).map((r) => [r.title, r.repo]))).toEqual({
+        'A rule': 'github.com/acme/api',
+        // No repository name in the URL: stays unattributed, which is "not known", not "wrong".
+        'No remote rule': null,
+        // Not a docs row: the backfill is for docs only.
+        'A ticket': null,
+      });
+    } finally { after.close(); }
+  });
+});
+

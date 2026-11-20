@@ -505,6 +505,7 @@ export function migrate(db: DatabaseSync): void {
   }
   // A graph an earlier build of this branch stamped v10 (see repairPromotions): runs on every open.
   repairPromotions(db);
+  backfillDocsRepo(db);
   // ADDITIVE steps (review F7): a change an older CLI can live with does not bump user_version,
   // because every older CLI refuses a graph whose user_version is above what it knows. A column
   // with a DEFAULT an older CLI's INSERTs fill correctly is additive; anything an older CLI would
@@ -561,5 +562,28 @@ export function migrate(db: DatabaseSync): void {
   }
   if (version < SCHEMA_VERSION) {
     db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+  }
+}
+
+
+/**
+ * Docs rows imported before a file URL named its repo have no repo, so every repo on the machine was shown them.
+ * Fill it in from the URL, with the same reader the importer stamps new rows with. ADDITIVE: no version bump, since
+ * an older CLI can live with the column filled (it reads it, and a re-import never erases it). Idempotent, and a
+ * row whose URL names no repository (a remoteless repo's `git://blob/...`) stays unattributed, which is "not known".
+ */
+function backfillDocsRepo(db: DatabaseSync): void {
+  const rows = db.prepare(`SELECT id, source_url FROM decisions WHERE platform = 'docs' AND repo IS NULL AND source_url LIKE 'http%'`)
+    .all() as Array<{ id: string; source_url: string | null }>;
+  const found = rows.flatMap((r) => { const repo = repoFromSourceUrl(r.source_url); return repo ? [{ id: r.id, repo }] : []; });
+  if (found.length === 0) return;
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const update = db.prepare('UPDATE decisions SET repo = ? WHERE id = ? AND repo IS NULL');
+    for (const f of found) update.run(f.repo, f.id);
+    db.exec('COMMIT');
+  } catch (err) {
+    if (db.isTransaction) db.exec('ROLLBACK');
+    throw err;
   }
 }

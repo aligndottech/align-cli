@@ -33,9 +33,16 @@ import { CORE_BARE_ARGS, getRemoteUrl, getRepoRoot, GIT_DIRS_ARGS, gitOutput, is
  */
 const HOSTED_REPO = /^https?:\/\/([^/\s]+)\/(.+?)(?:\/-)?\/(?:commit|pull|issues|merge_requests)\/[0-9a-zA-Z]+(?:[/?#]|$)/;
 
+/**
+ * A docs row's URL is a FILE in the repo (`<repo>/blob/<branch>/<path>`, GitLab's with `/-/`), not a commit.
+ * Without this every docs row was stored with no repo, and a row with no repo is shown in every repo: one
+ * project's rules reached every other project on the machine.
+ */
+const HOSTED_FILE = /^https?:\/\/([^/\s]+)\/(.+?)(?:\/-)?\/blob\/[^\s]+/;
+
 export function repoFromSourceUrl(sourceUrl: string | null | undefined): string | null {
   if (!sourceUrl) return null;
-  const m = HOSTED_REPO.exec(sourceUrl);
+  const m = HOSTED_REPO.exec(sourceUrl) ?? HOSTED_FILE.exec(sourceUrl);
   if (!m) return null;
   const ownerPath = m[2];
   if (!ownerPath.includes('/')) return null;
