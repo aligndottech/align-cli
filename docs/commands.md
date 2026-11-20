@@ -55,6 +55,8 @@ align connect mirsad          Import decisions from a MIRSAD JSON export (its su
                               flags: --file --limit --approve --env
 align connect nightshift      Import the decisions you answered in nightshift's parking lot and plan record (open entries stay in nightshift)
                               flags: --dir --limit --approve --env
+align connect adr-guard       Record which ADRs replaced which, from an ADR Guard relationships export (run align connect docs first)
+                              flags: --file --limit --env
 
 align check                   Check current changes against the decision graph (exit 1 = conflict found)
                               flags: --env --all --hook --advisory --format --block-on-critical --adjudicate-deferred --ci --json --title --base --decisions-file --depth --resolve
