@@ -14,6 +14,15 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+
+// The real embedder downloads and loads ONNX on first use. On the Windows runner that blocks the
+// worker past any test timeout, so this file hung CI for six hours. Every sibling ingest test mocks it.
+vi.mock('../lib/local-embeddings.js', () => ({
+  getEmbedding: vi.fn().mockResolvedValue(new Float32Array(384).fill(0.1)),
+  cosineSimilarity: vi.fn().mockReturnValue(0.1),
+  EMBEDDING_MODEL_ID: 'Xenova/all-MiniLM-L6-v2',
+}));
+
 import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
 import { createLocalDb } from '../lib/local-db.js';
 import { confirmAdrGuardLinks } from '../lib/adr-guard-links.js';
