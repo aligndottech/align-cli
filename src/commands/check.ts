@@ -10,6 +10,7 @@ import { getBaseDiff, getCurrentBranch, getHeadDiff, getStagedDiff, isGitRepo, l
 import type { AlignmentResult } from '../lib/gateway-client.js';
 import { type HookPayload, readHookPayload } from '../lib/hook-payload.js';
 import { lineWriterCheck, proposedChangeText, type RelatedDecision } from '../lib/agent/edit-text.js';
+import { stripTrailers } from '../lib/reason-extract.js';
 import { type AgentUse, recordAgentUse } from '../lib/agent-use-telemetry.js';
 import { markHookContext } from '../lib/hook-context.js';
 import { isAlignSetUp } from '../lib/setup-state.js';
@@ -901,7 +902,9 @@ const isCommitSource = (url: string | undefined): boolean => /\/commit\/[0-9a-f]
 function stripCommitMetadata(text: string): string {
   const lines = text.split('\n');
   const stop = lines.findIndex((l) => /^\s*(Author|Date|Files changed):/.test(l));
-  return (stop === -1 ? lines : lines.slice(0, stop)).filter((l) => !/^\s*(Co-Authored-By|Signed-off-by):/i.test(l)).join('\n');
+  // The commit message, then its trailers by the one shared rule (any key: Co-Authored-By, Claude-Session, Refs...),
+  // not a list of two that every new key got past.
+  return stripTrailers((stop === -1 ? lines : lines.slice(0, stop)).join('\n'));
 }
 
 // The title is already printed. Drop a leading copy of it when it is a LINE of its own (a commit
