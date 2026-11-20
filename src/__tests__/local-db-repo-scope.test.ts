@@ -20,7 +20,16 @@ import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// The docs-row tests ingest through the client, which would download and load the real ONNX
+// embedder. On the Windows runner that blocks the worker past every timeout (CI hung six hours).
+vi.mock('../lib/local-embeddings.js', () => ({
+  getEmbedding: vi.fn().mockResolvedValue(new Float32Array(384).fill(0.1)),
+  cosineSimilarity: vi.fn().mockReturnValue(0.1),
+  EMBEDDING_MODEL_ID: 'Xenova/all-MiniLM-L6-v2',
+}));
+
 import { createLocalDb, SCHEMA_VERSION } from '../lib/local-db.js';
 import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
 
