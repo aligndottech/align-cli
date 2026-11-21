@@ -42,7 +42,7 @@ import { entryDate, findDecisionLogFiles, readLogFile, splitDecisionLog } from '
  *  doc/adr and docs/decisions covering different eras of the same project). */
 export const ADR_DIR_CANDIDATES = [
   'docs/adr', 'doc/adr', 'docs/decisions', 'doc/decisions', 'adr',
-  'docs/adrs', 'src/docs/adrs', 'src/docs/adr', 'docs/architecture/adr', 'docs/architecture/decisions',
+  'docs/adrs', 'src/docs/adrs', 'src/docs/adr', 'docs/architecture/adr', 'docs/architecture/decisions', 'docs/architecture-decisions',
   // RFC folders: one decision per file, dated like an ADR.
   'docs/rfcs', 'docs/rfc', 'rfcs', 'rfc',
 ];
