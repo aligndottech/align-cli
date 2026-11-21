@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.91.0](https://github.com/aligndottech/align-cli/compare/cli-v0.90.0...cli-v0.91.0) (2026-11-20)
+
+
+### Features
+
+* **connect:** align connect adr-guard records which ADRs replaced which ([#692](https://github.com/aligndottech/align-cli/issues/692)) ([297d3ff](https://github.com/aligndottech/align-cli/commit/297d3ffc5edee0ace7d10e85b6f935c1fa8a0972))
+
+
+### Bug Fixes
+
+* **local:** a docs row belongs to its repo, so other repos stop seeing it ([#694](https://github.com/aligndottech/align-cli/issues/694)) ([666e54a](https://github.com/aligndottech/align-cli/commit/666e54a063fec918a8a1beb04186f2aa414cfa4c))
+* **test:** mock the embedder in adr-guard-links, which hung Windows CI for six hours ([#696](https://github.com/aligndottech/align-cli/issues/696)) ([5785e62](https://github.com/aligndottech/align-cli/commit/5785e621a7d99759f7208cb7f9de55e8f23fd4e5))
+* the edit hook strips any trailer key, and the instruction block names no sources ([#695](https://github.com/aligndottech/align-cli/issues/695)) ([143b40e](https://github.com/aligndottech/align-cli/commit/143b40e262b3872b20cf83ec4338418808d406b2))
+
 ## [0.90.0](https://github.com/aligndottech/align-cli/compare/cli-v0.89.0...cli-v0.90.0) (2026-11-19)
 
 
