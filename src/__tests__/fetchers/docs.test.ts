@@ -95,7 +95,7 @@ describe('fetchDocsItems - ADR directories', () => {
   });
 
   it.each([
-    ['docs/adrs'], ['src/docs/adrs'], ['src/docs/adr'], ['docs/architecture/adr'], ['docs/architecture/decisions'],
+    ['docs/adrs'], ['src/docs/adrs'], ['src/docs/adr'], ['docs/architecture/adr'], ['docs/architecture/decisions'], ['docs/architecture-decisions'],
   ])('reads ADRs from %s', async (dir) => {
     repo = mkdtempSync(join(tmpdir(), 'align-2109-'));
     mkdirSync(join(repo, ...dir.split('/')), { recursive: true });
