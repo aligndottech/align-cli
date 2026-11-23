@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, readFileSync, unlinkSync } from 'node:fs';
+import { existsSync, readFileSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { carriesLocalEnv, type OnForeign } from './foreign-env.js';
 import { alignServerEntry, type McpFormat } from './mcp-setup.js';
-import { recordedWrite, safeWriteJson, type SafeWriteOptions, safeWriteText } from './safe-config-write.js';
+import { hasSymlinkOnPath, recordedWrite, safeWriteJson, type SafeWriteOptions, safeWriteText } from './safe-config-write.js';
 
 // The deterministic auto-alignment layer. The MCP server already had
 // instructions (model discretion); these project-local, committed files make the
@@ -248,13 +248,16 @@ const LEGACY_CURSOR_RULE = '.cursor/rules/align.md';
 // last wrote. Anything else may be the user's, so it stays and one line says why.
 function retireLegacyCursorRule(cwd: string): void {
   const file = path.join(cwd, ...LEGACY_CURSOR_RULE.split('/'));
+  // A link anywhere on the path leads into a directory that may belong to another program.
+  if (hasSymlinkOnPath(file, cwd)) return;
   let current: string;
   try {
-    if (lstatSync(file).isSymbolicLink()) return;
     current = readFileSync(file, 'utf8');
   } catch {
     return;
   }
+  // A file that is not align's by its heading is the user's: not ours to name, every run, forever.
+  if (!current.includes('Align decision graph')) return;
   const entry = recordedWrite(file);
   const note = (why: string) => console.error(`Left alone: ${LEGACY_CURSOR_RULE}: ${why}`);
   if (!entry) return note('align has no record of writing it. Cursor ignores .md rules; delete it once you have checked it');
@@ -266,8 +269,10 @@ function retireLegacyCursorRule(cwd: string): void {
 // Cursor project rule. Fully managed - overwritten each run.
 export function writeCursorRule(cwd: string): boolean {
   const status = safeWriteText(path.join(cwd, ...CURSOR_RULE.split('/')), () => cursorRuleBody(), projectWrite(cwd));
-  retireLegacyCursorRule(cwd);
-  return status === 'written' || status === 'unchanged';
+  const ok = status === 'written' || status === 'unchanged';
+  // A refused new write must not cost the user the old file.
+  if (ok) retireLegacyCursorRule(cwd);
+  return ok;
 }
 
 /**

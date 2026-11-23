@@ -262,6 +262,11 @@ function symlinkOnPath(fs: SafeFs, file: string, root: string | undefined): { pa
   return hit && hit !== 'missing' ? hit : null;
 }
 
+/** True when a symlink sits on the way to `file` (or is the file), by the same check the writer applies. */
+export function hasSymlinkOnPath(file: string, root: string | undefined): boolean {
+  return symlinkOnPath(realFs(), file, root) !== null;
+}
+
 function modeOf(fs: SafeFs, file: string): number | null {
   try {
     return fs.lstatSync(file).mode & 0o777;

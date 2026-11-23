@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -21,6 +21,10 @@ import { mergeWrittenConfig, safeWriteText, setWriteRecorder, type WrittenConfig
  *     b. edited after align wrote it: kept, one line says so, mdc written
  *     c. no record of writing it: kept, one line says so, mdc written
  *     d. a user's own pre-existing align.md that a record shows align did not create: kept
+ *  3e. the new write refused (symlinked rules dir): the recorded legacy file behind the link survives
+ *  3f. same with a symlinked .cursor
+ *  3g. an align.md with an unrelated body is never named; 3h. a second unrelated body, still silent
+ *  3i. an edited align-written file is named (3b); 3j. an unrecorded align-headed file is named (3c)
  *  4. undo
  *     a. align.mdc created by align and unedited: deleted, tree back to before
  *     b. align.mdc edited by the user: left alone and named
@@ -146,6 +150,56 @@ describe('3. migration from an older align.md', () => {
     expect(writeCursorRule(repo)).toBe(true);
     expect(read(LEGACY)).toContain('align overwrote the user file');
     expect(noted.filter((n) => n.includes(LEGACY))).toHaveLength(1);
+  });
+});
+
+describe('3e-3h. refusal and noise', () => {
+  // The ledger keeps the repo-relative path, so the legacy file is written first and then moved behind a link.
+  function linkAway(rel: string): string {
+    const elsewhere = mkdtempSync(path.join(os.tmpdir(), 'align-mdc-other-'));
+    renameSync(abs(rel), path.join(elsewhere, 'moved'));
+    symlinkSync(path.join(elsewhere, 'moved'), abs(rel));
+    return elsewhere;
+  }
+
+  it('e. a symlinked rules dir refuses the new write and keeps the legacy file behind the link', () => {
+    writeLegacy();
+    const elsewhere = linkAway('.cursor/rules');
+    try {
+      expect(writeCursorRule(repo)).toBe(false);
+      expect(readdirSync(path.join(elsewhere, 'moved'))).toEqual(['align.md']);
+      expect(noted.join('\n')).toContain('symlink');
+    } finally {
+      rmSync(elsewhere, { recursive: true, force: true });
+    }
+  });
+
+  it('f. a symlinked .cursor refuses the new write and keeps the legacy file behind the link', () => {
+    writeLegacy();
+    const elsewhere = linkAway('.cursor');
+    try {
+      expect(writeCursorRule(repo)).toBe(false);
+      expect(readdirSync(path.join(elsewhere, 'moved', 'rules'))).toEqual(['align.md']);
+      expect(noted.join('\n')).toContain('symlink');
+    } finally {
+      rmSync(elsewhere, { recursive: true, force: true });
+    }
+  });
+
+  it('g. an align.md with an unrelated body is kept and not named', () => {
+    mkdirSync(abs('.cursor/rules'), { recursive: true });
+    writeFileSync(abs(LEGACY), '# Team style notes\nuse tabs\n');
+    expect(writeCursorRule(repo)).toBe(true);
+    expect(read(LEGACY)).toContain('use tabs');
+    expect(noted.filter((n) => n.includes(LEGACY))).toEqual([]);
+  });
+
+  it('h. a recorded align.md the user fully rewrote to something unrelated is kept and not named', () => {
+    writeLegacy();
+    writeFileSync(abs(LEGACY), 'entirely my own rule\n');
+    expect(writeCursorRule(repo)).toBe(true);
+    expect(read(LEGACY)).toBe('entirely my own rule\n');
+    expect(noted.filter((n) => n.includes(LEGACY))).toEqual([]);
   });
 });
 
