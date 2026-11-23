@@ -35,16 +35,31 @@ const KIND_BY_PLACEHOLDER: Record<string, string> = {
   '<URL_CREDENTIALS>': 'password inside a URL',
 };
 const PRIVATE_KEY_HEADER = /-----BEGIN (?:[A-Z0-9]{1,20} ){0,4}PRIVATE KEY(?: BLOCK)?-----/;
+/** A whole-token marker: not `xalign:allow-secretly` and not `align:allow-secret-not`. */
+const ALLOW_TOKEN = /(^|[\s#/*;"'-])align:allow-secret(\s|$)/;
 const KEY_BODY_LINE = /^[A-Za-z0-9+/]{40,}={0,2}$/;
+/** Rows PEM allows between the header and the body; they neither count as a body nor end the look. */
+const PEM_HEADER_FIELD = /^\s*(?:Proc-Type:|DEK-Info:|$)/;
+/** On the header's own line: a literal \n (JSON), a base64 run, or the matching END. */
+const ONE_LINE_KEY_TAIL = /^(?:\\n|\s*[A-Za-z0-9+/]{40,}|[\s\S]*-----END )/;
+const MAX_BODY_LOOKAHEAD = 3;
 const AWS_SECRET_LABEL = /aws_secret_access_key|secret_access_key|aws_secret/i;
 
 const PLACEHOLDER_PASSWORDS = new Set(['password', 'pass', 'passwd', 'pwd', 'secret', 'changeme', 'example', 'user', 'username', 'test', 'admin', 'root', 'redacted', 'yourpassword', 'your_password', 'xxx']);
+/** Stripe's documented example key, in their docs and countless tutorials. */
+const STRIPE_DOC_KEY = ['sk_test_', '4eC39HqLyjWDarjtT1zdp7dc'].join('');
 const repeatedChar = (v: string): boolean => v.length > 0 && v.split('').every((c) => c === v[0]);
 
 function urlPasswordIsPlaceholder(match: string): boolean {
   const afterScheme = match.slice(match.indexOf('//') + 2).replace(/@$/, '');
-  const pw = afterScheme.slice(afterScheme.indexOf(':') + 1);
-  return /^\$/.test(pw) || /^<.*>$/.test(pw) || /^\{\{/.test(pw) || /^%.*%$/.test(pw) || PLACEHOLDER_PASSWORDS.has(pw.toLowerCase()) || repeatedChar(pw.toLowerCase().replace(/[^a-z0-9]/g, '')) && pw.length > 0;
+  const colon = afterScheme.indexOf(':');
+  const user = afterScheme.slice(0, colon);
+  const pw = afterScheme.slice(colon + 1);
+  if (/^\$/.test(pw) || /^<.*>$/.test(pw) || /^\{[\w.-]*\}$/.test(pw) || /^\{\{/.test(pw) || /^%.*%$/.test(pw)) return true;
+  if (PLACEHOLDER_PASSWORDS.has(pw.toLowerCase()) || pw.toLowerCase() === user.toLowerCase()) return true;
+  // An ALL-CAPS word (TOKEN, PASSWORD) names a variable. Letters and underscores only, so a random upper-case-and-digit password still flags.
+  if (/^[A-Z_]{3,24}$/.test(pw)) return true;
+  return repeatedChar(pw.toLowerCase().replace(/[^a-z0-9]/g, ''));
 }
 function openAiBodyIsPlaceholder(match: string): boolean {
   const body = match.slice(3);
@@ -60,16 +75,19 @@ function kindsIn(line: string): string[] {
     if (placeholder === '<URL_CREDENTIALS>' && urlPasswordIsPlaceholder(match)) continue;
     if (placeholder === '<OPENAI_KEY>' && openAiBodyIsPlaceholder(match)) continue;
     if (placeholder === '<AWS_ACCESS_KEY>' && /EXAMPLE$/i.test(match)) continue;
+    if (placeholder === '<AWS_SECRET_KEY>' && /EXAMPLEKEY$/i.test(match)) continue;
+    if (placeholder === '<STRIPE_KEY>' && match === STRIPE_DOC_KEY) continue;
     kinds.add(kind);
   }
   if (AWS_SECRET_LABEL.test(line)) {
-    AWS_BARE_SECRET.lastIndex = 0;
-    if (AWS_BARE_SECRET.test(line)) kinds.add('AWS secret key');
+    for (const m of line.matchAll(new RegExp(AWS_BARE_SECRET.source, 'g'))) {
+      if (!/EXAMPLEKEY$/i.test(m[0])) kinds.add('AWS secret key');
+    }
   }
   return [...kinds];
 }
 
-interface Row { file: string; line: number; text: string; prev: string }
+interface Row { file: string; line: number; text: string; /** A removed row came between this row and the one before it. */ afterRemoved: boolean }
 
 /**
  * The ADDED rows of a unified or combined diff, with file and new-file line number. A "+++ " is a file header only
@@ -82,7 +100,7 @@ function addedRows(diff: string): Row[] {
   let inHunk = false;
   let width = 1;
   let line = 0;
-  let prev = '';
+  let removed = false;
   for (const row of diff.split('\n')) {
     if (row.startsWith('diff --git') || row.startsWith('diff --cc') || row.startsWith('diff --combined')) { inHunk = false; continue; }
     if (!inHunk) {
@@ -92,34 +110,62 @@ function addedRows(diff: string): Row[] {
         continue;
       }
       const h = /^(@@+) .*?\+(\d+)(?:,\d+)? @@/.exec(row);
-      if (h) { inHunk = true; width = (h[1] as string).length - 1; line = Number(h[2]); prev = ''; }
+      if (h) { inHunk = true; width = (h[1] as string).length - 1; line = Number(h[2]); }
       continue;
     }
     const h = /^(@@+) .*?\+(\d+)(?:,\d+)? @@/.exec(row);
-    if (h) { width = (h[1] as string).length - 1; line = Number(h[2]); prev = ''; continue; }
+    if (h) { width = (h[1] as string).length - 1; line = Number(h[2]); continue; }
     if (row.startsWith('\\')) continue;
     const prefix = row.slice(0, width);
-    if (prefix.includes('-')) continue;
+    if (prefix.includes('-')) { removed = true; continue; }
     const text = row.slice(width);
-    if (prefix.includes('+')) rows.push({ file, line, text, prev });
+    if (prefix.includes('+')) rows.push({ file, line, text, afterRemoved: removed });
+    removed = false;
     line += 1;
-    prev = text;
   }
   return rows;
 }
 
-/** Secret shapes on the ADDED lines of a diff. A line the change removes is not a finding. */
-export function secretHitsInDiff(diff: string): SecretHit[] {
+/** Does the private key header at rows[i] have a body: on its own line, or in one of the next few ADJACENT added rows? */
+function hasKeyBody(rows: Row[], i: number): boolean {
+  const r = rows[i] as Row;
+  const tail = r.text.slice(r.text.search(PRIVATE_KEY_HEADER) + (PRIVATE_KEY_HEADER.exec(r.text)?.[0].length ?? 0));
+  if (ONE_LINE_KEY_TAIL.test(tail)) return true;
+  let last = r.line;
+  let seen = 0;
+  for (let j = i + 1; j < rows.length && seen < MAX_BODY_LOOKAHEAD; j += 1) {
+    const n = rows[j] as Row;
+    if (n.file !== r.file || n.line !== last + 1) return false;
+    last = n.line;
+    if (PEM_HEADER_FIELD.test(n.text)) continue;
+    if (KEY_BODY_LINE.test(n.text.trim())) return true;
+    seen += 1;
+  }
+  return false;
+}
+
+export interface DiffScan { hits: SecretHit[]; allowed: SecretHit[] }
+
+/**
+ * Secret shapes on the ADDED lines of a diff. A line the change removes is not a finding. A hit is allowed (and
+ * reported in `allowed`, never dropped silently) when the marker is on its own line or on the added row directly above.
+ */
+export function scanDiff(diff: string): DiffScan {
   const rows = addedRows(diff);
   const hits: SecretHit[] = [];
+  const allowed: SecretHit[] = [];
   rows.forEach((r, i) => {
-    if (r.text.includes(ALLOW_MARKER) || r.prev.includes(ALLOW_MARKER)) return;
-    for (const kind of kindsIn(r.text)) hits.push({ file: r.file, line: r.line, kind });
-    if (PRIVATE_KEY_HEADER.test(r.text) && rows.slice(i + 1).some((n) => n.file === r.file && KEY_BODY_LINE.test(n.text.trim()))) {
-      hits.push({ file: r.file, line: r.line, kind: 'private key' });
-    }
+    const above = rows[i - 1];
+    const marked = ALLOW_TOKEN.test(r.text) || (above !== undefined && above.file === r.file && above.line === r.line - 1 && !r.afterRemoved && ALLOW_TOKEN.test(above.text));
+    const found: SecretHit[] = kindsIn(r.text).map((kind) => ({ file: r.file, line: r.line, kind }));
+    if (PRIVATE_KEY_HEADER.test(r.text) && hasKeyBody(rows, i)) found.push({ file: r.file, line: r.line, kind: 'private key' });
+    (marked ? allowed : hits).push(...found);
   });
-  return hits;
+  return { hits, allowed };
+}
+
+export function secretHitsInDiff(diff: string): SecretHit[] {
+  return scanDiff(diff).hits;
 }
 
 const MAX_NAMED = 3;
@@ -141,7 +187,7 @@ function conflictFor(h: SecretHit): NonNullable<AlignmentResult['conflicts']>[nu
  * Fold secret hits into the judge's answer. `llm` is null when the judge threw. Critical, like a co-change
  * violation: one right answer, no confidence to discount, and it outranks `unknown`.
  */
-export function mergeSecretHits(llm: AlignmentResult | null, llmError: unknown, hits: SecretHit[]): AlignmentResult {
+export function mergeSecretHits(llm: AlignmentResult | null, llmError: unknown, hits: SecretHit[], allowed: SecretHit[] = []): AlignmentResult {
   const found = hits.map(conflictFor);
   const { reason: _r, reason_class: _c, ...kept } = llm ?? { relevant_decisions: [] as AlignmentResult['relevant_decisions'] };
   const judgeNote = llm === null ? [`The decision-graph judge was unavailable (${llmError instanceof Error ? llmError.constructor.name : typeof llmError}). The secret check above needed no judge.`] : [];
@@ -151,18 +197,29 @@ export function mergeSecretHits(llm: AlignmentResult | null, llmError: unknown, 
     status: 'conflicting',
     confidence: 1,
     conflicts: [...found, ...(llm?.conflicts ?? [])],
-    notes: [...(llm?.notes ?? []), ...judgeNote],
+    notes: [...(llm?.notes ?? []), ...judgeNote, ...allowedNote(allowed)],
     message: `This change adds ${hits.length} secret(s) (${where}${hits.length > MAX_NAMED ? ' and more' : ''}).`,
   };
 }
 
-/** Run the judge, then fold in secret hits. With none, the judge's answer or failure passes through untouched. */
+/** The note a marker earns: an allowed secret is still said out loud. */
+function allowedNote(allowed: SecretHit[]): string[] {
+  if (allowed.length === 0) return [];
+  const where = allowed.slice(0, MAX_NAMED).map((h) => `${shownPath(h.file)}:${h.line}`).join(', ');
+  return [`${allowed.length} secret(s) allowed by ${ALLOW_MARKER} (${where}${allowed.length > MAX_NAMED ? ', ...' : ''})`];
+}
+
+/** Run the judge, then fold in secret hits. With none, the judge's answer or failure passes through (plus a note for any allowed secret). */
 export async function judgeWithSecretCheck(judge: () => Promise<AlignmentResult>, diff: string): Promise<AlignmentResult> {
-  const hits = secretHitsInDiff(diff);
-  if (hits.length === 0) return judge();
+  const { hits, allowed } = scanDiff(diff);
+  if (hits.length === 0) {
+    const r = await judge();
+    const note = allowedNote(allowed);
+    return note.length ? { ...r, notes: [...(r.notes ?? []), ...note] } : r;
+  }
   try {
-    return mergeSecretHits(await judge(), null, hits);
+    return mergeSecretHits(await judge(), null, hits, allowed);
   } catch (err) {
-    return mergeSecretHits(null, err, hits);
+    return mergeSecretHits(null, err, hits, allowed);
   }
 }

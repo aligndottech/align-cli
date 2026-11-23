@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { judgeWithSecretCheck, SECRET_PRECHECK_ID, secretHitsInDiff } from '../lib/secret-precheck.js';
+import { judgeWithSecretCheck, scanDiff, SECRET_PRECHECK_ID, secretHitsInDiff } from '../lib/secret-precheck.js';
 import { lastCheckFor } from '../lib/curation/last-check.js';
 
 // Every fixture that looks like a credential is built at runtime, never written as a literal.
@@ -97,5 +97,71 @@ describe('what reaches the output', () => {
     expect(r.conflicts?.[0]?.decision_id).toBe(SECRET_PRECHECK_ID);
     const entry = lastCheckFor('', { ...r, conflicts: [...(r.conflicts ?? []), { decision_id: 'real-1' }] });
     expect(entry.decision_ids).toEqual(['real-1']);
+  });
+});
+
+describe('second review: one-line JSON key, marker anchoring, placeholders, adjacency, speed', () => {
+  const BODY = `${'MIIEvQIBADANBgkqhkiG9w0BAQEFAASC'}${'BKcwggSjAgEAAoIBAQC'}`;
+  it('a one-line JSON service-account key is flagged (header then a literal \\n, a base64 run, or the END line)', () => {
+    const head = `-----BEGIN ${'PRIVATE KEY'}-----`;
+    expect(kinds(diffOf('sa.json', [`+{"private_key": "${head}\\n${BODY}\\n-----END PRIVATE KEY-----\\n"}`]))).toEqual(['private key']);
+    expect(kinds(diffOf('sa.json', [`+k = "${head}${BODY}"`]))).toEqual(['private key']);
+    expect(kinds(diffOf('sa.json', [`+k = "${head} x -----END PRIVATE KEY-----"`]))).toEqual(['private key']);
+    expect(kinds(diffOf('doc.md', [`+Starts with ${head} and is a header.`]))).toEqual([]);
+  });
+  it('the marker is a whole token', () => {
+    expect(kinds(diffOf('a.txt', [`+${GH} //xalign:allow-secretly`]))).toEqual(['GitHub token']);
+    expect(kinds(diffOf('a.txt', [`+${GH} align:allow-secret-not`]))).toEqual(['GitHub token']);
+    expect(kinds(diffOf('a.txt', [`+${GH} //align:allow-secret`]))).toEqual([]);
+  });
+  it('a marker on a CONTEXT row, or across a removed row, does not suppress', () => {
+    const ctx = `${header('a.txt')}@@ -1,2 +1,2 @@\n # align:allow-secret\n+${GH}\n`;
+    expect(kinds(ctx)).toEqual(['GitHub token']);
+    const removed = `${header('a.txt')}@@ -1,3 +1,2 @@\n+# align:allow-secret\n-old\n+${GH}\n`;
+    expect(kinds(removed)).toEqual(['GitHub token']);
+    expect(kinds(diffOf('a.txt', ['+# align:allow-secret', `+${GH}`, `+${GH}`]))).toEqual(['GitHub token']);
+  });
+  it('an allowed secret is reported as a note, never silently', () => {
+    const r = scanDiff(diffOf('a.txt', [`+${GH} # align:allow-secret`]));
+    expect(r.hits).toEqual([]);
+    expect(r.allowed).toEqual([{ file: 'a.txt', line: 1, kind: 'GitHub token' }]);
+  });
+  it('the note rides on the judge result', async () => {
+    const ALIGNED = { status: 'aligned' as const, confidence: 0.9, relevant_decisions: [], conflicts: [], message: 'ok' };
+    const r = await judgeWithSecretCheck(() => Promise.resolve(ALIGNED), diffOf('a.txt', [`+${GH} # align:allow-secret`]));
+    expect(r.status).toBe('aligned');
+    expect(r.notes?.join(' ')).toContain('1 secret(s) allowed by align:allow-secret (a.txt:1)');
+  });
+  it('the note also rides on a conflicting result when another secret is not allowed', async () => {
+    const ALIGNED = { status: 'aligned' as const, confidence: 0.9, relevant_decisions: [], conflicts: [], message: 'ok' };
+    const r = await judgeWithSecretCheck(() => Promise.resolve(ALIGNED), diffOf('a.txt', [`+${GH} # align:allow-secret`, '+gap', `+${GH}`]));
+    expect(r.status).toBe('conflicting');
+    expect(r.notes?.join(' ')).toContain('allowed by align:allow-secret');
+  });
+  it('more URL placeholders: password equal to the user, {word}, ALL-CAPS word; a random one still flags', () => {
+    for (const url of ['postgres://postgres:postgres@h/db', 'x://app:app@h', 'x://anonymous:anonymous@h', 'x://u:{password}@h', 'x://u:TOKEN@h', 'x://u:PASSWORD@h']) {
+      expect(kinds(diffOf('a.env', [`+U=${url}`])), url).toEqual([]);
+    }
+    expect(kinds(diffOf('a.env', [`+U=x://app:${RANDOM_PW}@h`]))).toEqual(['password inside a URL']);
+  });
+  it('documented examples: Stripe test key and the AWS doc secret ending EXAMPLEKEY are clean', () => {
+    expect(kinds(diffOf('a.md', [`+k = ${['sk_test_', '4eC39HqLyjWDarjtT1zdp7dc'].join('')}`]))).toEqual([]);
+    expect(kinds(diffOf('a.md', [`+aws_secret_access_key = ${'wJalrXUtnFEMI/K7MDENG/bPxRfiCY'}${'EXAMPLEKEY'}`]))).toEqual([]);
+    expect(kinds(diffOf('a.md', [`+k = ${['sk_test_', 'Zq9xLm2Vx7Rk4Wd9Yb3Nab12'].join('')}`]))).toEqual(['Stripe key']);
+  });
+  it('a header in docs plus an unrelated LATER sha-looking row does not flag; an adjacent body does, past Proc-Type', () => {
+    const head = `-----BEGIN ${'RSA '}PRIVATE KEY-----`;
+    const sha = 'a'.repeat(40);
+    expect(kinds(diffOf('doc.md', [`+${head}`, '+prose', '+more prose', '+even more', `+${sha}`]))).toEqual([]);
+    const ctxGap = `${header('doc.md')}@@ -1,2 +1,3 @@\n+${head}\n ctx\n+${sha}\n`;
+    expect(kinds(ctxGap)).toEqual([]);
+    expect(kinds(diffOf('k.pem', [`+${head}`, '+Proc-Type: 4,ENCRYPTED', '+DEK-Info: AES-128-CBC,AB', '+', `+${BODY}`]))).toEqual(['private key']);
+  });
+  it('20k header rows scan in well under a second', () => {
+    const head = `-----BEGIN ${'RSA '}PRIVATE KEY-----`;
+    const rows = Array.from({ length: 20000 }, () => `+${head}`);
+    const t = Date.now();
+    secretHitsInDiff(diffOf('big.md', rows));
+    expect(Date.now() - t).toBeLessThan(1000);
   });
 });

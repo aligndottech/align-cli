@@ -152,10 +152,11 @@ export interface SecretMatch { placeholder: string; match: string }
  * Every span the list would rewrite, each judged independently on the original text (redactSecrets applies them in
  * sequence). The caller decides which kinds matter. Never log or return the `match` of a real finding.
  */
+const MATCHERS = REWRITES.map((w) => ({ w, re: new RegExp(w.re.source, w.re.flags) }));
 export function secretMatches(text: string): SecretMatch[] {
   const out: SecretMatch[] = [];
-  for (const w of REWRITES) {
-    const re = new RegExp(w.re.source, w.re.flags);
+  for (const { w, re } of MATCHERS) {
+    re.lastIndex = 0;
     for (let m = re.exec(text); m; m = re.exec(text)) {
       if (m[0] === '') { re.lastIndex += 1; continue; }
       if (w.replacement === '<CREDENTIALS>' && (DIGEST.test(m[0]) || isBuildIdentifier(m[0]) || isPublicFingerprint(text, m.index))) continue;
