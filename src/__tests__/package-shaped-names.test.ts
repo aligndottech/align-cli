@@ -74,7 +74,7 @@ describe('isGeneratedDecisionsFile', () => {
     [`${GENERATED_HEADER}\n\nbody`, true],
     [`${GENERATED_HEADER}\r\n\r\nbody`, true],
     [`${GENERATED_HEADER}`, true],
-    [`﻿\n\n${GENERATED_HEADER}\nbody`, true],
+    [`\uFEFF\n\n${GENERATED_HEADER}\nbody`, true],
     [`${GENERATED_HEADER} notes\nbody`, false],
     [`  ${GENERATED_HEADER}\nbody`, false],
     [`\t${GENERATED_HEADER}\nbody`, false],
