@@ -71,6 +71,34 @@ describe('cache location (never inside node_modules)', () => {
   });
 });
 
+describe('loadOrt', () => {
+  const saved = process.env['ORT_DISABLE_TELEMETRY'];
+  afterEach(() => {
+    if (saved === undefined) delete process.env['ORT_DISABLE_TELEMETRY'];
+    else process.env['ORT_DISABLE_TELEMETRY'] = saved;
+  });
+
+  // The runtime reads the variable once, while it initialises, so what matters is the value the
+  // bundle sees at require time. The fake bundle records exactly that.
+  const bundleRecordingEnv = (): string => {
+    const dir = tmpRoot();
+    mkdirSync(join(dir, 'dist'));
+    writeFileSync(join(dir, 'package.json'), '{}');
+    writeFileSync(join(dir, 'dist', 'index.js'), "module.exports = { seenAtLoad: process.env['ORT_DISABLE_TELEMETRY'] };");
+    return dir;
+  };
+
+  it('turns the runtime\'s own telemetry off before the native library initialises', () => {
+    delete process.env['ORT_DISABLE_TELEMETRY'];
+    expect(loadOrt(bundleRecordingEnv())).toMatchObject({ seenAtLoad: '1' });
+  });
+
+  it('replaces a value that would leave the runtime\'s telemetry on', () => {
+    process.env['ORT_DISABLE_TELEMETRY'] = '0';
+    expect(loadOrt(bundleRecordingEnv())).toMatchObject({ seenAtLoad: '1' });
+  });
+});
+
 describe('ensureRuntime', () => {
   it('downloads once, verifies, and then works offline from the cache', async () => {
     const xdg = tmpRoot();

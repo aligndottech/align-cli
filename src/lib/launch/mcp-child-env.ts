@@ -79,6 +79,7 @@ export const CHILD_ENV_NOT_PINNED: Record<string, string> = {
     'GITHUB_ACTIONS', 'SSH_CONNECTION', 'SSH_TTY', 'SSH_CLIENT', 'CODESPACES', 'REMOTE_CONTAINERS', 'DISPLAY', 'WAYLAND_DISPLAY', 'TERM', 'LC_ALL', 'LC_CTYPE', 'LANG', 'SystemRoot',
   ].map((v) => [v, 'read by `align share` to decide whether to open a browser or draw a QR code at the person\'s terminal; the MCP server never does either'])),
   COPILOT_ALLOW_ALL: 'read by the launcher about Copilot, not by align mcp',
+  ORT_DISABLE_TELEMETRY: 'written, never read: loadOrt sets it to 1 before the embedding runtime initialises, so a value from a repo .env cannot turn that runtime\'s telemetry on',
   GEMINI_RESTRICTED_MODE: 'read by the launcher about Gemini folder trust, not by align mcp',
   CLAUDE_CONFIG_DIR: "read by the agent session to find Claude Code's trust record, not by align mcp",
   ...Object.fromEntries([
