@@ -31,10 +31,24 @@ export function decidedTime(value?: string): number | undefined {
 }
 
 const time = (d: ContextDecision): number | undefined => decidedTime(d.decidedAt);
-// owner/name from a commit, PR, MR or issue URL on a code host.
-const REPO_IN_URL = /^https?:\/\/[^/]+\/([^/]+\/[^/]+?)\/(?:-\/)?(?:commits?|pulls?|issues|merge_requests)\//i;
+// owner/name from a commit, PR, MR or issue URL on a code host. The repo path is everything before the host's own
+// marker: GitLab puts "/-/" after a project that may sit in subgroups (g/a/cli), Bitbucket Cloud says "commits" or
+// "pull-requests" after owner/repo, Bitbucket Server says "projects/P/repos/r/".
+const REPO_PATTERNS = [
+  /^https?:\/\/[^/]+\/(.+?)\/-\/(?:commits?|merge_requests|issues|pipelines)\b/i,
+  /^https?:\/\/[^/]+\/(?:scm\/)?projects\/([^/]+)\/repos\/([^/]+)\/(?:commits?|pull-requests)\b/i,
+  /^https?:\/\/[^/]+\/([^/]+\/[^/]+?)\/(?:commits?|pulls?|issues|merge_requests|pull-requests)\//i,
+];
+function repoFromUrl(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  for (const re of REPO_PATTERNS) {
+    const m = re.exec(url);
+    if (m) return (m[2] ? `${m[1]}/${m[2]}` : m[1]!).toLowerCase();
+  }
+  return undefined;
+}
 /** The repository a row belongs to: owner/name from its source URL, so o1/cli and o2/cli stay apart; the cite's name when there is no URL. */
-const repoOf = (d: ContextDecision): string => d.sourceUrl?.match(REPO_IN_URL)?.[1]?.toLowerCase() ?? d.cite?.match(/^[^@#]+/)?.[0] ?? '';
+const repoOf = (d: ContextDecision): string => repoFromUrl(d.sourceUrl) ?? d.cite?.match(/^[^@#]+/)?.[0] ?? '';
 
 /** Newest first, then citation, then title. A missing date sorts after every dated row, never as "now". */
 export function newestFirst<T extends ContextDecision>(rows: T[]): T[] {

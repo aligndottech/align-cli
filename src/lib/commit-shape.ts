@@ -51,7 +51,8 @@ export function isReleaseOrBumpSubject(subject: string): boolean {
   if (STATED_WHY.test(body)) return false;
   if (VERSION_ONLY.test(body) || BARE_BUMP_OR_RELEASE.test(body)) return true;
   const move = DEPENDENCY_MOVE.exec(body);
-  return !!move && isPackageMove(move[1], move[2]!, move[3], move[4]!);
+  // Capture policy: only a "bump" verb or an explicit "dependency" qualifier is unambiguous. "Update docs to v2" is a choice.
+  return !!move && (!!move[1] || /^bump/i.test(body)) && isPackageToken(move[2]!, move[3], move[4]!);
 }
 
 // A mechanical bump is the WHOLE subject: an action, one package-like token, an optional "from <version>", and
@@ -65,24 +66,27 @@ const DEPENDENCY_BUMP_SHAPE = new RegExp(
   String.raw`^(?:update|upgrade|replace)\w*(\s+(?:dependenc(?:y|ies)|package))?\s+(${PKG})(?:\s+from\s+(${VERSION}))?\s+(to|with)\s+(?:version\s+)?(?:(${PKG})\s+)?(${VERSION})$`,
   'i',
 );
-// A token that names a setting or a runtime is a choice about it, not a package moving: "Update timeout to 3.5",
-// "Upgrade python to 3.12". An explicit "dependency"/"package" in the subject lifts the runtime list (a client
-// library called redis exists), never the setting list.
-const CONFIG_WORDS = new Set(['timeout', 'port', 'host', 'limit', 'retries', 'retry', 'delay', 'interval', 'size', 'level', 'mode', 'version', 'ttl', 'threshold', 'max', 'min', 'count', 'memory', 'cpu', 'workers', 'concurrency', 'pool']);
-const RUNTIME_WORDS = new Set(['python', 'node', 'nodejs', 'java', 'jdk', 'go', 'golang', 'ruby', 'php', 'rust', 'dotnet', 'postgres', 'postgresql', 'mysql', 'mariadb', 'mongodb', 'redis', 'docker', 'kubernetes', 'k8s', 'ubuntu', 'debian', 'alpine', 'linux', 'windows', 'macos', 'helm', 'terraform', 'android', 'ios']);
+// Whether a token is a package is a render-time guess (see isDependencyBumpSubject), never a capture-time one: a word
+// list of settings and runtimes was whack-a-mole, and a wrong guess at capture loses a decision for good.
 const PACKAGE_NAME = /^(?:@[a-z0-9._-]+\/[a-z0-9._-]+|[a-z0-9][a-z0-9._-]*(?:[/:][a-z0-9._-]+)*)$/i;
-const BARE_LOWERCASE = /^[a-z][a-z0-9]*$/;
 const DOTTED_OR_V = /^v\d|\d\.\d/i;
 
-/** Does one token moving to a version read as a package (lodash, @types/node), not a setting or a runtime? */
-function isPackageMove(qualifier: string | undefined, name: string, from: string | undefined, version: string): boolean {
-  // Not a setting written as a constant (MAX_RETRIES, retry_limit) and not a bare config word.
-  if (/^[A-Z0-9_]+$/.test(name) || name.includes('_') || CONFIG_WORDS.has(name.toLowerCase())) return false;
-  if (!PACKAGE_NAME.test(name)) return false;
-  if (!qualifier && RUNTIME_WORDS.has(name.toLowerCase())) return false;
-  // A bare name is a package only when it is lowercase; a dotted or v-prefixed version (or a "from" version) backs it.
-  if (!/[-./:@]/.test(name) && !BARE_LOWERCASE.test(name)) return false;
-  return !!from || DOTTED_OR_V.test(version);
+/** The shape of a package token moving to a version. Says nothing about whether it IS a package. */
+function isPackageToken(name: string, from: string | undefined, version: string): boolean {
+  // Not a setting written as a constant (MAX_RETRIES, retry_limit).
+  if (/^[A-Z0-9_]+$/.test(name) || name.includes('_')) return false;
+  return PACKAGE_NAME.test(name) && (!!from || DOTTED_OR_V.test(version));
+}
+
+/**
+ * Strong evidence the token is a package: the subject says dependency or package, it is scoped (@org/pkg), or its
+ * name carries a dot, hyphen or digit. An image tag ("python:3.11") is a runtime choice, not a package. A bare lowercase
+ * noun ("docs", "auth", "lodash") is never evidence on its own; only "from <version> to <version>" backs it.
+ */
+function hasPackageEvidence(qualifier: string | undefined, name: string, from: string | undefined): boolean {
+  if (qualifier) return true;
+  if (/:\d/.test(name)) return false;
+  return !!from || /^@[^/]+\//.test(name) || /[.\-\d]/.test(name);
 }
 
 function looksLikePackageBump(m: RegExpExecArray): boolean {
@@ -90,7 +94,7 @@ function looksLikePackageBump(m: RegExpExecArray): boolean {
   // "Replace A with B 8" swaps one tool for another. Only the same package at a new version is a bump.
   if (joiner!.toLowerCase() === 'with' && (withPkg ?? '').toLowerCase() !== name!.toLowerCase()) return false;
   if (joiner!.toLowerCase() === 'to' && withPkg) return false;
-  return isPackageMove(qualifier, name!, from, version!);
+  return isPackageToken(name!, from, version!) && hasPackageEvidence(qualifier, name!, from);
 }
 
 // STATED_WHY plus the words a policy or a requirement is written in. Free-standing only: "get-port" is a package, not a reason.
@@ -99,11 +103,21 @@ const DEPENDENCY_WHY = new RegExp(
   'i',
 );
 
-/** A subject that moves, replaces or upgrades one package and says nothing more. Used where subjects are accepted as decisions. */
+/**
+ * A subject that moves, replaces or upgrades one package and says nothing more. RENDER ONLY (the decisions file): it
+ * guesses at a package name, so capture must never use it. Capture drops only isReleaseOrBumpSubject and isRenovateBump.
+ */
 export function isDependencyBumpSubject(subject: string): boolean {
   const body = subject.trim().replace(/^\(#\d+\)\s*/, '').replace(CONVENTIONAL_PREFIX, '').replace(PR_REFERENCE, '').trim();
   const m = DEPENDENCY_BUMP_SHAPE.exec(body);
   return !!m && looksLikePackageBump(m) && !DEPENDENCY_WHY.test(body);
+}
+
+/** Renovate's own shape: "Update dependency x to v3", "Replace dependency a with a 1.0". Unambiguous because it says "dependency". */
+export function isRenovateBump(subject: string): boolean {
+  const body = subject.trim().replace(/^\(#\d+\)\s*/, '').replace(CONVENTIONAL_PREFIX, '').replace(PR_REFERENCE, '').trim();
+  const m = DEPENDENCY_BUMP_SHAPE.exec(body);
+  return !!m && !!m[1] && /^\s+dependenc/i.test(m[1]) && looksLikePackageBump(m) && !DEPENDENCY_WHY.test(body);
 }
 
 /**

@@ -17,7 +17,7 @@ import { localCitationFor } from './commit-cite.js';
 import { navigableSourceUrl } from './decision-links.js';
 import { type ContextDecision, renderDecisionsFile } from './decisions-context.js';
 import { createLocalGatewayClient } from './local-gateway-client.js';
-import { isDependencyBumpSubject, TITLE_CUT_AT } from './commit-shape.js';
+import { isDependencyBumpSubject, isRenovateBump, TITLE_CUT_AT } from './commit-shape.js';
 import { decidedTime, tidyDecisions } from './decisions-tidy.js';
 import { extractReason } from './reason-extract.js';
 import { resolveEnv } from './resolve-env.js';
@@ -108,7 +108,7 @@ export function decisionShapedRows(rows: ListedDecision[]): ListedDecision[] {
     if (!CODE_PLATFORMS.has(r.platform ?? '')) return true;
     // A feat: prefix is dropped first, so "feat: fix retry policy" is judged as the fix it is.
     const title = r.title.replace(FEAT_PREFIX, '');
-    return !FIX_SHAPED.test(title) && !isDependencyBumpSubject(title) && DECISION_SHAPED.test(title);
+    return !FIX_SHAPED.test(title) && !isRenovateBump(title) && DECISION_SHAPED.test(title);
   });
 }
 
@@ -120,23 +120,17 @@ function wholeTitle(title: string, summary: string | undefined): string {
   const first = (summary ?? '').split('\n')[0]!.trim();
   const recovered = first.startsWith(title);
   if (recovered && first.length <= SUBJECT_CAP) return first;
-  // No whole subject in the summary: a complete 80 character title looks just like a cut one, so only a title that
-  // visibly stops (on a dangling function word or an open token) loses its last word.
-  if (!recovered && !endsMidThought(title)) return title;
-  const whole = recovered ? first : title;
-  const limit = recovered ? SUBJECT_CAP - 3 : title.length;
-  const cut = whole.slice(0, limit);
+  // No whole subject in the summary: a title of exactly 80 characters may have been cut, and nothing here can tell a
+  // complete one from a cut one. Keep every word and mark it, rather than guess which word to drop.
+  if (!recovered) return title.length === TITLE_CUT_AT ? `${title.trimEnd()}...` : title;
+  const cut = first.slice(0, SUBJECT_CAP - 3);
   // A word ending exactly at the limit is whole already.
-  const atBoundary = whole.length > limit && /\s/.test(whole[limit]!);
+  const atBoundary = first.length > SUBJECT_CAP - 3 && /\s/.test(first[SUBJECT_CAP - 3]!);
   return `${atBoundary ? cut : cut.replace(/\s*\S*$/, '')}...`.replace(/[\s,;:]+\.\.\.$/, '...');
 }
 
-const DANGLING_WORD = /\s(?:a|an|the|of|to|and|or|for|in|on|at|by|with|from|than|that|so|as|but|into)$/i;
-/** Positive evidence the title was cut: it ends on a joining word, or inside an open path, call or quote. */
-function endsMidThought(title: string): boolean {
-  const t = title.trimEnd();
-  return DANGLING_WORD.test(t) || /[-_/@:(,]$/.test(t);
-}
+/** Hidden from the file only (never from capture): a subject that names a package with strong evidence. */
+const isFileBump = (r: ListedDecision): boolean => CODE_PLATFORMS.has(r.platform ?? '') && isDependencyBumpSubject(r.title.replace(FEAT_PREFIX, ''));
 
 export function selectForFile(rows: ListedDecision[], limit: number): { decisions: ContextDecision[]; leftOut: number; selected: ListedDecision[] } {
   const rules = rows.filter((r) => r.platform === 'docs');
@@ -144,7 +138,7 @@ export function selectForFile(rows: ListedDecision[], limit: number): { decision
   // Merge repeats and hide reversals BEFORE the cap and the counts, so the cap keeps the newest decisions
   // (not the first N in graph order) and every number describes what the file shows.
   const sourceOf = new Map<ContextDecision, ListedDecision>();
-  const choices = decisionShapedRows(rows).map((r) => {
+  const choices = decisionShapedRows(rows).filter((r) => !isFileBump(r)).map((r) => {
     const reason = extractReason(r.title, r.summary ?? '');
     // The cut test reads the title as stored, prefix included: the graph cut those 80 characters, not the stripped ones.
     const d: ContextDecision = { ...contextDecisionOf({ ...r, title: wholeTitle(r.title, r.summary).replace(FEAT_PREFIX, '') }), kind: 'decision', ...(reason ? { reason } : {}) };

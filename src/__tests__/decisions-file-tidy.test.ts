@@ -281,6 +281,55 @@ describe('two owners with one repository name', () => {
   });
 });
 
+describe('subgroups and other hosts', () => {
+  const url = (u: string, c: string, title: string, when: string): ContextDecision => ({ title, cite: `cli@${sha(c)}`, sourceUrl: u, kind: 'decision', decidedAt: when });
+
+  it('keeps two GitLab subgroups with one last segment apart', () => {
+    const out = renderDecisionsFile([
+      url(`https://gitlab.com/g/a/cli/-/commit/${sha('a')}`, 'a', 'Use Text instead of String', '2020-01-01T00:00:00Z'),
+      url(`https://gitlab.com/g/b/cli/-/commit/${sha('b')}`, 'b', 'Use Text instead of String', '2020-02-01T00:00:00Z'),
+    ]);
+    expect(out).not.toContain('commits)');
+    expect(bullets(out)).toHaveLength(2);
+  });
+
+  it('does not let one GitLab subgroup reverse another', () => {
+    const out = renderDecisionsFile([
+      url(`https://gitlab.com/g/a/cli/-/commit/${sha('c')}`, 'c', 'Prefer Cats instead of Dogs', '2019-01-01T00:00:00Z'),
+      url(`https://gitlab.com/g/b/cli/-/merge_requests/4`, 'd', 'Prefer Dogs instead of Cats', '2022-01-01T00:00:00Z'),
+    ]);
+    expect(out).not.toContain('reverses');
+    expect(bullets(out)).toHaveLength(2);
+  });
+
+  it('still collapses one GitLab subgroup repo', () => {
+    const out = renderDecisionsFile([
+      url(`https://gitlab.com/g/a/cli/-/commit/${sha('a')}`, 'a', 'Use Text instead of String', '2020-01-01T00:00:00Z'),
+      url(`https://gitlab.com/g/a/cli/-/commit/${sha('b')}`, 'b', 'Use Text instead of String', '2020-02-01T00:00:00Z'),
+    ]);
+    expect(out).toContain('(2 commits)');
+  });
+
+  it.each([
+    ['Bitbucket Cloud', (c: string, o: string) => `https://bitbucket.org/${o}/cli/commits/${sha(c)}`],
+    ['Bitbucket Server', (c: string, o: string) => `https://bb.example.com/projects/${o}/repos/cli/commits/${sha(c)}`],
+  ])('keeps two %s projects with one repo name apart', (_n, mk) => {
+    const out = renderDecisionsFile([
+      url(mk('a', 'P1'), 'a', 'Use Text instead of String', '2020-01-01T00:00:00Z'),
+      url(mk('b', 'P2'), 'b', 'Use Text instead of String', '2020-02-01T00:00:00Z'),
+    ]);
+    expect(out).not.toContain('commits)');
+  });
+
+  it('keys a Bitbucket Cloud pull request by owner and repo', () => {
+    const out = renderDecisionsFile([
+      url('https://bitbucket.org/o1/cli/pull-requests/4', 'a', 'Prefer Cats instead of Dogs', '2019-01-01T00:00:00Z'),
+      url('https://bitbucket.org/o2/cli/pull-requests/5', 'b', 'Prefer Dogs instead of Cats', '2022-01-01T00:00:00Z'),
+    ]);
+    expect(out).not.toContain('reverses');
+  });
+});
+
 describe('the one-year collapse window', () => {
   // Anchored to the newest kept row of a title, not chained from row to row: three commits 200 days apart
   // collapse the first two and list the third, because it is 400 days from the newest.

@@ -13,9 +13,9 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('execa', () => ({ execa: vi.fn() }));
 
-import { isDependencyBumpSubject } from '../lib/commit-shape.js';
+import { isDependencyBumpSubject, isReleaseOrBumpSubject } from '../lib/commit-shape.js';
 import { isDecisionCommit } from '../lib/git.js';
-import { decisionShapedRows } from '../lib/context-from-graph.js';
+import { decisionShapedRows, selectForFile } from '../lib/context-from-graph.js';
 
 const NEAR_MISSES = [
   'Update dependency policy: no snapshots',
@@ -78,11 +78,37 @@ const CONFIG_AND_SWAP_DECISIONS = [
 ];
 const PACKAGE_BUMPS = [
   'Replace dependency xml-apis:xml-apis with xml-apis:xml-apis 1.0.b2',
-  'Update lodash to 4.17.21',
+  'Update xml-apis to 1.0.b2',
+  'Update lodash from 4 to 5',
   'Update dependency @types/node to 20.1.0',
   'Upgrade jackson-databind to version 2.15',
-  'Update lodash from 4 to 5',
 ];
+
+// Bare lowercase nouns that are real choices. A word list of these is whack-a-mole, so none of them is a package.
+const BARE_NOUN_DECISIONS = [
+  'Update docs to v2', 'Update config to v2', 'Update schema to v3', 'Update protocol to v2', 'Update auth to v2',
+  'Update api to v2', 'Update billing to v2', 'Update cache to v2', 'Update ci to v4', 'Update auth to 2.0',
+  'Update http to 2.0', 'Update openapi to 3.1', 'Update python:3.11 to 3.12',
+];
+
+describe('a bare noun moving to a version is a decision at capture and in the file', () => {
+  it.each(BARE_NOUN_DECISIONS)('keeps %s everywhere', (subject) => {
+    expect(isDependencyBumpSubject(subject)).toBe(false);
+    expect(isReleaseOrBumpSubject(subject)).toBe(false);
+  });
+
+  it.each(BARE_NOUN_DECISIONS.filter((s) => s.length >= 20))('keeps %s at capture (isDecisionCommit)', (subject) => {
+    expect(isDecisionCommit(subject)).toBe(true);
+  });
+
+  it('agrees between the file rule and the capture rule on an image tag', () => {
+    expect(isDependencyBumpSubject('Update python:3.11 to 3.12')).toBe(isReleaseOrBumpSubject('Update python:3.11 to 3.12'));
+  });
+
+  it.each(['Update dependency docs to v2', 'Update package config to 2.0', 'Update @types/node to 20.1.0', 'Update jackson-databind to 2.15'])('hides %s in the file when it names a package', (subject) => {
+    expect(isDependencyBumpSubject(subject)).toBe(true);
+  });
+});
 
 describe('a config value, a runtime or a tool swap is a decision, not a bump', () => {
   it.each(CONFIG_AND_SWAP_DECISIONS)('keeps %s', (subject) => {
@@ -93,11 +119,21 @@ describe('a config value, a runtime or a tool swap is a decision, not a bump', (
     expect(isDecisionCommit(subject)).toBe(true);
   });
 
-  it.each(PACKAGE_BUMPS)('still rejects the package-shaped %s', (subject) => {
+  it.each(PACKAGE_BUMPS)('hides the package-shaped %s in the file', (subject) => {
     expect(isDependencyBumpSubject(subject)).toBe(true);
   });
 
-  it.each(PACKAGE_BUMPS)('still rejects %s at capture', (subject) => {
+  it.each(PACKAGE_BUMPS.filter((s) => !/dependency/i.test(s)))('never drops %s at capture: a package guess is not an unambiguous rule', (subject) => {
+    expect(isDecisionCommit(subject)).toBe(true);
+  });
+
+  it('keeps a decision-shaped package swap in the rows, and selectForFile hides it from the file only', () => {
+    const rows = [{ title: 'Replace xml-apis with xml-apis 1.0.b2', platform: 'git' }] as never[];
+    expect(decisionShapedRows(rows)).toHaveLength(1);
+    expect(selectForFile(rows, 30).decisions).toEqual([]);
+  });
+
+  it.each(PACKAGE_BUMPS.filter((s) => /dependency/i.test(s)))('still drops the renovate-shaped %s at capture', (subject) => {
     expect(isDecisionCommit(subject)).toBe(false);
   });
 

@@ -189,6 +189,34 @@ describe('fetchDocsItems - decision log files', () => {
     expect(urls).toEqual(['https://github.com/acme/api/blob/main/docs/decisions.md#d1']);
   });
 
+  const generated = (): string => renderDecisionsFile([{ title: 'Use pnpm instead of npm', cite: 'r@abcdef1', kind: 'decision', decidedAt: '2025-01-01T00:00:00Z' }] as never);
+
+  it.each([
+    ['a BOM', (c: string) => `\uFEFF${c}`],
+    ['a leading blank line', (c: string) => `\n${c}`],
+    ['leading whitespace and a BOM', (c: string) => `\uFEFF  \r\n\n${c}`],
+  ])('skips a generated file that starts with %s', async (_n, wrap) => {
+    fresh();
+    write('DECISIONS.md', wrap(generated()));
+    write('docs/decisions.md', 'D1: A real decision the user wrote by hand\n');
+    expect((await run()).map((i) => i.source_url)).toEqual(['https://github.com/acme/api/blob/main/docs/decisions.md#d1']);
+  });
+
+  it('does not re-ingest a generated file written inside an ADR directory (--out docs/decisions/x.md)', async () => {
+    fresh();
+    write('docs/decisions/decisions-generated.md', generated());
+    write('docs/decisions/0001-use-postgres.md', '# 1. Use Postgres\n\nStatus: accepted\n\n## Decision\n\nWe use Postgres for the graph store.\n');
+    const items = await run();
+    expect(items.map((i) => i.source_url).join('\n')).not.toContain('decisions-generated');
+    expect(items.some((i) => i.source_url.includes('0001-use-postgres'))).toBe(true);
+  });
+
+  it('still reads a hand-written ADR that mentions the header further down', async () => {
+    fresh();
+    write('docs/decisions/0002-header.md', `# 2. Header\n\nStatus: accepted\n\n## Decision\n\nAlign writes "${GENERATED_HEADER}" at the top of its own output, so we skip it.\n`);
+    expect((await run()).some((i) => i.source_url.includes('0002-header'))).toBe(true);
+  });
+
   it('still reads a hand-written decisions.md', async () => {
     fresh();
     write('DECISIONS.md', '# Decisions\n\nD1: Use PostgreSQL for the graph\n');

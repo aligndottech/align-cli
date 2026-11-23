@@ -37,6 +37,7 @@ import {
   type ContextDecision,
   externalContextPath,
   GENERATED_HEADER,
+  isGeneratedDecisionsFile,
   writeDecisionsContext,
 } from '../lib/decisions-context.js';
 import type { EnvName } from '../lib/config.js';
@@ -110,7 +111,7 @@ export function outFileProblem(repoRoot: string, rel: string): string | null {
   const realDir = fs.realpathSync(dir);
   if (realDir !== realRoot && !realDir.startsWith(`${realRoot}${path.sep}`)) return 'its folder resolves outside this repo through a symlink.';
   const target = path.join(repoRoot, rel);
-  if (fs.existsSync(target) && !fs.readFileSync(target, 'utf8').startsWith(GENERATED_HEADER)) {
+  if (fs.existsSync(target) && !isGeneratedDecisionsFile(fs.readFileSync(target, 'utf8'))) {
     return `it already exists and was not written by Align (it does not start with "${GENERATED_HEADER}"). Move it, or pick another name.`;
   }
   return null;
