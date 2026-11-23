@@ -23,6 +23,7 @@ describe('nodeFloorMessage', () => {
       expect(msg).toContain(`Node ${v}`);
       expect(msg).toContain('22.19');
       expect(msg).toContain('https://nodejs.org');
+      expect(msg).toContain('nvm install 22');
       expect(msg).toContain('curl -fsSL https://align.tech/install.sh | sh');
     }
   });

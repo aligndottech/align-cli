@@ -36,12 +36,22 @@ const DEPENDENCY_MOVE = /^(?:bump\w*|updat\w*|upgrad\w*)(\s+dependency)?\s+([@\w
 // "bump minimum Node to 20, drops 18", "bump lodash to 4.17.21 (CVE-2021-23337)".
 export const STATED_WHY = /\b(?:because|so that|so we|so it|in order to|to keep|to avoid|to prevent|to ensure|to make sure|due to|since|cve-\d+|drops?|dropping|security|breaking)\b/i;
 
+// Release housekeeping that regenerates a file and decides nothing: "Sync CHANGELOG.md", "Update changelog",
+// "Update the changelog for v1.2.3", "Sync README.md". The WHOLE subject, so "Update changelog policy to require
+// entries per PR" and "Sync the cache across workers" stay decisions. README only with "sync": a bare "Update README" is docs prose.
+const CHANGELOG_NAME = String.raw`(?:[\w./-]*\/)?change[ _]?log(?:\.md)?`;
+const CHANGELOG_HOUSEKEEPING = new RegExp(
+  String.raw`^(?:sync|update|updated|refresh|regenerate)\s+(?:the\s+)?${CHANGELOG_NAME}(?:\s+(?:for|to|with)\s+v?\d[\w.+-]*)?[.]?$`,
+  'i',
+);
+const README_SYNC = /^sync\s+(?:[\w./-]*\/)?readme(?:\.md)?[.]?$/i;
+
 /**
  * A release or version-bump subject with no stated reason. In words, after any `type(scope):` and
  * `(#N)` are removed it is housekeeping when it is only a version ("v5.9.0"), or the word
  * bump/release alone or followed by a dotted version ("Bumped v5.9.0", "Release 5.9.0"), or a
  * bump/update/upgrade of something FROM a version or TO a version ("Bump x from 1 to 2", "Update
- * dependency x to v3") - unless it also states why (because, to avoid, drops, a CVE ...). Its
+ * dependency x to v3"), or a changelog sync ("Sync CHANGELOG.md", "Update changelog") - unless it also states why (because, to avoid, drops, a CVE ...). Its
  * complement keeps: a `release` scope ("feat(release): publish with provenance"), a bump with a
  * reason, "Release 2FA support", "feat!: v6.0.0 drops Node 18", and Revert "Bump x" (the prefix list handles that).
  * Dependency REPLACEMENTS ("replace a with b") are decisions and never match.
@@ -50,6 +60,7 @@ export function isReleaseOrBumpSubject(subject: string, opts: { guessPackages?: 
   const body = subject.trim().replace(CONVENTIONAL_PREFIX, '').replace(PR_REFERENCE, '').trim();
   if (STATED_WHY.test(body)) return false;
   if (VERSION_ONLY.test(body) || BARE_BUMP_OR_RELEASE.test(body)) return true;
+  if (CHANGELOG_HOUSEKEEPING.test(body) || README_SYNC.test(body)) return true;
   const move = DEPENDENCY_MOVE.exec(body);
   if (!move) return false;
   // A "bump" verb is housekeeping whatever it moves (the prefix list drops it at capture as well).
