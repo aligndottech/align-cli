@@ -10,6 +10,7 @@ import type { CoChangeRule } from '../co-change-rule.js';
 import {
   CHANGELOG_FILES, CONTRIBUTING_FILES, type DocKind, inferCoChangeRule, isRuleSection, isVersionedReleaseHeading, README_FILES, sectionBody,
 } from './docs-conventions.js';
+import { discoverAdrDirs, loadRootIgnore } from './adr-dir-discovery.js';
 import { createHash } from 'node:crypto';
 import { splitRuleList } from './docs-rule-list.js';
 import { entryDate, findDecisionLogFiles, readLogFile, splitDecisionLog } from './docs-decision-log.js';
@@ -97,10 +98,18 @@ function slugify(heading: string): string {
     .replace(/\s+/g, '-');
 }
 
-async function readAdrFiles(repoRoot: string): Promise<Array<{ relPath: string; content: string }>> {
-  const out: Array<{ relPath: string; content: string }> = [];
-  const seen = new Set<string>(); // real paths already scanned: a symlinked dir must not import twice
-  for (const dir of ADR_DIR_CANDIDATES) {
+type AdrFile = { relPath: string; content: string; discoveredDir?: string };
+
+async function readAdrDirs(
+  repoRoot: string,
+  dirs: readonly string[],
+  seen: Set<string>,
+  out: AdrFile[],
+  unreadable: Set<string>,
+  discovered = false,
+  isIgnored: (rel: string, name: string) => boolean = () => false,
+): Promise<void> {
+  for (const dir of dirs) {
     let entries;
     try {
       const real = await realpath(path.join(repoRoot, dir));
@@ -110,20 +119,74 @@ async function readAdrFiles(repoRoot: string): Promise<Array<{ relPath: string; 
     } catch {
       continue; // convention not used in this repo - not an error
     }
+    entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
     for (const entry of entries) {
       if (!entry.isFile() || !/\.(mdx?|adoc|asciidoc)$/i.test(entry.name)) continue;
       const relPath = `${dir}/${entry.name}`;
-      const content = await readFile(path.join(repoRoot, dir, entry.name), 'utf8');
-      // `--out docs/decisions/x.md` lands here: Align's own output is not an ADR.
-      if (isGeneratedDecisionsFile(content)) continue;
-      out.push({ relPath, content });
+      if (discovered && isIgnored(relPath, entry.name)) continue; // root .gitignore applies to discovered dirs only
+      try {
+        const content = await readFile(path.join(repoRoot, dir, entry.name), 'utf8');
+        // `--out docs/decisions/x.md` lands here: Align's own output is not an ADR.
+        if (isGeneratedDecisionsFile(content)) continue;
+        out.push({ relPath, content, ...(discovered ? { discoveredDir: dir } : {}) });
+      } catch {
+        unreadable.add(relPath); // one unreadable file must not stop the import
+      }
     }
   }
+}
+
+interface AdrRead {
+  /** Candidate-list files first (sorted), then discovered dirs in rank order. NOT yet sliced to the limit. */
+  files: AdrFile[];
+  discoveredDirs: string[];
+  omittedDirs: string[];
+  unreadable: number;
+  stoppedAtVisited?: number;
+  depthLimited: boolean;
+}
+
+async function readAdrFiles(repoRoot: string): Promise<AdrRead> {
+  const candidates: AdrFile[] = [];
+  const found: AdrFile[] = [];
+  const unreadable = new Set<string>();
+  const seen = new Set<string>(); // real paths already scanned: a symlinked dir must not import twice
+  await readAdrDirs(repoRoot, ADR_DIR_CANDIDATES, seen, candidates, unreadable);
+  // Then any ADR-named directory elsewhere in the tree. `seen` keeps a dir from being read twice.
+  const disc = await discoverAdrDirs(repoRoot, seen, unreadable);
+  await readAdrDirs(repoRoot, disc.dirs, seen, found, unreadable, true, await loadRootIgnore(repoRoot));
   // readdir order is not guaranteed sorted or stable across platforms, and it decides which
   // ADRs survive `limit` when there are more than it allows - sort so that choice is the same
-  // on every run rather than whatever the filesystem happened to hand back.
-  out.sort((a, b) => (a.relPath < b.relPath ? -1 : a.relPath > b.relPath ? 1 : 0));
-  return out;
+  // on every run. Candidates keep their own order and always come before discovered files, so
+  // a repo on the candidate list is unchanged by discovery; discovered files keep rank order.
+  candidates.sort((a, b) => (a.relPath < b.relPath ? -1 : a.relPath > b.relPath ? 1 : 0));
+  return {
+    files: [...candidates, ...found],
+    discoveredDirs: disc.dirs,
+    omittedDirs: disc.omitted,
+    unreadable: unreadable.size,
+    ...(disc.stoppedAtVisited !== undefined ? { stoppedAtVisited: disc.stoppedAtVisited } : {}),
+    depthLimited: disc.depthLimited,
+  };
+}
+
+/** The scope note, built from what the import actually did: only discovered dirs that
+ *  contributed items after the limit slice are named as read. */
+function adrScopeNote(read: AdrRead, kept: readonly AdrFile[]): string | undefined {
+  const contributed = new Set(kept.map((f) => f.discoveredDir).filter((d): d is string => d !== undefined));
+  const readDirs = read.discoveredDirs.filter((d) => contributed.has(d));
+  const cut = read.discoveredDirs.filter((d) => !contributed.has(d));
+  const parts: string[] = [];
+  if (readDirs.length > 0) {
+    parts.push(`ADRs from directories found by name: ${readDirs.join(', ')}${read.omittedDirs.length > 0 ? ` (${read.omittedDirs.length} more not read, cap ${read.discoveredDirs.length}: ${read.omittedDirs.join(', ')})` : ''}`);
+  } else if (read.omittedDirs.length > 0) {
+    parts.push(`${read.omittedDirs.length} ADR directories found by name not read, cap ${read.discoveredDirs.length}: ${read.omittedDirs.join(', ')}`);
+  }
+  if (cut.length > 0) parts.push(`found by name but cut by the limit: ${cut.join(', ')}`);
+  if (read.unreadable > 0) parts.push(`${read.unreadable} unreadable ADR file${read.unreadable === 1 ? '' : 's'} skipped`);
+  if (read.stoppedAtVisited !== undefined) parts.push(`scan stopped at ${read.stoppedAtVisited} dirs`);
+  if (read.depthLimited) parts.push('deeper than 6 levels not scanned');
+  return parts.length > 0 ? parts.join('; ') : undefined;
 }
 
 async function adrItem(repoRoot: string, useGit: boolean, relPath: string, content: string, remoteUrl: string | null, branch: string): Promise<PersonalImportItem> {
@@ -374,20 +437,26 @@ async function readDocsItems(opts: { limit: number; cwd?: string }): Promise<{
   droppedShort: number;
   /** README/CONTRIBUTING/changelog sections that state no rule. */
   droppedNonRule: number;
+  /** Which ADR directories were found by name outside the candidate list; absent when none. */
+  discoveryNote?: string;
   /** Rules past a section's cap, by section. */
   droppedRules: Array<{ section: string; count: number }>;
 }> {
   const repoRoot = opts.cwd ?? process.cwd();
   const gitOpts = opts.cwd ? { cwd: opts.cwd } : undefined;
-  const [remoteUrl, branch, adrFiles] = await Promise.all([
+  const [remoteUrl, branch, adrRead] = await Promise.all([
     getRemoteUrl(gitOpts),
     getCurrentBranch(gitOpts).catch(() => 'main'),
     readAdrFiles(repoRoot),
   ]);
 
+  const adrFiles = adrRead.files;
+  const keptAdrFiles = adrFiles.slice(0, opts.limit);
+  const note = adrScopeNote(adrRead, keptAdrFiles);
+  const discovery = note ? { discoveryNote: note } : {};
   // Once per import: a shallow clone's history says nothing true about when an ADR was added.
   const useGit = !(await isShallowRepo(repoRoot));
-  const adrItems = await mapLimit(adrFiles.slice(0, opts.limit), GIT_CONCURRENCY, ({ relPath, content }) =>
+  const adrItems = await mapLimit(keptAdrFiles, GIT_CONCURRENCY, ({ relPath, content }) =>
     adrItem(repoRoot, useGit, relPath, content, remoteUrl, branch));
 
   // ADRs alone already fill the limit: reading and stripping CLAUDE.md/AGENTS.md would be
@@ -395,7 +464,7 @@ async function readDocsItems(opts: { limit: number; cwd?: string }): Promise<{
   const remaining = opts.limit - adrItems.length;
   // Capped even at exact equality: the agent-rules files were never opened BECAUSE the
   // limit was already full, so something may have been left out and nobody counted it.
-  if (remaining <= 0) return { items: adrItems, scanned: adrFiles.length, capped: true, droppedShort: 0, droppedNonRule: 0, droppedRules: [] };
+  if (remaining <= 0) return { items: adrItems, scanned: adrFiles.length, capped: true, droppedShort: 0, droppedNonRule: 0, droppedRules: [], ...discovery };
 
   const { items: agentRulesItems, droppedShort, droppedRelease, droppedRules } = await readAgentRulesItems(repoRoot, remoteUrl, branch);
   const conventions = await readConventionItems(repoRoot, remoteUrl, branch);
@@ -409,6 +478,7 @@ async function readDocsItems(opts: { limit: number; cwd?: string }): Promise<{
     capped: candidates > opts.limit,
     droppedShort: droppedShort + conventions.droppedShort,
     droppedNonRule: conventions.droppedNonRule + droppedRelease,
+    ...discovery,
     droppedRules,
   };
 }
@@ -424,12 +494,13 @@ async function readDocsItems(opts: { limit: number; cwd?: string }): Promise<{
  * ADRs alone fill the limit, so no count is invented for it.
  */
 export async function fetchDocsItems(opts: { limit: number; cwd?: string }): Promise<CaptureFetchResult> {
-  const { items, scanned, capped, droppedShort, droppedNonRule, droppedRules } = await readDocsItems(opts);
+  const { items, scanned, capped, droppedShort, droppedNonRule, droppedRules, discoveryNote } = await readDocsItems(opts);
   return {
     items,
     report: {
       scanned,
       ...(capped ? { requested: opts.limit } : {}),
+      ...(discoveryNote ? { scopeNote: discoveryNote } : {}),
       skips: [
         ...(droppedShort > 0
           ? [{ count: droppedShort, detail: `sections under ${MIN_CHUNK_CHARS} characters (a bare heading or a one-line pointer)` }]
