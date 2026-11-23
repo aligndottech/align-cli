@@ -122,7 +122,7 @@ async function read(repo: string, token: string | undefined, fetchFn: typeof fet
       if (scanned >= limits.prs) break;
       if (!p.merged_at || !p.html_url || !p.title || typeof p.number !== 'number' || isBot(p.user) || Number.isNaN(new Date(p.merged_at).getTime())) continue;
       scanned += 1;
-      if (isReleaseOrBumpSubject(p.title)) { housekeeping += 1; continue; }
+      if (isReleaseOrBumpSubject(p.title, { guessPackages: false })) { housekeeping += 1; continue; }
       if (!extractReason(p.title, p.body)) continue;
       items.push(toItem(p, repo));
       numbers.add(p.number);

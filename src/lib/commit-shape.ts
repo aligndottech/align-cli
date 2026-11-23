@@ -46,13 +46,15 @@ export const STATED_WHY = /\b(?:because|so that|so we|so it|in order to|to keep|
  * reason, "Release 2FA support", "feat!: v6.0.0 drops Node 18", and Revert "Bump x" (the prefix list handles that).
  * Dependency REPLACEMENTS ("replace a with b") are decisions and never match.
  */
-export function isReleaseOrBumpSubject(subject: string): boolean {
+export function isReleaseOrBumpSubject(subject: string, opts: { guessPackages?: boolean } = {}): boolean {
   const body = subject.trim().replace(CONVENTIONAL_PREFIX, '').replace(PR_REFERENCE, '').trim();
   if (STATED_WHY.test(body)) return false;
   if (VERSION_ONLY.test(body) || BARE_BUMP_OR_RELEASE.test(body)) return true;
   const move = DEPENDENCY_MOVE.exec(body);
-  // Capture policy: only a "bump" verb or an explicit "dependency" qualifier is unambiguous. "Update docs to v2" is a choice.
-  return !!move && (!!move[1] || /^bump/i.test(body)) && isPackageToken(move[2]!, move[3], move[4]!);
+  if (!move || !isPackageToken(move[2]!, move[3], move[4]!)) return false;
+  // Only a "bump" verb or an explicit "dependency" qualifier is unambiguous. Capture stops there (guessPackages: false),
+  // because "Update docs to v2" is a choice; display surfaces (first-run box) also accept strong package evidence.
+  return !!move[1] || /^bump/i.test(body) || (opts.guessPackages !== false && hasPackageEvidence(move[1], move[2]!, move[3]));
 }
 
 // A mechanical bump is the WHOLE subject: an action, one package-like token, an optional "from <version>", and

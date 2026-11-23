@@ -295,7 +295,7 @@ export function isDecisionCommit(subject: string): boolean {
   // length floor could be cleared by whitespace alone (Copilot on #240).
   const trimmed = subject.trim();
   if (trimmed.length < MIN_DECISION_SUBJECT_CHARS) return false;
-  return !MECHANICAL_SUBJECT_RE.test(trimmed) && !isReleaseOrBumpSubject(trimmed) && !isRenovateBump(trimmed)
+  return !MECHANICAL_SUBJECT_RE.test(trimmed) && !isReleaseOrBumpSubject(trimmed, { guessPackages: false }) && !isRenovateBump(trimmed)
     && !FILE_ACTION_LINE_RE.test(trimmed.replace(/\s*\(#\d+\)\s*$/, ''));
 }
 

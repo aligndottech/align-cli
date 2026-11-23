@@ -101,6 +101,11 @@ describe('a bare noun moving to a version is a decision at capture and in the fi
     expect(isDecisionCommit(subject)).toBe(true);
   });
 
+  it('capture never guesses a package: Update lodash from 4 to 5 is housekeeping to display surfaces only', () => {
+    expect(isReleaseOrBumpSubject('Update lodash from 4 to 5')).toBe(true);
+    expect(isReleaseOrBumpSubject('Update lodash from 4 to 5', { guessPackages: false })).toBe(false);
+  });
+
   it('agrees between the file rule and the capture rule on an image tag', () => {
     expect(isDependencyBumpSubject('Update python:3.11 to 3.12')).toBe(isReleaseOrBumpSubject('Update python:3.11 to 3.12'));
   });
