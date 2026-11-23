@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Command } from 'commander';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { registerCheckCommand } from '../commands/check.js';
@@ -17,6 +17,9 @@ import { registerCheckCommand } from '../commands/check.js';
  * 3. control: a new file in this repository is checked and its decisions are printed
  * 4. control: from a subfolder, a file elsewhere in the same repository (../) is still checked
  * 5. control: a relative path under the working folder is checked without asking git
+ * 6. a file outside the repository that links into it: it is checked (needs file symlinks, which Windows may refuse)
+ * 7. a folder inside the repository that links out of it: a file written through it is not
+ * 8. the same, for a file that does not exist yet
  */
 const mockCheckAlignment = vi.fn();
 const mockPayload = vi.fn();
@@ -38,6 +41,7 @@ let root: string;
 let repo: string;
 let other: string;
 let scratch: string;
+let fileLinks = true;
 const startCwd = process.cwd();
 
 beforeAll(() => {
@@ -46,9 +50,18 @@ beforeAll(() => {
   other = path.join(root, 'other');
   scratch = path.join(root, 'scratch');
   for (const d of [repo, other, scratch, path.join(repo, 'src')]) mkdirSync(d, { recursive: true });
+  symlinkSync(path.join(repo, 'src'), path.join(scratch, 'into-repo'), 'junction');
+  symlinkSync(scratch, path.join(repo, 'out-of-repo'), 'junction');
   git(repo, 'init', '-q');
   git(other, 'init', '-q');
   writeFileSync(path.join(repo, 'README.md'), 'hello\n');
+  writeFileSync(path.join(repo, 'src', 'existing.ts'), 'export {};\n');
+  writeFileSync(path.join(scratch, 'notes.md'), 'notes\n');
+  try {
+    symlinkSync(path.join(repo, 'src', 'existing.ts'), path.join(scratch, 'existing-link.ts'), 'file');
+  } catch {
+    fileLinks = false;
+  }
 });
 
 afterAll(() => {
@@ -111,5 +124,25 @@ describe('the pre-edit hook only checks files in the repository it runs in', () 
     const out = await preEdit(repo, 'src/new-dir/sessions.ts');
     expect(mockCheckAlignment).toHaveBeenCalled();
     expect(out).toContain('Chose Postgres for sessions');
+  });
+
+  it('checks a file in this repository written through a link that sits outside it', async ({ skip }) => {
+    if (!fileLinks) skip();
+    const out = await preEdit(repo, path.join(scratch, 'existing-link.ts'));
+    expect(mockCheckAlignment).toHaveBeenCalled();
+    expect(out).toContain('Chose Postgres for sessions');
+  });
+
+  it('does not check a file outside this repository written through a link that sits inside it', async () => {
+    const out = await preEdit(repo, 'out-of-repo/notes.md');
+    expect(mockCheckAlignment).not.toHaveBeenCalled();
+    expect(out).toBe('');
+  });
+
+  it('follows links for a file that does not exist yet', async () => {
+    expect(await preEdit(repo, 'out-of-repo/new/plan.md')).toBe('');
+    expect(mockCheckAlignment).not.toHaveBeenCalled();
+    expect(await preEdit(repo, path.join(scratch, 'into-repo', 'new', 'sessions.ts'))).toContain('Chose Postgres for sessions');
+    expect(mockCheckAlignment).toHaveBeenCalled();
   });
 });

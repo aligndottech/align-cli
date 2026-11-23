@@ -2,7 +2,7 @@ import { type Command, Option } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
 import { spawn } from 'node:child_process';
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { createConfigStore, type EnvName } from '../lib/config.js';
 import { resolveEnv } from '../lib/resolve-env.js';
@@ -721,12 +721,12 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
  * Whether the file an edit writes belongs to the repository the hook runs in. Agents also write scratch
  * notes, plans in a temp folder and files in sibling checkouts while their session sits in a repo, and each
  * of those got this repository's decisions as though it were a change to it. A file under the working
- * folder belongs, with no git call; anywhere else git decides. A hook that itself runs outside any repo
- * keeps checking against every repo, as it did.
+ * folder belongs, with no git call; anywhere else git decides. Links are followed first, on both sides. A
+ * hook that itself runs outside any repo keeps checking against every repo, as it did.
  */
 async function inThisRepository(filePath: string): Promise<boolean> {
-  const cwd = process.cwd();
-  const file = path.resolve(cwd, filePath);
+  const cwd = realPathOf(process.cwd());
+  const file = realPathOf(path.resolve(process.cwd(), filePath));
   const rel = path.relative(cwd, file);
   if (rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel)) return true;
   const here = await getRepoRoot();
@@ -734,6 +734,25 @@ async function inThisRepository(filePath: string): Promise<boolean> {
   let dir = path.dirname(file);
   while (!existsSync(dir) && path.dirname(dir) !== dir) dir = path.dirname(dir);
   return (await getRepoRoot({ cwd: dir })) === here;
+}
+
+/**
+ * Where a path really is: its nearest existing ancestor with links resolved, then the part that does not
+ * exist yet. A file written through a link belongs to the repository its target is in, not the one the link is.
+ */
+function realPathOf(target: string): string {
+  const absent: string[] = [];
+  let dir = path.resolve(target);
+  for (;;) {
+    try {
+      return path.join(realpathSync.native(dir), ...absent);
+    } catch {
+      const parent = path.dirname(dir);
+      if (parent === dir) return path.resolve(target);
+      absent.unshift(path.basename(dir));
+      dir = parent;
+    }
+  }
 }
 
 /** The most the advisory hook waits for its one telemetry send, once per rate-limit window per tool. */
