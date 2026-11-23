@@ -88,7 +88,13 @@ key, Slack, Stripe, Google, OpenAI-style, Anthropic, GitLab, Linear, a password 
 with no model call. A hit is a critical conflict naming the file, the line and the kind of secret, never the value,
 and it exits `1` like any conflict, including in `--hook` and `--ci`. It runs beside the judge, so it still flags
 when the judge is down. It does not run in `--advisory` mode. Generic `password=` text and public key fingerprints
-(`SHA256:...`) are not flagged.
+(`SHA256:...`) are not flagged. Documented placeholders are not flagged either: `AKIA...EXAMPLE`, `sk-your-key-here`
+style keys, a URL password that is `${VAR}`, `<password>`, `changeme` or one repeated character. A private key header
+counts only with a base64 body line after it in the same file.
+
+**Escape hatch:** write `align:allow-secret` on the same line, or on the line directly above, to say a secret-shaped
+value is deliberate (a test fixture, a doc example). Nothing else turns the check off. A `--resolve` naming a secret
+finding is ignored, because the finding is not a decision.
 
 ## Co-change rules
 

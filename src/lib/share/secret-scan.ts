@@ -140,9 +140,33 @@ const isBuildIdentifier = (match: string): boolean => {
  * An OpenSSH key fingerprint, `SHA256:` then exactly 43 base64 characters (what `ssh-keygen -l` prints and commit
  * signature notes quote), is a hash of a PUBLIC key. Judged on the text at the match, not on the match: the base64
  * alphabet has `/`, which ends the generic pattern's match early. Any other length, or any other label, is not this.
+ * It is exempt only as an EXACT token: if more value characters run on after the 43 (`_`, `-`, `.` and a letter,
+ * `=`), the whole match is not a fingerprint and is redacted, so a secret cannot ride behind one.
  */
-const SSH_FINGERPRINT = /^sha256:[A-Za-z0-9+/]{43}(?![A-Za-z0-9+/=])/i;
+const SSH_FINGERPRINT = /^sha256:[A-Za-z0-9+/]{43}(?![A-Za-z0-9+/=_-])(?!\.[A-Za-z0-9])/i;
 const isPublicFingerprint = (text: string, offset: number): boolean => SSH_FINGERPRINT.test(text.slice(offset));
+
+export interface SecretMatch { placeholder: string; match: string }
+
+/**
+ * Every span the list would rewrite, each judged independently on the original text (redactSecrets applies them in
+ * sequence). The caller decides which kinds matter. Never log or return the `match` of a real finding.
+ */
+export function secretMatches(text: string): SecretMatch[] {
+  const out: SecretMatch[] = [];
+  for (const w of REWRITES) {
+    const re = new RegExp(w.re.source, w.re.flags);
+    for (let m = re.exec(text); m; m = re.exec(text)) {
+      if (m[0] === '') { re.lastIndex += 1; continue; }
+      if (w.replacement === '<CREDENTIALS>' && (DIGEST.test(m[0]) || isBuildIdentifier(m[0]) || isPublicFingerprint(text, m.index))) continue;
+      out.push({ placeholder: placeholderOf(w.replacement), match: m[0] });
+    }
+  }
+  return out;
+}
+
+/** The bare 40-character AWS secret shape, which is a secret only with a label (see the pre-check). */
+export const AWS_BARE_SECRET = new RegExp(patterns.aws_bare_secret, 'g');
 
 export function redactSecrets(text: string): Redaction {
   let count = 0;

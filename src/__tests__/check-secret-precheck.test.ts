@@ -97,7 +97,7 @@ describe('align check: secret shapes in the staged diff', () => {
   });
 
   it('a private key header, an AWS access key id and a Slack token are caught too', async () => {
-    write('k.pem', `-----BEGIN ${'RSA '}PRIVATE KEY-----\nMIIB\n`);
+    write('k.pem', `-----BEGIN ${'RSA '}PRIVATE KEY-----\n${'MIIEvQIBADANBgkqhkiG9w0BAQEFAASC'}${'BKcwggSjAgEAAoIBAQC'}\n`);
     write('aws.txt', `id = AKIA${'ABCDEFGHIJKLMNOP'}\n`);
     write('s.txt', `x = ${'xox'}b-${'1234567890'}-${'1234567890123'}-${'abcdefghijklmnopqrstuvwx'}\n`);
     git('add', '.');
@@ -131,6 +131,17 @@ describe('align check: secret shapes in the staged diff', () => {
     git('rm', '-q', 'old.env');
     const { exitCode } = await runCheck(['--ci']);
     expect(exitCode).toBe(0);
+  });
+
+  it('--resolve naming the pseudo decision never calls resolveConflict', async () => {
+    const resolveConflict = vi.fn();
+    const { createGatewayClient } = await import('../lib/gateway-client.js');
+    vi.mocked(createGatewayClient).mockReturnValue({ checkAlignment: mockCheckAlignment, resolveConflict } as never);
+    write('a.env', `T=${GH_TOKEN}\n`);
+    git('add', '.');
+    const { exitCode } = await runCheck(['--resolve', 'align:secret-precheck:honored']);
+    expect(exitCode).toBe(1);
+    expect(resolveConflict).not.toHaveBeenCalled();
   });
 
   it('the human path prints a CRITICAL badge and exits 1', async () => {

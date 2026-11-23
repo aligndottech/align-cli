@@ -30,9 +30,10 @@ describe('public key fingerprints are not secrets', () => {
   it('keeps one whose base64 holds / and +, which end the generic match early', () => {
     kept(`Signed with key SHA256:${B64_43_SLASH} today`);
   });
-  it('keeps a lowercase-label and padded variant too', () => {
+  it('keeps a lowercase label too', () => {
     kept(`key sha256:${B64_43}`);
   });
+  // The MD5 cases are not evidence for the SHA256 fix: the generic pattern never matched them on base.
   it('keeps a legacy MD5 colon-hex fingerprint, with and without the MD5: prefix', () => {
     kept(`fingerprint ${MD5_FP}`);
     kept(`key MD5:${MD5_FP}`);
@@ -41,6 +42,22 @@ describe('public key fingerprints are not secrets', () => {
     redacted(fx('pass', 'word:', B64_43), B64_43);
     redacted(fx('sec', 'ret:', B64_43), B64_43);
     redacted(fx('api', 'key:', B64_43), B64_43);
+  });
+  it('a padded (=) value is not an SSH fingerprint, so it is still redacted', () => {
+    redacted(`key SHA256:${B64_43}=`, B64_43);
+  });
+  it('redacts the tail when the fingerprint runs on into more characters (_ - . or a leading word)', () => {
+    const tail = 'Tz8qLm2Vx7Rk4Wd9Yb3N';
+    for (const sep of ['_', '-', '.']) {
+      const r = redactSecrets(`key SHA256:${B64_43}${sep}${tail} end`);
+      expect(r.text, sep).not.toContain(tail);
+      expect(r.count, sep).toBeGreaterThan(0);
+    }
+    redacted(`key-SHA256:${B64_43}`, B64_43);
+  });
+  it('keeps a fingerprint followed by sentence punctuation', () => {
+    kept(`Signed with SHA256:${B64_43}.`);
+    kept(`(SHA256:${B64_43}), then more`);
   });
   it('still redacts a SHA256-labelled value of the wrong length', () => {
     redacted(`SHA256:${B64_43}Zq9x`, `${B64_43}Zq9x`);

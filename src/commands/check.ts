@@ -33,7 +33,7 @@ import { quote } from '../lib/curation/text.js';
 import { detectDeterministicHits, ratifiedDeterministicRules, ruleDenyReason } from '../lib/inline-rules.js';
 import { dependencyIntentQuery } from '../lib/agent/dependency-intent.js';
 import { redactSecrets } from '../lib/share/secret-scan.js';
-import { judgeWithSecretCheck } from '../lib/secret-precheck.js';
+import { judgeWithSecretCheck, SECRET_PRECHECK_ID } from '../lib/secret-precheck.js';
 import { decisionLinkFor } from '../lib/decision-links.js';
 import { isoDay, isoInstant } from '../lib/decision-render.js';
 import type { ChangeSource } from '../lib/co-change-check.js';
@@ -398,7 +398,9 @@ export function registerCheckCommand(program: Command): void {
             if (link) console.log(chalk.dim(`           ${link}`));
             console.log('');
           }
-          if (opts.resolve) {
+          if (opts.resolve && opts.resolve.startsWith(SECRET_PRECHECK_ID)) {
+            console.log(chalk.dim('  (A secret finding is not a decision, so there is nothing to resolve. Remove the secret, or add an align:allow-secret marker if it is deliberate.)'));
+          } else if (opts.resolve) {
             const colonIdx = opts.resolve.indexOf(':');
             const decisionId = colonIdx > 0 ? opts.resolve.slice(0, colonIdx) : opts.resolve;
             const resolutionType = colonIdx > 0 ? opts.resolve.slice(colonIdx + 1) : 'honored';
