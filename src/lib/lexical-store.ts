@@ -141,12 +141,12 @@ export function createLexicalStore(db: DatabaseSync): LexicalStore {
     const postings = db.prepare('SELECT num, tf FROM lex_term WHERE term = ?');
     const scores = new Map<string, number>();
     for (const [term, weight] of terms) {
-      const rows = postings.all(term) as unknown as Array<{ num: number; tf: number }>;
+      // Postings of rows under another recipe share the table, and counting them could push df past n and the idf below zero.
+      const rows = (postings.all(term) as unknown as Array<{ num: number; tf: number }>).filter(r => docs.has(r.num));
       if (!rows.length) continue;
       const idf = Math.log(1 + (n - rows.length + 0.5) / (rows.length + 0.5));
       for (const { num, tf } of rows) {
-        const doc = docs.get(num);
-        if (!doc) continue;
+        const doc = docs.get(num)!;
         scores.set(doc.id, (scores.get(doc.id) ?? 0) + weight * idf * ((tf * (K1 + 1)) / (tf + K1 * (1 - B + B * (doc.len / avgLen)))));
       }
     }

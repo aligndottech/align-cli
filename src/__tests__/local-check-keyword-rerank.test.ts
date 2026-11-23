@@ -8,6 +8,7 @@
  * 3. a row under the hook's dense floor is not shown, however well its words match
  * 4. a graph that was never searched answers in dense order, and the hook builds no index
  * 5. pair: an adjudicated check (no depth) keeps the dense five
+ * 6. a row past the dense pool that is the best keyword match still earns its dense rank, and wins the tie
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
@@ -88,5 +89,31 @@ describe('edit hook retrieval: the dense rank fused with the stored keyword rank
   it('keeps the dense five for an adjudicated check', async () => {
     await searchOnce();
     expect(tags((await client.checkAlignment(EDIT, 'src/lib/repo.ts')).relevant_decisions)).toEqual(['s1', 's2', 's3', 's4', 's5']);
+  });
+});
+
+describe('edit hook retrieval: a row past the dense pool', () => {
+  const POOL_ROWS = 31;
+  const LAST = 100 + POOL_ROWS;
+  let dbPath: string;
+  let client: ReturnType<typeof createLocalGatewayClient>;
+  beforeEach(async () => {
+    dbPath = path.join(os.tmpdir(), `align-check-keyword-pool-${Date.now()}-${Math.random()}.db`);
+    client = createLocalGatewayClient(dbPath, { cwd: os.tmpdir() });
+    const vec = (t: string) => { const v = new Float32Array(384).fill(0.1); v[0] = slotOf(t) || 9; return v; };
+    vi.mocked(getEmbedding).mockImplementation(async (t: string) => vec(t));
+    vi.mocked(cosineSimilarity).mockImplementation((q: Float32Array, s: Float32Array) => (q[0] === 9 ? 0.9 - 0.01 * (s[0]! - 100) : q[0] === s[0] ? 1 : 0));
+    const slots = Array.from({ length: POOL_ROWS }, (_, i) => 101 + i);
+    await client.ingestBatch(slots.map(n => {
+      const title = `${n === LAST ? 'Resolve the repository with repoFromRemoteUrl' : `Tick rate decision number ${n}`} (s${n})`;
+      return { ...row(1, ''), title, raw_text: title, source_url: `https://github.com/acme/argus/commit/${n}` };
+    }), { classify: false });
+  });
+  afterEach(() => { client.close(); if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath); });
+
+  it('ranks first when it is the only keyword match, as the last of thirty-one rows over the floor', async () => {
+    await client.searchDecisions('tick rate', 5, undefined, { all: true });
+    const shown = (await client.checkAlignment(EDIT, 'src/lib/repo.ts', { depth: 'related' })).relevant_decisions;
+    expect(shown[0]!.title).toContain(`(s${LAST})`);
   });
 });

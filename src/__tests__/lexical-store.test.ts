@@ -273,4 +273,15 @@ describe('lexical store: the stored index, read as it is', () => {
     raw.close();
     expect(stored('zorblax')).toEqual(['fix: zorblax retries']);
   });
+
+  it('weighs a term by the rows of the current recipe alone, so older rows holding it never invert the order', () => {
+    add('feat: adopt zorblax', 'one');
+    add('fix: zorblax retries', 'zorblax zorblax');
+    add('chore: zorblax cleanup', 'three');
+    ids('zorblax');
+    const raw = new DatabaseSync(dbPath);
+    raw.exec(`UPDATE lex_doc SET sig = '0:old' WHERE decision_id = (SELECT id FROM decisions WHERE title LIKE 'chore:%')`);
+    raw.close();
+    expect(stored('zorblax')).toEqual(['fix: zorblax retries', 'feat: adopt zorblax']);
+  });
 });

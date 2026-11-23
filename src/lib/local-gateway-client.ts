@@ -305,7 +305,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
         .filter(r => score.has(r.id)).slice(0, pool).map(r => r.id);
     } catch { /* dense only */ }
     if (!keyword.length) return admitted;
-    return reciprocalRankFusion([{ ids: admitted.slice(0, pool).map(r => r.decisionId), weight: 1 }, { ids: keyword, weight: 1 }])
+    return reciprocalRankFusion([{ ids: admitted.map(r => r.decisionId), weight: 1 }, { ids: keyword, weight: 1 }])
       .map(id => ({ decisionId: id, score: score.get(id)! }));
   }
 
