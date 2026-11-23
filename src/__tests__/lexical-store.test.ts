@@ -230,3 +230,58 @@ describe('lexical store: persisted, lazily, per row', () => {
     expect(ids('zorblax')).toEqual(['feat: adopt zorblax']);
   });
 });
+
+describe('lexical store: the stored index, read as it is', () => {
+  const stored = (q: string) => db.lexicalStore().searchStored(queryTerms(q), 10).map(r => db.getDecisionById(r.id)!.title);
+
+  it('a graph that was never searched gives nothing, and reading it builds nothing', () => {
+    add('feat: adopt zorblax', 'Because the old one was slow.');
+    expect(stored('zorblax')).toEqual([]);
+    expect(rawCount(`SELECT COUNT(*) FROM sqlite_master WHERE name IN ('lex_doc', 'lex_term')`)).toBe(0);
+  });
+
+  it('ranks what the last search left, in the same order as that search', () => {
+    add('feat: adopt zorblax', 'one');
+    add('fix: zorblax retries', 'zorblax zorblax');
+    add('docs: unrelated', 'nothing');
+    const searched = ids('zorblax');
+    expect(searched).toHaveLength(2);
+    expect(stored('zorblax')).toEqual(searched);
+  });
+
+  it('does not read a row imported after the last search, and writes nothing while it waits for one', () => {
+    add('feat: adopt zorblax', 'one');
+    ids('zorblax');
+    add('fix: zorblax retries', 'two');
+    const watcher = new DatabaseSync(dbPath, { readOnly: true });
+    const version = () => (watcher.prepare('PRAGMA data_version').get() as { data_version: number }).data_version;
+    try {
+      const before = version();
+      expect(stored('zorblax')).toEqual(['feat: adopt zorblax']);
+      expect(version()).toBe(before);
+    } finally { watcher.close(); }
+    expect(ids('zorblax')).toHaveLength(2);
+    expect(stored('zorblax')).toHaveLength(2);
+  });
+
+  it('skips rows stored under an older recipe: the query is tokenised by the current one', () => {
+    add('feat: adopt zorblax', 'one');
+    add('fix: zorblax retries', 'two');
+    ids('zorblax');
+    const raw = new DatabaseSync(dbPath);
+    raw.exec(`UPDATE lex_doc SET sig = '0:old' WHERE decision_id = (SELECT id FROM decisions WHERE title LIKE 'feat:%')`);
+    raw.close();
+    expect(stored('zorblax')).toEqual(['fix: zorblax retries']);
+  });
+
+  it('weighs a term by the rows of the current recipe alone, so older rows holding it never invert the order', () => {
+    add('feat: adopt zorblax', 'one');
+    add('fix: zorblax retries', 'zorblax zorblax');
+    add('chore: zorblax cleanup', 'three');
+    ids('zorblax');
+    const raw = new DatabaseSync(dbPath);
+    raw.exec(`UPDATE lex_doc SET sig = '0:old' WHERE decision_id = (SELECT id FROM decisions WHERE title LIKE 'chore:%')`);
+    raw.close();
+    expect(stored('zorblax')).toEqual(['fix: zorblax retries', 'feat: adopt zorblax']);
+  });
+});

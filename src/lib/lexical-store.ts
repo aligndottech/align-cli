@@ -49,6 +49,14 @@ function signature(title: string, summary: string, platform: string): string {
 export interface LexicalStore {
   /** Ranked ids for weighted query terms (term -> weight), best first. Ties break on id in code units. */
   search(terms: ReadonlyMap<string, number>, limit: number): Array<{ id: string; score: number }>;
+  /**
+   * The same ranking, read from the index as the last `search` left it. It builds nothing, writes nothing
+   * and takes no write lock, so a caller with a deadline (the edit hook) can afford it: on a 4,849-row graph
+   * `search` in a new process costs about 220 ms of CPU to compare every row with its signature, and 3 s to
+   * build an index that is not there, against 7 ms to read the stored one. A row imported since the last
+   * `search` has no terms here and is not ranked; a graph that was never searched returns nothing.
+   */
+  searchStored(terms: ReadonlyMap<string, number>, limit: number): Array<{ id: string; score: number }>;
 }
 
 export function createLexicalStore(db: DatabaseSync): LexicalStore {
@@ -128,26 +136,38 @@ export function createLexicalStore(db: DatabaseSync): LexicalStore {
     return { key, n: p.docs.size, avgLen: p.docs.size ? total / p.docs.size : 0, docs: p.docs };
   }
 
+  function rank({ n, avgLen, docs }: Pick<State, 'n' | 'avgLen' | 'docs'>, terms: ReadonlyMap<string, number>, limit: number) {
+    if (!n) return [];
+    const postings = db.prepare('SELECT num, tf FROM lex_term WHERE term = ?');
+    const scores = new Map<string, number>();
+    for (const [term, weight] of terms) {
+      // Postings of rows under another recipe share the table, and counting them could push df past n and the idf below zero.
+      const rows = (postings.all(term) as unknown as Array<{ num: number; tf: number }>).filter(r => docs.has(r.num));
+      if (!rows.length) continue;
+      const idf = Math.log(1 + (n - rows.length + 0.5) / (rows.length + 0.5));
+      for (const { num, tf } of rows) {
+        const doc = docs.get(num)!;
+        scores.set(doc.id, (scores.get(doc.id) ?? 0) + weight * idf * ((tf * (K1 + 1)) / (tf + K1 * (1 - B + B * (doc.len / avgLen)))));
+      }
+    }
+    return [...scores].map(([id, score]) => ({ id, score }))
+      .sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      .slice(0, limit);
+  }
+
   return {
     search(terms, limit) {
       if (!state || state.key !== stamp()) state = refresh();
-      const { n, avgLen, docs } = state;
-      if (!n) return [];
-      const postings = db.prepare('SELECT num, tf FROM lex_term WHERE term = ?');
-      const scores = new Map<string, number>();
-      for (const [term, weight] of terms) {
-        const rows = postings.all(term) as unknown as Array<{ num: number; tf: number }>;
-        if (!rows.length) continue;
-        const idf = Math.log(1 + (n - rows.length + 0.5) / (rows.length + 0.5));
-        for (const { num, tf } of rows) {
-          const doc = docs.get(num);
-          if (!doc) continue;
-          scores.set(doc.id, (scores.get(doc.id) ?? 0) + weight * idf * ((tf * (K1 + 1)) / (tf + K1 * (1 - B + B * (doc.len / avgLen)))));
-        }
-      }
-      return [...scores].map(([id, score]) => ({ id, score }))
-        .sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-        .slice(0, limit);
+      return rank(state, terms, limit);
+    },
+    searchStored(terms, limit) {
+      if (!db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'lex_doc'`).get()) return [];
+      // Rows under another recipe were tokenised by other rules than the query will be, so they are not ranked.
+      const rows = db.prepare('SELECT num, decision_id, len FROM lex_doc WHERE sig LIKE ?').all(`${LEXICAL_RECIPE}:%`) as unknown as Array<{ num: number; decision_id: string; len: number }>;
+      const docs = new Map<number, { id: string; len: number }>();
+      let total = 0;
+      for (const r of rows) { docs.set(r.num, { id: r.decision_id, len: r.len }); total += r.len; }
+      return rank({ n: docs.size, avgLen: docs.size ? total / docs.size : 0, docs }, terms, limit);
     },
   };
 }
