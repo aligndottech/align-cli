@@ -23,6 +23,7 @@ vi.mock('../lib/config.js', async (importOriginal) => ({
 }));
 
 import { FUNNEL_STAGES, recordFunnelStage } from '../lib/usage-telemetry.js';
+import { markHookContext, resetHookContextForTests } from '../lib/hook-context.js';
 
 const local = { gatewayUrl: 'http://x', authToken: null, tenantId: null, mode: 'local-embedded' as const };
 const cloud = { gatewayUrl: 'http://x', authToken: 'tok', tenantId: 't1', mode: 'cloud' as const };
@@ -39,7 +40,7 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date('2026-11-02T09:00:00Z'));
 });
-afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
+afterEach(() => { resetHookContextForTests(); vi.useRealTimers(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
 describe('the agent_active stage', () => {
   it('is a funnel stage', () => {
@@ -63,11 +64,50 @@ describe('the agent_active stage', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it('waits for the notice in local mode, like every local event', async () => {
+  it('does not wait for the notice: an install used only through an agent never prints it', async () => {
     noticeShownAt = undefined;
+    expect(await recordFunnelStage(local, 'agent_active', 'mcp')).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(lastDay).toBe('2026-11-02');
+  });
+
+  it('a hook run counts too: command check, no waiting for the notice, still exactly four keys', async () => {
+    noticeShownAt = undefined;
+    markHookContext();
+    expect(await recordFunnelStage(local, 'agent_active', 'check')).toBe(true);
+    const [body] = bodies();
+    expect(Object.keys(body!).sort()).toEqual(['cliVersion', 'command', 'installId', 'stage']);
+    expect(body).toMatchObject({ stage: 'agent_active', command: 'check' });
+  });
+
+  it('a hook and an MCP call on the same UTC day send one beacon between them, and the next day sends again', async () => {
+    noticeShownAt = undefined;
+    markHookContext();
+    expect(await recordFunnelStage(local, 'agent_active', 'check')).toBe(true);
     expect(await recordFunnelStage(local, 'agent_active', 'mcp')).toBe(false);
+    vi.setSystemTime(new Date('2026-11-03T00:01:00Z'));
+    expect(await recordFunnelStage(local, 'agent_active', 'mcp')).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('still waits for the notice on every other stage, a hook or not', async () => {
+    noticeShownAt = undefined;
+    expect(await recordFunnelStage(local, 'first_capture', 'capture')).toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(lastDay).toBeUndefined();
+  });
+
+  it('sends nothing in CI, notice or no notice', async () => {
+    noticeShownAt = undefined;
+    vi.stubEnv('GITHUB_ACTIONS', 'true');
+    vi.stubEnv('CI', 'true');
+    expect(await recordFunnelStage(local, 'agent_active', 'check')).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('a dead gateway is silent: resolves, never throws', async () => {
+    noticeShownAt = undefined;
+    fetchMock.mockRejectedValue(new Error('ECONNREFUSED'));
+    await expect(recordFunnelStage(local, 'agent_active', 'check')).resolves.toBe(true);
   });
 
   it.each(['declined', 'off'] as const)('sends nothing after a stored %s', async (c) => {

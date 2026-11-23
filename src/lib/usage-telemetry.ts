@@ -434,7 +434,8 @@ export async function recordFunnelStage(
     // than a person choosing to do something, which is what every funnel stage means. Guarded
     // HERE for the same reason first_useful_decision's once-check is: one enforcement point
     // rather than one per call site.
-    if (inHookContext()) return false;
+    // The one exception is `agent_active`: a hook run IS the agent use it counts, and it sends at most once a UTC day.
+    if (inHookContext() && stage !== 'agent_active') return false;
 
     // L7: the sync measurement is built and checked before anything else, so a ping the gateway
     // would 400 is never counted as sent. Local only: the endpoint that knows this stage is the
@@ -535,6 +536,10 @@ export function localTierAllows(
   noticeShown: boolean,
 ): boolean {
   if (storedAnswerForbidsSending(consent)) return false;
+  // `agent_active` is the daily count of agent use. An install used only through its agent (hooks,
+  // `align mcp`) never prints the notice, so waiting for it would hide exactly those installs. Like
+  // the install beacon it needs no notice; every opt-out above and in the callers has already returned.
+  if (stage === 'agent_active') return true;
   return consent === 'granted' || noticeShown;
 }
 

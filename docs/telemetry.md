@@ -25,7 +25,8 @@ The short version, for local-only mode:
   terminal. `align demo` and `align setup` print it too, on their first run in a terminal. The one exception is the install count below, which is sent on the first run even
   when that run has no terminal (an agent starting `align mcp`, for example), because otherwise
   an install that only ever runs through an agent would never be counted. It holds only the CLI
-  version, your OS and the random install id.
+  version, your OS and the random install id. The second exception is one anonymous "active today"
+  count from agent use, described next.
 - **`align telemetry off` or `DO_NOT_TRACK=1` stops all of it.** An environment opt-out
   (`DO_NOT_TRACK` or `ALIGN_TELEMETRY=0`) is also remembered: the first align run that sees it
   stores "off" on this machine (with the variable's name and the date), so processes that never
@@ -37,7 +38,12 @@ The short version, for local-only mode:
   inside an agent `align` launched never print the notice. The agent's edit check
   (`align check --advisory`) and `align mcp` tool calls send one small event each, described under
   [`cli.funnel.agent_use`](#clifunnelagent_use-local-mode), and only once the notice has printed on
-  this install. Nothing else is sent from a hook: no `cli.command`, no funnel stage.
+  this install. **One anonymous daily count does not wait for the notice:** the first edit check or
+  Align tool call of each UTC day sends `agent_active` (fields: the random install id, the CLI
+  version, `check` or `mcp` for which path it was, and the stage name, nothing else), so an install
+  used only through its coding agent is still counted as active. Once a day at most, local-only
+  mode only. `align telemetry off`, `DO_NOT_TRACK=1`, `ALIGN_TELEMETRY=0` and CI stop it like
+  everything else. Nothing else is sent from a hook: no `cli.command`, no other funnel stage.
 - **`align demo` sends one count, and only that.** One anonymous event per run, after the demo
   finishes, with no install id. On a first run in a real terminal, with no opt-out and no stored
   answer, and only if `~/.align/config.json` already exists, it also prints the notice above and records that you saw it.
@@ -201,16 +207,22 @@ the counts are counts, and the agent is the name of a tool on your machine. `dec
 is sent by `align ratify` with no count and no agent, because a ratification is a person
 standing behind a claim rather than anything an agent did.
 
-`agent_active` is sent on the first Align tool call each UTC day, by `align mcp` or by Align's own
-agent when you start it with bare `align`, and
+`agent_active` is sent on the first Align tool call or agent edit check each UTC day, by `align mcp`,
+by Align's own agent when you start it with bare `align`, or by the edit check
+(`align check --advisory`, `check` in the `command` field), and
 only in local-only mode (cloud mode records tool calls on the server already). It carries the four
-fields in the table below and nothing else: no tool name, no count, no agent name, no arguments.
+fields in the table below and nothing else: no tool name, no verdict, no count, no agent name, no arguments,
+no file, repo or org. Unlike every other local event it does not wait for the notice: an install used only
+through its coding agent never prints one, and would otherwise never be counted after its install count.
+The once-a-day mark is kept in your config file, so the separate process a hook is each time still sends
+one a day, not one per edit. A hook waits at most 0.4 seconds for it, never changes the hook's result,
+and ignores any error.
 It exists because `align mcp` sends one `cli.command` when the server starts, so an editor that
 keeps one server running for a week would show use on the first day only. Listing the tools or
 starting the server sends no `agent_active`; a call that fails sends none either.
 
-None of these, and no `cli.command`, is ever sent from inside an agent hook. The one event a hook
-and `align mcp` do send is `agent_use`, below.
+Apart from `agent_active`, none of these, and no `cli.command`, is ever sent from inside an agent hook.
+The other event a hook and `align mcp` send is `agent_use`, below.
 
 `source_synced` is the one stage with its own table below.
 

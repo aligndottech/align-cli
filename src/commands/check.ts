@@ -13,6 +13,7 @@ import { type HookPayload, readHookPayload } from '../lib/hook-payload.js';
 import { lineWriterCheck, proposedChangeText, type RelatedDecision } from '../lib/agent/edit-text.js';
 import { stripTrailers } from '../lib/reason-extract.js';
 import { type AgentUse, recordAgentUse } from '../lib/agent-use-telemetry.js';
+import { recordFunnelStage } from '../lib/usage-telemetry.js';
 import { markHookContext } from '../lib/hook-context.js';
 import { isAlignSetUp } from '../lib/setup-state.js';
 import { dedupScope, markSurfaced, recentlySurfaced } from '../lib/advisory-dedup.js';
@@ -525,7 +526,14 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
     // recordAgentUse, so most runs pay a config read and no network. Never throws.
     const countUse = async (verdict: AgentUse['verdict']): Promise<void> => {
       try {
-        await recordAgentUse(config.getEnvironment(envName), { via: 'hook', tool: 'check_advisory', verdict }, { capMs: HOOK_TELEMETRY_CAP_MS });
+        const hookEnv = config.getEnvironment(envName);
+        // The daily "active today" count, which does not wait for the notice (an install used only
+        // through its agent never prints it). Offered with the per-check event, in parallel so the
+        // hook waits for one cap, not two; recordFunnelStage keeps it to once a UTC day and never throws.
+        await Promise.all([
+          recordAgentUse(hookEnv, { via: 'hook', tool: 'check_advisory', verdict }, { capMs: HOOK_TELEMETRY_CAP_MS }),
+          recordFunnelStage(hookEnv, 'agent_active', 'check', undefined, { capMs: HOOK_TELEMETRY_CAP_MS }),
+        ]);
       } catch {
         // Telemetry must never fail or delay an edit.
       }
