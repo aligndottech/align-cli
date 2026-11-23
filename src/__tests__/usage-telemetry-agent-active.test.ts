@@ -17,12 +17,12 @@ vi.mock('../lib/config.js', async (importOriginal) => ({
     getTelemetryNoticeShownAt: () => noticeShownAt,
     wasFunnelStageRecorded: () => false,
     markFunnelStageRecorded: () => {},
-    getAgentActiveDay: () => lastDay,
-    setAgentActiveDay: (d: string) => { lastDay = d; },
+    claimAgentActiveDay: (d: string) => { if (lastDay === d) return false; lastDay = d; return true; },
+    releaseAgentActiveDay: (d: string) => { if (lastDay === d) lastDay = undefined; },
   }),
 }));
 
-import { FUNNEL_STAGES, recordFunnelStage } from '../lib/usage-telemetry.js';
+import { FUNNEL_STAGES, type FunnelStage, recordFunnelStage } from '../lib/usage-telemetry.js';
 import { markHookContext, resetHookContextForTests } from '../lib/hook-context.js';
 
 const local = { gatewayUrl: 'http://x', authToken: null, tenantId: null, mode: 'local-embedded' as const };
@@ -90,10 +90,55 @@ describe('the agent_active stage', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it('still waits for the notice on every other stage, a hook or not', async () => {
+  it.each(FUNNEL_STAGES.filter((st) => st !== 'agent_active'))('still waits for the notice on %s, in a hook and outside one', async (stage: FunnelStage) => {
     noticeShownAt = undefined;
-    expect(await recordFunnelStage(local, 'first_capture', 'capture')).toBe(false);
+    for (const hook of [false, true]) {
+      resetHookContextForTests();
+      if (hook) markHookContext();
+      expect(await recordFunnelStage(local, stage, 'capture')).toBe(false);
+    }
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each(['declined', 'off'] as const)('a hook run sends nothing after a stored %s, notice or no notice', async (c) => {
+    consent = c;
+    noticeShownAt = undefined;
+    markHookContext();
+    expect(await recordFunnelStage(local, 'agent_active', 'check')).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(lastDay).toBeUndefined();
+  });
+
+  it.each([['DO_NOT_TRACK', '1'], ['ALIGN_TELEMETRY', '0'], ['ALIGN_DOCTOR', '1']] as const)('a hook run sends nothing under %s=%s and does not claim the day', async (name, value) => {
+    noticeShownAt = undefined;
+    markHookContext();
+    vi.stubEnv(name, value);
+    expect(await recordFunnelStage(local, 'agent_active', 'check')).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(lastDay).toBeUndefined();
+  });
+
+  it('a send that times out leaves the day unclaimed, so the next call that day retries', async () => {
+    fetchMock.mockReturnValue(new Promise(() => {}));
+    await recordFunnelStage(local, 'agent_active', 'check', undefined, { capMs: 20 });
+    expect(lastDay).toBeUndefined();
+    fetchMock.mockResolvedValue(new Response('{}', { status: 201 }));
+    await recordFunnelStage(local, 'agent_active', 'check', undefined, { capMs: 400 });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(lastDay).toBe('2026-11-02');
+  });
+
+  it('a refused connection leaves the day unclaimed too', async () => {
+    fetchMock.mockRejectedValue(new Error('ECONNREFUSED'));
+    await recordFunnelStage(local, 'agent_active', 'check');
+    expect(lastDay).toBeUndefined();
+  });
+
+  it('a delivered send claims the day, and a second call the same day sends nothing', async () => {
+    await recordFunnelStage(local, 'agent_active', 'check');
+    expect(lastDay).toBe('2026-11-02');
+    await recordFunnelStage(local, 'agent_active', 'mcp');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('sends nothing in CI, notice or no notice', async () => {

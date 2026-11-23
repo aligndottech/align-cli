@@ -182,7 +182,6 @@ export function createConfigStore(deps: ConfigStoreDeps = {}) {
     refusedWrites?: string[];
     writtenConfigs?: Record<string, WrittenConfig>;
     funnelStagesRecorded?: string[];
-    agentActiveDay?: string;
     agentUseSentAt?: Record<string, number>;
     providerKeys?: Partial<Record<GuidedProviderKey, string>>;
     llm?: LlmPreference;
@@ -840,13 +839,30 @@ export function createConfigStore(deps: ConfigStoreDeps = {}) {
       store.set('funnelStagesRecorded', existing.filter((s) => s !== stage));
       return true;
     },
-    // the UTC day (YYYY-MM-DD) the `agent_active` stage last went out. A day, not a
-    // once-ever mark: the stage says "an agent used Align today", so it repeats daily.
-    getAgentActiveDay(): string | undefined {
-      return store.get('agentActiveDay');
+    // The once-a-UTC-day claim behind `agent_active`. A hook is a new process per edit, so the claim is
+    // an exclusive-create marker file (`wx`: EEXIST means another process already holds the day), not a
+    // read-then-write on the config file, which lets parallel edits all pass the check and whose
+    // whole-file rewrite can clobber other keys. A claim also deletes markers of earlier days. Any
+    // other filesystem error returns false: nothing is sent, the direction that undercounts.
+    claimAgentActiveDay(day: string): boolean {
+      try {
+        const dir = alignConfigDir();
+        ensurePrivateDir(dir);
+        const mine = `agent-active-${day}`;
+        fs.closeSync(fs.openSync(path.join(dir, mine), 'wx', 0o600));
+        for (const f of fs.readdirSync(dir)) {
+          if (f.startsWith('agent-active-') && f !== mine) {
+            try { fs.unlinkSync(path.join(dir, f)); } catch { /* another process got there first */ }
+          }
+        }
+        return true;
+      } catch {
+        return false;
+      }
     },
-    setAgentActiveDay(day: string): void {
-      store.set('agentActiveDay', day);
+    // The undo of a claim whose send was not delivered, so the next call the same day retries.
+    releaseAgentActiveDay(day: string): void {
+      try { fs.unlinkSync(path.join(alignConfigDir(), `agent-active-${day}`)); } catch { /* already gone */ }
     },
     // epoch ms each `agent_use` key (via:tool) last went out. The once-per-window guard in
     // agent-use-telemetry.ts reads it, so a hook that runs on every edit sends a few events an hour.

@@ -8,8 +8,10 @@ and not listed here fails the build, and so does a field listed here that is no 
 The short version, for local-only mode:
 
 - **It is on by default, and you are told first.** The first time you run `align` in a real
-  terminal (stdin and stderr both a terminal), it prints this once, to stderr, before anything
-  is sent:
+  terminal (stdin and stderr both a terminal), it prints this once, to stderr, before your usage
+  is counted. Two counts send without waiting for it, because an install used only through its
+  coding agent never prints it: the install count and the daily "active today" count, both
+  described below. The notice:
 
   ```
   Align sends anonymous usage counts: which commands and coding agent you use,
@@ -22,17 +24,20 @@ The short version, for local-only mode:
 - **Usage counts wait for that notice to print in a real terminal.** A run with no terminal -
   output piped or sent to `/dev/null`, a hook, cron, systemd, `docker build`, an agent's shell
   tool - shows no notice and sends no usage count: the notice waits for your next run in a
-  terminal. `align demo` and `align setup` print it too, on their first run in a terminal. The one exception is the install count below, which is sent on the first run even
+  terminal. Only two things do not wait: the install count and the daily agent count. `align demo` and `align setup` print it too, on their first run in a terminal. The one exception is the install count below, which is sent on the first run even
   when that run has no terminal (an agent starting `align mcp`, for example), because otherwise
   an install that only ever runs through an agent would never be counted. It holds only the CLI
   version, your OS and the random install id. The second exception is one anonymous "active today"
   count from agent use, described next.
-- **`align telemetry off` or `DO_NOT_TRACK=1` stops all of it.** An environment opt-out
-  (`DO_NOT_TRACK` or `ALIGN_TELEMETRY=0`) is also remembered: the first align run that sees it
-  stores "off" on this machine (with the variable's name and the date), so processes that never
-  see the variable - an agent's `align mcp` server with a trimmed environment, the background
-  sync - stay silent too. `align telemetry status` says so, and `align telemetry on` clears it.
-  Bare CI is not remembered; it is checked on every run.
+- **`align telemetry off` or `DO_NOT_TRACK=1` stops all of it.** `align telemetry off` stores
+  your answer on this machine permanently, and it does not depend on any environment variable.
+  An environment opt-out (`DO_NOT_TRACK` or `ALIGN_TELEMETRY=0`) is remembered only once some
+  align run has seen it: that run stores "off" (with the variable's name and the date), so
+  later processes that never see the variable stay silent too. Until then, a process that does
+  not have the variable in its environment is not stopped by it. An agent launched from an editor
+  that never had `DO_NOT_TRACK` set can send the daily count, even if your shell has it.
+  Run `align telemetry off` once to close that gap. `align telemetry status` says what is stored,
+  and `align telemetry on` clears it. Bare CI is not remembered; it is checked on every run.
 - **Nothing is sent from CI**, and the notice is not shown there. Align's installed hooks
   (`align check --hook`, `align check --advisory`, `align context inject`), `align mcp`, and a run
   inside an agent `align` launched never print the notice. The agent's edit check
@@ -214,8 +219,9 @@ only in local-only mode (cloud mode records tool calls on the server already). I
 fields in the table below and nothing else: no tool name, no verdict, no count, no agent name, no arguments,
 no file, repo or org. Unlike every other local event it does not wait for the notice: an install used only
 through its coding agent never prints one, and would otherwise never be counted after its install count.
-The once-a-day mark is kept in your config file, so the separate process a hook is each time still sends
-one a day, not one per edit. A hook waits at most 0.4 seconds for it, never changes the hook's result,
+The once-a-day mark is a small empty file in `~/.align` (`agent-active-<date>`), created atomically, so
+the separate process a hook is each time, even several at once, still sends one a day, not one per edit.
+If the send does not get through in time, the file is removed and the next call that day tries again. A hook waits at most 0.4 seconds for it, never changes the hook's result,
 and ignores any error.
 It exists because `align mcp` sends one `cli.command` when the server starts, so an editor that
 keeps one server running for a week would show use on the first day only. Listing the tools or

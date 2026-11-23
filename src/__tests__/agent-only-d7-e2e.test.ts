@@ -300,4 +300,31 @@ describe('agent-only use over a week, real processes, a day-shifted clock', () =
     expect(active).toHaveLength(1);
     expect(Object.keys(active[0]!.body).sort()).toEqual(['cliVersion', 'command', 'installId', 'stage']);
   });
+
+  /** Day N: the agent's edit hook, a fresh `align check --advisory` process per edit, with the payload piped on stdin. */
+  async function hookEdit(day: number): Promise<void> {
+    currentDay = day;
+    currentVia = 'agent hook: align check --advisory';
+    const payload = { hook_event_name: 'PreToolUse', tool_name: 'Write', cwd: root, tool_input: { file_path: path.join(root, 'src', 'example.ts'), content: 'use mongodb for the main store' } };
+    const p = run(process.execPath, [entry, 'check', '--advisory'], { env: dayEnv(day), cwd: root });
+    p.child.stdin?.end(JSON.stringify(payload));
+    await p;
+  }
+
+  it('F: real `align check --advisory` processes with no notice: one agent_active row a day, with the 4 keys, even when 4 edits start together', async () => {
+    await seed(false);
+    await hookEdit(1);
+    await settle();
+    const first = captured.filter((c) => c.body['stage'] === 'agent_active');
+    expect(first).toHaveLength(1);
+    expect(Object.keys(first[0]!.body).sort()).toEqual(['cliVersion', 'command', 'installId', 'stage']);
+    expect(first[0]!.body['command']).toBe('check');
+    // Day 2: four edits at once, each a new process. One send between them.
+    await Promise.all([hookEdit(2), hookEdit(2), hookEdit(2), hookEdit(2)]);
+    await settle();
+    expect(days(captured.map(row), (r) => r.event_name === 'cli.funnel.agent_active')).toEqual([1, 2]);
+    expect(captured.filter((c) => c.body['stage'] === 'agent_active')).toHaveLength(2);
+    // Nothing else leaves a hook before the notice: no cli.command, no agent_use.
+    expect(captured.filter((c) => c.body['stage'] !== 'agent_active' && c.body['stage'] !== 'install')).toEqual([]);
+  });
 });

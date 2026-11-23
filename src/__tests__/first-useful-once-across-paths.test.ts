@@ -44,8 +44,8 @@ vi.mock('../lib/config.js', () => ({
     getInstallId: vi.fn().mockReturnValue('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
     wasFunnelStageRecorded: (stage: string) => recorded.has(stage),
     markFunnelStageRecorded: (stage: string) => { recorded.add(stage); },
-    getAgentActiveDay: () => undefined,
-    setAgentActiveDay: () => {},
+    claimAgentActiveDay: () => true,
+    releaseAgentActiveDay: () => {},
   })),
   ALIGN_HOSTED_GATEWAY_URL: 'https://api.align.tech',
 }));

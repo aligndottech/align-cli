@@ -16,8 +16,10 @@ export interface TelemetryNoticeStore {
 
 /**
  * C6: the disclosure. Local-mode telemetry is opt-out, and this notice is what makes it so: it
- * prints once, to stderr, before anything is sent, and nothing that depends on it sends until
- * it has printed (usage-telemetry.ts's localTierAllows). The founder-approved wording - change
+ * prints once, to stderr, before usage is sent, and nothing that depends on it sends until
+ * it has printed (usage-telemetry.ts's localTierAllows). Two things send without it: the install
+ * beacon and the once-a-day `agent_active` count from agent use, because an install used only
+ * through its agent never prints the notice. Everything else waits. The founder-approved wording - change
  * it only with the privacy page (align.tech/privacy#cli) and docs/telemetry.md in the same PR.
  * Changed 12 Nov 2026 (Tom): adds the edit-check hook and MCP tool use, counted after this notice.
  */
@@ -45,7 +47,8 @@ const isSet = (v: string | undefined): boolean => v !== undefined && v !== '';
  * server), a run inside a launched agent (ALIGN_WRAPPED), `align telemetry ...` (the off switch
  * must not be raced by what it switches off), an env switch that already turns everything off,
  * and any stored decision (granted, declined or off - that user was already asked or chose).
- * Because it is not marked, nothing that waits on it sends from those runs either.
+ * Because it is not marked, nothing that waits on it sends from those runs either (the install beacon
+ * and the daily `agent_active` count do not wait on it).
  *
  * Returns whether it printed. Never throws: a broken config store costs the notice, which means
  * nothing sends - the safe direction.
@@ -73,7 +76,8 @@ export function maybeShowTelemetryNotice(
     // waits on, so it counts only when a person can read it. A person at a terminal has both
     // stdin and stderr on it. Anything else - stderr to /dev/null, a pipe, a hook runner, cron,
     // systemd, `docker build`, an agent's Bash tool - prints nothing and marks nothing, so
-    // nothing sends until a real terminal run shows it.
+    // nothing that waits on the notice sends until a real terminal run shows it. (The install beacon
+    // and the daily `agent_active` count are the two sends that do not wait.)
     if (!process.stderr.isTTY || !process.stdin.isTTY) return false;
     write(`${TELEMETRY_NOTICE}\n\n`);
     config.markTelemetryNoticeShown();
@@ -91,9 +95,10 @@ export interface EnvOptOutStore {
 
 /**
  * An explicit env opt-out (DO_NOT_TRACK, ALIGN_TELEMETRY) is made STICKY: stored as 'off' with
- * its reason, so a process that does not inherit the variable still honours it. An MCP server
- * started by an agent gets a trimmed environment, and the detached sync child inherits from that
- * server, so the variable alone never reached them. Bare CI is not a user choice and is never
+ * its reason, so a process that does not inherit the variable still honours it, but only once some
+ * align run has SEEN the variable. An agent launched from an editor that never had it in its
+ * environment can still send the daily `agent_active` count until then; `align telemetry off`
+ * stores the answer permanently and does not depend on any environment. Bare CI is not a user choice and is never
  * stored (it is checked per process). A stored 'off' or 'declined' is left as it is. Called
  * before anything in this process can send, and not subject to the terminal or hook rules above:
  * a hook run that sees the variable stores it too. Never throws.
