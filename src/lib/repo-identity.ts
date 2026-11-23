@@ -7,6 +7,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { CORE_BARE_ARGS, getRemoteUrl, getRepoRoot, GIT_DIRS_ARGS, gitOutput, isGitRepo } from './git.js';
+import { repoWebBase } from './remote-url.js';
 
 /**
  * `host/owner/repo`, lowercased, parsed out of a hosted commit/pull/issue URL - or null
@@ -65,22 +66,16 @@ export function repoFromSourceUrl(sourceUrl: string | null | undefined): string 
  * item whose source_url has no commit/pull path to match against (there is none; the
  * remote IS the identity).
  *
- * Mirrors `buildCommitUrl`'s host detection (lib/git.ts) branch-for-branch on purpose:
- * these are two writers of one fact (which repo a remote names), and letting them diverge
- * would mean `repoFromSourceUrl(buildCommitUrl(remote, sha))` and `repoFromRemoteUrl(remote)`
- * silently disagreeing about the same remote - a git-sourced decision stamped under one
- * identity by the importer and looked up under another by a `--repo` filter. The parity
- * test in repo-identity.test.ts is what keeps that from drifting unnoticed.
+ * Read by `buildCommitUrl`'s own parser (`repoWebBase` in lib/remote-url.ts): these are two
+ * writers of one fact (which repo a remote names), and letting them diverge would mean
+ * `repoFromSourceUrl(buildCommitUrl(remote, sha))` and `repoFromRemoteUrl(remote)` silently
+ * disagreeing about the same remote - a git-sourced decision stamped under one identity by
+ * the importer and looked up under another by a `--repo` filter. The parity test in
+ * repo-identity.test.ts is what keeps that from drifting unnoticed.
  */
 export function repoFromRemoteUrl(remoteUrl: string | null): string | null {
-  if (!remoteUrl) return null;
-  const sshGh = remoteUrl.match(/git@github\.com[:/](.+?)(?:\.git)?$/);
-  if (sshGh) return `github.com/${sshGh[1]}`.toLowerCase();
-  const httpsGh = remoteUrl.match(/github\.com[:/](.+?)(?:\.git)?$/);
-  if (httpsGh) return `github.com/${httpsGh[1]}`.toLowerCase();
-  const gl = remoteUrl.match(/gitlab\.com[:/](.+?)(?:\.git)?$/);
-  if (gl) return `gitlab.com/${gl[1]}`.toLowerCase();
-  return null;
+  const web = repoWebBase(remoteUrl);
+  return web ? web.base.slice('https://'.length).toLowerCase() : null;
 }
 
 /**

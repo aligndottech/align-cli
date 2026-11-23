@@ -2,6 +2,7 @@ import { execa } from 'execa';
 import os from 'node:os';
 import { CONVENTIONAL_PREFIX, isOneOffChangeTitle, isReleaseOrBumpSubject, MECHANICAL_SUBJECT_PREFIXES, mechanicalSubjectRegex, MIN_DECISION_SUBJECT_CHARS, STATED_WHY, statesNumericBound, statesSubjectRule } from './commit-shape.js';
 import { PLAIN_DIFF_ARGS } from './git-safe-env.js';
+import { repoWebBase } from './remote-url.js';
 import { mergeAddsNothing } from './local-merge-dedupe.js';
 
 export interface GitCommit {
@@ -481,21 +482,6 @@ export async function gitOutput(args: string[], opts: { cwd?: string } = {}): Pr
   } catch {
     return null;
   }
-}
-
-/** GitHub/GitLab web base parsed from a remote, or null for anything else (bitbucket,
- *  self-hosted, no remote). Shared by buildCommitUrl and buildBlobUrl so the two web
- *  link builders can't drift on what counts as "a known host" (code-style.md, two
- *  writers of one fact). */
-function repoWebBase(remoteUrl: string | null): { kind: 'github' | 'gitlab'; base: string } | null {
-  if (!remoteUrl) return null;
-  const sshGh = remoteUrl.match(/git@github\.com[:/](.+?)(?:\.git)?$/);
-  if (sshGh) return { kind: 'github', base: `https://github.com/${sshGh[1]}` };
-  const httpsGh = remoteUrl.match(/github\.com[:/](.+?)(?:\.git)?$/);
-  if (httpsGh) return { kind: 'github', base: `https://github.com/${httpsGh[1]}` };
-  const gl = remoteUrl.match(/gitlab\.com[:/](.+?)(?:\.git)?$/);
-  if (gl) return { kind: 'gitlab', base: `https://gitlab.com/${gl[1]}` };
-  return null;
 }
 
 export function buildCommitUrl(remoteUrl: string | null, sha: string): string {
