@@ -33,6 +33,7 @@ import { quote } from '../lib/curation/text.js';
 import { detectDeterministicHits, ratifiedDeterministicRules, ruleDenyReason } from '../lib/inline-rules.js';
 import { dependencyIntentQuery } from '../lib/agent/dependency-intent.js';
 import { redactSecrets } from '../lib/share/secret-scan.js';
+import { judgeWithSecretCheck } from '../lib/secret-precheck.js';
 import { decisionLinkFor } from '../lib/decision-links.js';
 import { isoDay, isoInstant } from '../lib/decision-render.js';
 import type { ChangeSource } from '../lib/co-change-check.js';
@@ -323,13 +324,15 @@ export function registerCheckCommand(program: Command): void {
           }
         }
       }
-      const judge = async (): Promise<AlignmentResult> => {
+      const judgeDecisions = async (): Promise<AlignmentResult> => {
         if (fileDecisions) {
           return (await import('../lib/decisions-file-check.js')).judgeAgainstDecisionsFile(diff, fileDecisions, { title: opts.title, file: opts.decisionsFile! });
         }
         const call = () => client.checkAlignment(diff, branch, checkOpts);
         return violations.length === 0 ? call() : (await import('../lib/co-change-check.js')).judgeWithCoChange(call, violations);
       };
+      // A secret shape in the added lines is a finding whatever retrieval surfaced, so it wraps every judge.
+      const judge = (): Promise<AlignmentResult> => judgeWithSecretCheck(judgeDecisions, diff);
 
       if (opts.ci) {
         try {
