@@ -15,7 +15,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { findLineWriters, isProseOrGeneratedFile, isWriterTitle } from '../lib/blame-attribution.js';
+import { findLineWriters, githubRepoOf, isProseOrGeneratedFile, isWriterTitle } from '../lib/blame-attribution.js';
 
 let dir: string;
 const git = (...args: string[]): string =>
@@ -149,6 +149,20 @@ describe('whitespace-only changes', () => {
     } finally {
       rmSync(d, { recursive: true, force: true });
     }
+  });
+});
+
+describe('githubRepoOf', () => {
+  it.each([
+    ['https://github.com/Acme/Widgets.git', 'acme/widgets'],
+    ['git@github.com:acme/widgets.git', 'acme/widgets'],
+    ['https://github.com/acme/widgets/', 'acme/widgets'],
+    ['ssh://git@ssh.github.com:443/acme/widgets.git', 'acme/widgets'],
+    ['ssh://git@github.com:22/acme/widgets.git', 'acme/widgets'],
+    ['https://gitlab.com/acme/widgets.git', null],
+    ['', null],
+  ])('%j -> %j', (remote, expected) => {
+    expect(githubRepoOf(remote)).toBe(expected);
   });
 });
 

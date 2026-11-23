@@ -12,6 +12,9 @@
  *    falls back to the repo root path.
  * 7. a linked worktree whose identity is a path has the MAIN checkout's identity (async and
  *    sync readers), from its root and from a folder inside it; a main checkout is unchanged.
+ * 8. a URL-form remote that names a port (GitHub's SSH-over-443 host, an explicit :22) is the
+ *    same repo as the plain remote, on both sides of the parity; an scp-form remote whose owner
+ *    is all digits is not read as a port.
  */
 import { execa } from 'execa';
 import fs from 'node:fs';
@@ -76,6 +79,18 @@ describe('repoFromSourceUrl(buildCommitUrl(...)) === repoFromRemoteUrl(...) - on
     // Positive control on the parity claim itself: exercise the SAME url buildCommitUrl
     // would hand to a real import, and confirm the two readers agree on it.
     expect(repoFromSourceUrl(buildCommitUrl(remote, 'abc1234567'))).toBe(expected);
+  });
+
+  it.each([
+    ['ssh://git@ssh.github.com:443/aligndottech/align-cli.git', 'github.com/aligndottech/align-cli'],
+    ['ssh://git@github.com:22/aligndottech/align-cli.git', 'github.com/aligndottech/align-cli'],
+    ['https://github.com:443/aligndottech/align-cli.git', 'github.com/aligndottech/align-cli'],
+    ['ssh://git@altssh.gitlab.com:443/group/sub/repo.git', 'gitlab.com/group/sub/repo'],
+    ['git@github.com:1234/repo.git', 'github.com/1234/repo'],
+  ])('a port in %s is not part of the repo (-> %j)', (remote, expected) => {
+    expect(repoFromRemoteUrl(remote)).toBe(expected);
+    expect(repoFromSourceUrl(buildCommitUrl(remote, 'abc1234567'))).toBe(expected);
+    expect(repoFromSourceUrl(buildBlobUrl(remote, 'main', 'docs/adr/0001-x.md'))).toBe(expected);
   });
 
   it('a remoteless repo agrees on both sides: no identity either way', () => {

@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { isHousekeepingTitle, isNonBehaviouralType } from './commit-shape.js';
 import type { HookToolInput } from './hook-payload.js';
+import { repoFromRemoteUrl } from './repo-identity.js';
 
 /**
  * The decisions that WROTE the lines an agent is about to change.
@@ -83,10 +84,10 @@ function capped(ranges: Range[]): Range[] {
   return out;
 }
 
-/** owner/repo from a GitHub remote url (https or ssh), lower-cased; null for anything else. */
+/** owner/repo from a GitHub remote url, lower-cased; null for anything else. Read as the repo identity is, so the two agree on every remote. */
 export function githubRepoOf(remote: string): string | null {
-  const m = /github\.com[:/]([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/i.exec(remote.trim());
-  return m ? `${m[1]}/${m[2]}`.toLowerCase() : null;
+  const m = /^github\.com\/([^/\s]+\/[^/\s]+)$/.exec(repoFromRemoteUrl(remote.trim()) ?? '');
+  return m ? m[1]! : null;
 }
 
 const prNumberOf = (subject: string): string | null =>
