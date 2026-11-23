@@ -90,10 +90,10 @@ describe('AGENTS.md rule lists', () => {
     expect(items).toHaveLength(1);
   });
 
-  it('caps one section at 30 rules', async () => {
+  it('keeps 30 rule rows plus one overflow row for a 40-rule section', async () => {
     const list = Array.from({ length: 40 }, (_, i) => `- Never touch file number ${i} directly.`).join('\n');
     const items = await importAgents(`## Rules\n\n${list}\n`);
-    expect(items).toHaveLength(30);
+    expect(items).toHaveLength(31);
   });
 
   it('puts the whole rule in the title even when it is long, so DECISIONS.md carries it', async () => {
@@ -198,5 +198,29 @@ describe('AGENTS.md rule lists', () => {
     expect(new Set(one.map((i) => i.source_url)).size).toBe(3);
     expect(two.find((i) => i.title === x)!.source_url).toBe(one.find((i) => i.title === x)!.source_url);
     expect(two.find((i) => i.title === y)!.source_url).toBe(one.find((i) => i.title === y)!.source_url);
+  });
+
+  it('keeps rules 31 and up as one trailing row, so they stay in the graph', async () => {
+    const list = Array.from({ length: 35 }, (_, i) => `- Never touch file number ${i} directly.`).join('\n');
+    const items = await importAgents(`## Big rules\n\n${list}\n`);
+    expect(items).toHaveLength(31);
+    const last = items[30]!;
+    expect(last.title).toBe('Further rules from the Big rules section');
+    for (let i = 30; i < 35; i++) expect(last.raw_text).toContain(`Never touch file number ${i} directly.`);
+    expect(last.raw_text).not.toContain('file number 29 ');
+  });
+
+  it('never changes an existing rule url when a sibling sharing its prefix is added', async () => {
+    const prefix = 'Never commit a secret to the repository under any condition ';
+    const x = `${prefix}in a branch.`;
+    const before = await importAgents(`## R\n\n- ${x}\n- Always run the tests.\n- Do not force push.\n`);
+    const after = await importAgents(`## R\n\n- ${x}\n- ${prefix}in a tag.\n- Always run the tests.\n- Do not force push.\n`);
+    expect(after.find((i) => i.title === x)!.source_url).toBe(before.find((i) => i.title === x)!.source_url);
+  });
+
+  it('does not read a horizontal rule as a rule item', async () => {
+    expect(await importAgents('## R\n\n- Never a.\n- Always b.\n* * *\n- Do not c.\n')).toHaveLength(1);
+    const items = await importAgents('## R\n\n- Never a.\n- Always b.\n- Do not c.\n\n- - -\n');
+    expect(items).toHaveLength(1);
   });
 });

@@ -30,6 +30,8 @@ export const MAX_INTRO_CHARS = 300;
 export const MODAL_SHARE = 0.6;
 
 const MARKER = /^[-*+]\s+(\S.*)$/;
+/** `* * *`, `- - -`, `***`: a thematic break, never a list item. */
+const THEMATIC_BREAK = /^\s*([-*_])(?:\s*\1){2,}\s*$/;
 const NUMBERED = /^\s*\d{1,3}[.)]\s/;
 const MODAL = /\b(?:never|always|must|do not|don't|dont|should|avoid|prefer|only|require[ds]?)\b/i;
 
@@ -39,8 +41,8 @@ function clean(s: string): string {
 
 export interface RuleList {
   rules: SplitRule[];
-  /** Rules past MAX_RULES_PER_SECTION, which are not kept. */
-  dropped: number;
+  /** The text of rules past MAX_RULES_PER_SECTION. The importer keeps them as one trailing row. */
+  overflow: string[];
 }
 
 /** Returns the rules, or null when the section is not a plain list of rules. */
@@ -52,6 +54,7 @@ export function splitRuleList(rawBody: string): RuleList | null {
   let seenList = false;
   for (const line of lines) {
     if (!line.trim()) continue;
+    if (THEMATIC_BREAK.test(line)) return null;
     if (NUMBERED.test(line) && !/^\s{2,}/.test(line)) return null;
     const indented = /^\s{2,}\S|^\t/.test(line);
     const m = !indented ? line.match(MARKER) : null;
@@ -85,6 +88,6 @@ export function splitRuleList(rawBody: string): RuleList | null {
       full: r.lines.join('\n'),
       ...(r.group ? { group: r.group } : {}),
     })),
-    dropped: Math.max(0, rules.length - MAX_RULES_PER_SECTION),
+    overflow: rules.slice(MAX_RULES_PER_SECTION).map((r) => r.lines.join('\n')),
   };
 }

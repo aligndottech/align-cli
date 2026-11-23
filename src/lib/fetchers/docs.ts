@@ -233,28 +233,36 @@ async function readAgentRulesItems(
       const list = section.heading ? splitRuleList(withoutComments(section.body)) : null;
       if (list) {
         // One decision per rule. The title is the rule as written (the privacy check for --out needs it verbatim in
-        // the committed file); the section travels in the text as context. The url is the section anchor plus the
-        // rule's own words, so a re-import of unchanged text lands on the same row. A rule that is REWORDED gets a new
-        // url and so a new row: the old one stays in the graph (known limit, not engineered around).
-        if (list.dropped > 0) droppedRules.push({ section: section.heading!, count: list.dropped });
-        const slugOf = (t: string): string => slugify(t).slice(0, 60).replace(/-+$/, '');
-        const slugCount = new Map<string, number>();
-        for (const rule of list.rules) slugCount.set(slugOf(rule.text), (slugCount.get(slugOf(rule.text)) ?? 0) + 1);
+        // the committed file); the section travels in the text as context.
+        // The url is `<section anchor>~<rule key>`: slugify cannot emit `~`, so the parent anchor is recoverable exactly.
+        // The key is the rule's slug plus a hash of its text. Stable: inserting, removing or reordering OTHER rules, and
+        // adding a sibling that shares a prefix. Not stable: REWORDING the rule, which is a new rule (new row, the old
+        // wording stays in the graph; the importer cannot tell a reword from a new rule).
+        if (list.overflow.length > 0) droppedRules.push({ section: section.heading!, count: list.overflow.length });
         const seenKeys = new Map<string, number>();
+        const base = `${buildBlobUrl(remoteUrl, branch, file)}${anchor}`;
         for (const rule of list.rules) {
-          const slug = slugOf(rule.text);
-          // An empty slug (non-Latin text) or a shared 60-character prefix gets a hash of the whole rule, never an
-          // order-dependent counter, so inserting or reordering a rule does not move its neighbours' ids.
+          const slug = slugify(rule.text).slice(0, 60).replace(/-+$/, '');
           const hash = createHash('sha1').update(rule.text).digest('hex').slice(0, 8);
-          const key = slug && slugCount.get(slug) === 1 ? slug : slug ? `${slug}-${hash}` : hash;
+          const key = slug ? `${slug}-${hash}` : hash;
           const n = seenKeys.get(key) ?? 0;
-          seenKeys.set(key, n + 1); // only an exact repeat of the same rule text still needs a counter
+          seenKeys.set(key, n + 1); // only an exact repeat of the same rule text needs a counter
           const prefix = rule.group ? `${section.heading}, ${rule.group}` : section.heading!;
           items.push({
-            source_url: `${buildBlobUrl(remoteUrl, branch, file)}${anchor}--${key}${n > 0 ? `-${n + 1}` : ''}`,
+            source_url: `${base}~${key}${n > 0 ? `-${n + 1}` : ''}`,
             platform: 'docs',
             raw_text: `${rule.full}\n\nFrom the "${prefix}" section.`,
             title: rule.text,
+          });
+        }
+        if (list.overflow.length > 0) {
+          // Rules past the cap stay in the graph, and so checkable, as one row rather than vanishing.
+          const title = `Further rules from the ${section.heading} section`;
+          items.push({
+            source_url: `${base}~further-rules`,
+            platform: 'docs',
+            raw_text: `${title}\n\n${list.overflow.map((t) => `- ${t}`).join('\n')}\n\nFrom the "${section.heading}" section.`,
+            title,
           });
         }
         continue;

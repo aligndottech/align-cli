@@ -81,13 +81,13 @@ describe('selectForFile - one docs row per rule', () => {
 describe('selectForFile - rule rows and the file cap', () => {
   const U = 'https://github.com/o/r/blob/main/AGENTS.md';
   const ruleRow = (i: number, title = `Never touch file number ${i}.`) => ({
-    title, platform: 'docs', summary: `${title}\n\nFrom the "Core principles" section.`, source_url: `${U}#core-principles--rule-${i}`,
+    title, platform: 'docs', summary: `${title}\n\nFrom the "Core principles" section.`, source_url: `${U}#core-principles~rule-${i}`,
   });
 
-  it('lets rule rows take at most two thirds of the cap, so a commit row keeps its place', () => {
+  it('keeps a commit row when 35 rule rows would fill the cap', () => {
     const rows = [...Array.from({ length: 35 }, (_, i) => ruleRow(i)), { title: 'Use Postgres instead of Mongo', platform: 'github', summary: 'because of joins', source_url: 'https://github.com/o/r/pull/1' }];
     const { decisions } = selectForFile(rows, 30);
-    expect(decisions.filter((d) => d.kind === 'rule')).toHaveLength(20);
+    expect(decisions.filter((d) => d.kind === 'rule')).toHaveLength(29);
     expect(decisions.some((d) => d.title === 'Use Postgres instead of Mongo')).toBe(true);
   });
 
@@ -123,5 +123,40 @@ describe('selectForFile - rule rows and the file cap', () => {
     const long = `**Never** ${'x'.repeat(327)}`;
     const row = { ...ruleRow(1, long.slice(0, 80)), summary: `${long}\n\nFrom the "Core principles" section.` };
     expect(selectForFile([row], 30).selected[0]!.title).toBe(long.slice(0, 80));
+  });
+
+  const commit = (n: number) => ({ title: `Use queue number ${n} instead of polling`, platform: 'github', summary: 'because of load', source_url: `https://github.com/o/r/pull/${n}` });
+
+  it('gives unused non-rule slots to rules: 9 rules, no commits, limit 9 shows 9', () => {
+    expect(selectForFile(Array.from({ length: 9 }, (_, i) => ruleRow(i)), 9).decisions).toHaveLength(9);
+  });
+
+  it('limit 4 with 6 rules and 1 commit shows 3 rules and the commit', () => {
+    const { decisions } = selectForFile([...Array.from({ length: 6 }, (_, i) => ruleRow(i)), commit(1)], 4);
+    expect(decisions.filter((d) => d.kind === 'rule')).toHaveLength(3);
+    expect(decisions.filter((d) => d.kind !== 'rule')).toHaveLength(1);
+  });
+
+  it('limit 1 with only rule rows shows 1', () => {
+    expect(selectForFile([ruleRow(1), ruleRow(2)], 1).decisions).toHaveLength(1);
+  });
+
+  it('a prose section stays visible beside the rule rows of a section whose heading starts with its name', () => {
+    const prose = { title: 'Core', platform: 'docs', summary: 'Core\n\nSome prose about the core.', source_url: `${U}#core` };
+    const rule = { title: 'Never a.', platform: 'docs', summary: 'Never a.\n\nFrom the "Core - x" section.', source_url: `${U}#core---x~never-a-1234abcd` };
+    expect(selectForFile([prose, rule], 30).decisions.map((d) => d.title)).toContain('Core');
+  });
+
+  it('still hides the genuine whole-section row of the section that was split', () => {
+    const old = { title: 'Core - x', platform: 'docs', summary: 'Core - x\n\n- Never a.', source_url: `${U}#core---x` };
+    const rule = { title: 'Never a.', platform: 'docs', summary: 'Never a.\n\nFrom the "Core - x" section.', source_url: `${U}#core---x~never-a-1234abcd` };
+    expect(selectForFile([old, rule], 30).decisions.map((d) => d.title)).toEqual(['Never a.']);
+  });
+
+  it('still holds rules to two thirds of the cap when there are plenty of commits', () => {
+    const rows = [...Array.from({ length: 40 }, (_, i) => ruleRow(i)), ...Array.from({ length: 40 }, (_, i) => commit(i + 1))];
+    const { decisions } = selectForFile(rows, 30);
+    expect(decisions.filter((d) => d.kind === 'rule')).toHaveLength(20);
+    expect(decisions).toHaveLength(30);
   });
 });

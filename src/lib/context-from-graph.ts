@@ -155,10 +155,11 @@ export function selectForFile(rows: ListedDecision[], limit: number): { decision
   // A section imported whole by an older version, now imported as one row per rule: the whole-section row would print
   // beside its own rules. Hide it from the file (it stays in the graph). A rule that was REWORDED gets a new row and the
   // old wording stays too: known limit, the importer cannot tell a reword from a new rule.
-  const ruleUrls = docs.filter(isRuleRow).map((r) => r.source_url ?? '');
-  const stale = docs.filter((r) => !isRuleRow(r) && r.source_url && r.source_url.includes('#') && ruleUrls.some((u) => u.startsWith(`${r.source_url}--`)));
+  // A rule url is `<section anchor>~<rule key>`. A heading slug cannot hold `~`, so the parent is exact: a section named
+  // "Core" is not the parent of "Core - x" rules, which a prefix match would have said.
+  const parents = new Set(docs.filter(isRuleRow).map((r) => r.source_url ?? '').filter((u) => u.includes('~')).map((u) => u.slice(0, u.lastIndexOf('~'))));
+  const stale = docs.filter((r) => !isRuleRow(r) && r.source_url && parents.has(r.source_url));
   const rules = docs.filter((r) => !stale.includes(r));
-  const keptRules = rules.slice(0, Math.floor(limit * RULE_SHARE_OF_CAP));
   // Merge repeats and hide reversals BEFORE the cap and the counts, so the cap keeps the newest decisions
   // (not the first N in graph order) and every number describes what the file shows.
   const sourceOf = new Map<ContextDecision, ListedDecision>();
@@ -176,6 +177,8 @@ export function selectForFile(rows: ListedDecision[], limit: number): { decision
     .map((t) => ({ t, at: choices.indexOf(t.orig!) }))
     .sort((a, b) => rank(b.t) - rank(a.t) || a.at - b.at)
     .map((x) => x.t);
+  // Rules take up to two thirds of the file, and any slot the commits, PRs and ADRs do not use as well.
+  const keptRules = rules.slice(0, Math.max(Math.floor(limit * RULE_SHARE_OF_CAP), limit - tidied.length));
   const keptChoices = tidied.slice(0, Math.max(0, limit - keptRules.length));
   const decisions = [
     // `selected` keeps the stored rows: the committed-file check reads their titles as the importer wrote them.
