@@ -68,7 +68,7 @@ function gitignoreMatchers(content: string): Array<(rel: string, name: string) =
       body = body.slice(3);
       if (!body) continue;
     }
-    const re = new RegExp(`^${prefix}${body.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*\*/g, '\uE000').replace(/\*/g, '[^/]*').replace(/\uE000/g, '.*').replace(/\?/g, '[^/]')}$`);
+    const re = new RegExp(`^${prefix}${body.replace(/\/\*\*\//g, '\uE001').replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*\*/g, '\uE000').replace(/\*/g, '[^/]*').replace(/\uE000/g, '.*').replace(/\?/g, '[^/]').replace(/\uE001/g, '/(?:.*/)?')}$`);
     out.push(anchored ? (rel) => re.test(rel) : (_rel, name) => re.test(name));
   }
   return out;
@@ -144,7 +144,8 @@ export async function discoverAdrDirs(
           foundReal.add(real);
           found.push(rel);
         }
-        continue; // an ADR directory is a leaf: do not look for ADR directories inside it
+        // Traversal continues below a qualifying directory: `docs/adr/payments/adr` is a separate ADR directory.
+        // Real-path de-duplication (seenReal, foundReal) keeps a directory from being read twice.
       }
     }
     for (const e of entries) {

@@ -223,6 +223,7 @@ describe('fetchDocsItems - ADR directories found by name anywhere', () => {
     });
 
     it('B7 an unreadable file is skipped, the rest import, and the note counts it', async (ctx) => {
+      if (process.platform === 'win32') ctx.skip('chmod cannot make a file unreadable on Windows');
       if (typeof process.getuid === 'function' && process.getuid() === 0) ctx.skip('running as root: chmod 000 does not block reads');
       fresh();
       pair('docs/adr');
@@ -234,6 +235,7 @@ describe('fetchDocsItems - ADR directories found by name anywhere', () => {
     });
 
     it('B7b an unreadable file in a discovered dir is skipped and counted once', async (ctx) => {
+      if (process.platform === 'win32') ctx.skip('chmod cannot make a file unreadable on Windows');
       if (typeof process.getuid === 'function' && process.getuid() === 0) ctx.skip('running as root: chmod 000 does not block reads');
       fresh();
       pair('knowledge/adr');
@@ -302,6 +304,26 @@ describe('fetchDocsItems - ADR directories found by name anywhere', () => {
       const { items } = await none();
       expect(items.map((i) => i.source_url)).toHaveLength(2);
       expect(items.some((i) => /private/.test(i.source_url ?? ''))).toBe(false);
+    });
+
+    it('B14 an internal `/**/` in .gitignore matches zero, one and many directories, and only whole names', async () => {
+      fresh();
+      writeFileSync(join(repo, '.gitignore'), 'knowledge/**/adr/0003-private.md\n');
+      put('knowledge/adr/0001-a.md');
+      put('knowledge/adr/0002-b.md');
+      put('knowledge/adr/0003-private.md');
+      put('knowledge/adr/0003-private.md.bak');
+      const { items } = await none();
+      expect(urls(items)).toEqual(['knowledge/adr/0001-a.md', 'knowledge/adr/0002-b.md']);
+    });
+
+    it('B15 a qualifying ADR directory does not hide a nested ADR directory', async () => {
+      fresh();
+      pair('knowledge/adr');
+      pair('knowledge/adr/payments/adr');
+      const { items } = await none();
+      expect(urls(items).some((u) => u.startsWith('knowledge/adr/payments/adr/'))).toBe(true);
+      expect(items).toHaveLength(4);
     });
   });
 });
