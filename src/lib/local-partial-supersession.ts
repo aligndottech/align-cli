@@ -5,9 +5,11 @@
  * would hide the rules in it that still hold. It is a note beside the row instead: the hook says
  * "partly replaced by <ADR>" and lists the ADR, and nothing is hidden.
  *
- * The sentence is read from the stored text, so there is no model and no key, and only an explicit
- * "Supersedes ... in <file>" counts. "Supersedes ADR 0002" is left alone on purpose: replacing a
- * whole ADR is a person's act (`align mark`, ADR Guard), never an inference from a sentence.
+ * The sentence is read from the stored text, so there is no model and no key. Only the shape
+ * "Supersedes the <words> rule|section|convention|policy|guideline|decision in <file>" counts, the
+ * file written bare or as a markdown link. A looser reading tags prose that is not a decision.
+ * "Supersedes ADR 0002" is left alone on purpose: replacing a whole ADR is a person's act
+ * (`align mark`, ADR Guard), never an inference from a sentence.
  *
  * A NEW TABLE, not a column: like `decision_identities` it does not bump user_version, an older
  * CLI never reads it, and every reader joins `decisions` so a row it leaves behind links nothing.
@@ -27,46 +29,71 @@ export function migratePartialSupersessions(db: DatabaseSync): void {
   db.exec('CREATE INDEX IF NOT EXISTS idx_partial_supersessions_target ON decision_partial_supersessions (target_id)');
 }
 
-const NOTE = /\bsupersedes\s+([^.\n]{0,160}?)\s+in\s+[`'"(]*((?:[\w.-]+\/)*[\w-]+\.(?:md|mdx|rst|txt))\b/gi;
-// Words that say "a rule" without saying which one.
-const FILLER = new Set(['the', 'rule', 'rules', 'only', 'and', 'for', 'any', 'all', 'our', 'this', 'that', 'section', 'sections', 'old', 'one', 'from', 'with']);
+// A word may hold a dot ("Node.js") but a dot that ends the sentence ends the match.
+const WORD = String.raw`(?:[\w-]|\.(?=\w))+`;
+const NOTE = new RegExp(
+  String.raw`\bsupersedes\s+the\s+(${WORD}(?:\s+${WORD}){0,7}?)\s+(?:rule|section|convention|policy|guideline|decision)s?\s+in\s+(?:\[[^\]\n]*\]\(([^)\s]+)\)|\x60?([\w./-]+)\x60?)`,
+  'gi',
+);
+// Words that name a kind of thing or a connective, never which rule.
+const FILLER = new Set(['that', 'this', 'with', 'from', 'only', 'rule', 'rules', 'section', 'sections', 'convention', 'policy', 'guideline', 'decision', 'using', 'when', 'them', 'they', 'have', 'been', 'more']);
+const DOC_FILE = /\.(?:md|mdx|rst|txt)$/i;
 
 export interface SupersedeNote { file: string; words: string[] }
 
 export function supersedeNotes(text: string): SupersedeNote[] {
-  return [...text.matchAll(NOTE)].map((m) => ({
-    file: m[2]!.toLowerCase(),
-    words: m[1]!.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !FILLER.has(w)),
-  }));
+  return [...text.matchAll(NOTE)].flatMap((m) => {
+    const file = (m[2] ?? m[3] ?? '').split(/[#?]/)[0]!.replace(/\.+$/, '').replace(/^(?:\.{1,2}\/)+/, '').replace(/^\//, '');
+    if (!DOC_FILE.test(file)) return [];
+    const words = m[1]!.split(/[^A-Za-z0-9]+/).map((w) => w.toLowerCase()).filter((w) => w.length >= 4 && !FILLER.has(w));
+    return [{ file, words }];
+  });
 }
 
-interface DocRow { id: string; sourceUrl: string; text: string }
+interface DocRow { id: string; sourceUrl: string; repo: string | null; text: string }
 
-const inFile = (r: DocRow, file: string): boolean => r.sourceUrl.split('#')[0]!.toLowerCase().endsWith(`/${file.replace(/^\.?\//, '')}`);
+const DOCS = `SELECT id, source_url AS sourceUrl, repo, title || char(10) || summary AS text FROM decisions WHERE platform = 'docs' AND source_url IS NOT NULL`;
 
-/** The rows of the note's file it can mean: those sharing a rule word, else the file's only row. */
-function targetsOf(note: SupersedeNote, docs: DocRow[], self: string): string[] {
-  const rows = docs.filter((r) => r.id !== self && inFile(r, note.file));
-  const named = rows.filter((r) => note.words.some((w) => new RegExp(`\\b${w}\\b`).test(r.text)));
+/** A whole path segment, as stored: "docs/OLD-CLAUDE.md" is not "CLAUDE.md". */
+const inFile = (r: DocRow, file: string): boolean => r.sourceUrl.split(/[#?]/)[0]!.endsWith(`/${file}`);
+/** Same repository, or one side names none (a local file): the scoping every other read here gives an unattributed row. */
+const sameRepo = (a: string | null, b: string | null): boolean => a === null || b === null || a === b;
+
+/**
+ * The rows of the note's file it can mean: those holding a rule word (any case), else the file's
+ * only row. A vendored vendor/CLAUDE.md in the same repo is a candidate on the same terms.
+ */
+function targetsOf(note: SupersedeNote, docs: DocRow[], source: DocRow): string[] {
+  const rows = docs.filter((r) => r.id !== source.id && inFile(r, note.file) && sameRepo(r.repo, source.repo));
+  const named = rows.filter((r) => note.words.some((w) => new RegExp(`\\b${w}\\b`, 'i').test(r.text)));
   return (named.length ? named : rows.length === 1 ? rows : []).map((r) => r.id);
 }
 
+function relink(db: DatabaseSync, source: DocRow, docs: DocRow[]): void {
+  db.prepare('DELETE FROM decision_partial_supersessions WHERE source_id = ?').run(source.id);
+  const add = db.prepare('INSERT OR IGNORE INTO decision_partial_supersessions (source_id, target_id) VALUES (?, ?)');
+  for (const note of supersedeNotes(source.text)) for (const t of targetsOf(note, docs, source)) add.run(source.id, t);
+}
+
 /**
- * Record what `id` supersedes in other files, and what other files' decisions say they supersede in
- * `id`, both ways so the order two rows arrive in does not matter. Idempotent, and a row whose text
- * no longer says it loses the link, as linkByReference does for a dropped reference.
+ * Record what `id` supersedes in other files, and redo the resolution of every decision whose
+ * sentence names the file `id` is in, so a row arriving later moves a single-row fallback link
+ * onto the row the rule word picks. Idempotent. The docs rows are loaded and scanned only when
+ * `id` itself says "supersede" or a stored decision does and names `id`'s file: an ingest with no
+ * such sentence anywhere costs one indexed delete and one LIKE.
  */
 export function linkPartialSupersessions(db: DatabaseSync, id: string): void {
   db.prepare('DELETE FROM decision_partial_supersessions WHERE source_id = ? OR target_id = ?').run(id, id);
-  const docs = (db.prepare(`SELECT id, source_url AS sourceUrl, title || char(10) || summary AS text FROM decisions WHERE platform = 'docs' AND source_url IS NOT NULL`).all() as unknown as DocRow[]);
-  const self = docs.find((r) => r.id === id);
-  if (!self) return;
-  const add = db.prepare('INSERT OR IGNORE INTO decision_partial_supersessions (source_id, target_id) VALUES (?, ?)');
-  for (const note of supersedeNotes(self.text)) for (const t of targetsOf(note, docs, id)) add.run(id, t);
-  for (const other of docs) {
-    if (other.id === id || !/supersedes/i.test(other.text)) continue;
-    for (const note of supersedeNotes(other.text)) if (targetsOf(note, docs, other.id).includes(id)) add.run(other.id, id);
-  }
+  const self = db.prepare(`SELECT id, source_url AS sourceUrl, repo, title || char(10) || summary AS text, platform FROM decisions WHERE id = ?`).get(id) as (DocRow & { platform: string }) | undefined;
+  if (!self || self.platform !== 'docs' || self.sourceUrl === null) return;
+  // LIKE is case-insensitive for ASCII, which is the prefilter the check below repeats exactly.
+  const namers = (db.prepare(`SELECT id, source_url AS sourceUrl, repo, title || char(10) || summary AS text FROM decisions WHERE platform = 'docs' AND id != ? AND (title LIKE '%supersede%' OR summary LIKE '%supersede%')`).all(id) as unknown as DocRow[])
+    .filter((o) => supersedeNotes(o.text).some((n) => inFile(self, n.file)));
+  const selfNames = /supersede/i.test(self.text) && supersedeNotes(self.text).length > 0;
+  if (!selfNames && namers.length === 0) return;
+  const docs = db.prepare(DOCS).all() as unknown as DocRow[];
+  if (selfNames) relink(db, self, docs);
+  for (const o of namers) relink(db, o, docs);
 }
 
 /** The decisions that say they replace part of `targetId`, newest row first. */

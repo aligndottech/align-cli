@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
 
 // Ranking is driven by the mocked cosineSimilarity below; see helpers/mocked-cosine-matrix.ts.
@@ -20,6 +21,7 @@ vi.mock('../lib/local-relationship-classifier.js', () => ({
 }));
 
 import { buildRelatedOutput } from '../commands/check.js';
+import { applyJudgement } from '../lib/curation/mark.js';
 import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
 
 vi.setConfig({ testTimeout: process.platform === 'win32' ? 60_000 : 30_000 });
@@ -62,8 +64,8 @@ afterEach(() => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-const client = () => {
-  const c = createLocalGatewayClient(dbPath, { cwd: dir });
+const client = (o: { judgeId?: string; cwd?: string } = {}) => {
+  const c = createLocalGatewayClient(dbPath, { cwd: dir, ...o });
   opened.push(c);
   return c;
 };
@@ -129,13 +131,19 @@ describe('2. the edit hook names the superseding ADR on a partly replaced rule',
   });
 });
 
-describe('3. the other rules in the same row are not hidden', () => {
-  it('a moment edit still shows the row, as partly replaced and never fully replaced', async () => {
+describe('3. the other rules in the same row are returned as stored', () => {
+  it('a moment edit returns the row text verbatim and the tag names only the ADR', async () => {
     const c = client();
-    await ingest(c, adr(), claude());
+    const [, claudeId] = await ingest(c, adr(), claude());
+    const res = await c.checkAlignment("import moment from 'moment'", undefined, { depth: 'related' });
+    const row = res.relevant_decisions.find((d) => d.id === claudeId)!;
+    expect(row.summary).toBe(CLAUDE_TEXT);
+    expect(row.status).toBeUndefined();
+    expect(row.partly_replaced_by).toEqual([{ id: expect.any(String), title: 'ADR 0004: GraphQL for new endpoints' }]);
     const out = await hookText(c, "import moment from 'moment'");
-    expect(out).toContain('Conventions (partly replaced by: ADR 0004');
     expect(out).toContain('Use moment for dates.');
+    expect(out).toContain('Use Jest for tests.');
+    expect(out.match(/partly replaced by/g)).toHaveLength(1);
     expect(out).not.toContain('(replaced');
   });
 });
@@ -175,5 +183,158 @@ describe('5. ingesting twice', () => {
     await ingest(c, adr(), claude());
     await ingest(c, adr(), claude());
     expect(storedLinks()).toBe(1);
+  });
+});
+
+const dated = (title: string, text: string, file = 'CLAUDE.md', repo = 'acme/app', branchPath = ''): Item =>
+  ({ source_url: `https://github.com/${repo}/blob/main/${branchPath}${file}#${title.toLowerCase()}`, title, raw_text: text });
+const note = (sentence: string, repo = 'acme/app'): Item => adr(`New endpoints are GraphQL. ${sentence}`, 'ADR 0004: GraphQL for new endpoints', `https://github.com/${repo}/blob/main/docs/adr/0004.md`);
+
+describe('6. rows of another repository are never linked', () => {
+  it.each([
+    ['CLAUDE.md', 'Supersedes the REST rule in CLAUDE.md.'],
+    ['AGENTS.md', 'Supersedes the logging rule in AGENTS.md.'],
+  ])('an acme/app ADR does not link other/svc %s', async (file, sentence) => {
+    const c = client();
+    await ingest(c, note(sentence), dated('Rules', '- REST routes. logging.', file, 'other/svc'));
+    expect(storedLinks()).toBe(0);
+  });
+
+  it('a scoped hook never lists or tags with an ADR from outside its repository', async () => {
+    execFileSync('git', ['init', '-q'], { cwd: dir });
+    execFileSync('git', ['remote', 'add', 'origin', 'https://github.com/acme/app.git'], { cwd: dir });
+    const c = client();
+    // The rules row names no repository (a local file), so it is in scope; the ADR belongs to another repository.
+    const [, rulesId] = await ingest(c, note('Supersedes the REST rule in CLAUDE.md.', 'other/svc'), { source_url: 'file:///work/CLAUDE.md#rules', title: 'Rules', raw_text: '- Use REST routes.' });
+    expect(storedLinks()).toBe(1);
+    const res = await c.checkAlignment('app.get("/users", handler)', undefined, { depth: 'related' });
+    expect(res.relevant_decisions.map((d) => d.id)).toEqual([rulesId]);
+    expect(res.relevant_decisions[0]!.partly_replaced_by).toBeUndefined();
+  });
+});
+
+describe('7. the rule word picks the row, in any case', () => {
+  it.each([
+    ['Supersedes the REST rule in CLAUDE.md.', 'REST routes', 'moment'],
+    ['Supersedes the Jest rule in CLAUDE.md.', 'Jest tests', 'moment'],
+  ])('%s', async (sentence, wanted, other) => {
+    const c = client();
+    // Rows first, the ADR last: arriving after a lone row would let the single-row fallback link it.
+    const [hit, miss] = await ingest(c, dated('Routes', `- Use ${wanted}.`), dated('Dates', `- Use ${other} for dates.`), note(sentence));
+    expect(storedLinks()).toBe(1);
+    expect(await partlyBy(c, hit!, 'use')).toHaveLength(1);
+    expect(await partlyBy(c, miss!, 'use')).toBeUndefined();
+  });
+});
+
+describe('8. a file that gains a row re-resolves the ADRs naming it', () => {
+  it.each([
+    ['Supersedes the REST rule in CLAUDE.md.', '- Use REST routes.'],
+    ['Supersedes the Jest rule in CLAUDE.md.', '- Use Jest for tests.'],
+  ])('%s: the single-row fallback link moves to the row that matches', async (sentence, rule) => {
+    const c = client();
+    const [, a] = await ingest(c, note(sentence), dated('Dates', '- Use moment for dates.'));
+    expect(await partlyBy(c, a!, 'use')).toHaveLength(1); // the fallback: the file's only row
+    const [b] = await ingest(c, dated('Rules', rule));
+    expect(storedLinks()).toBe(1);
+    expect(await partlyBy(c, b!, 'use')).toHaveLength(1);
+    expect(await partlyBy(c, a!, 'use')).toBeUndefined();
+  });
+});
+
+describe('9. only a decision-shaped sentence counts', () => {
+  it.each([
+    'Supersedes nothing, but the logging is done in CLAUDE.md now.',
+    'Supersedes the old plan, see the rule in CLAUDE.md.',
+    'Supersedes the logging in CLAUDE.md.',
+  ])('%s links nothing', async (sentence) => {
+    const c = client();
+    await ingest(c, note(sentence), dated('Rules', '- Use REST routes and logging.'));
+    expect(storedLinks()).toBe(0);
+  });
+
+  it.each(['Supersedes the GraphQL convention in CLAUDE.md.', 'Supersedes the endpoint policy in CLAUDE.md.'])('%s links the only row', async (sentence) => {
+    const c = client();
+    await ingest(c, note(sentence), dated('Rules', '- Use REST routes.'));
+    expect(storedLinks()).toBe(1);
+  });
+});
+
+describe('10. a markdown link or a dotted rule name', () => {
+  it.each([
+    ['Supersedes the REST rule in [CLAUDE.md](../CLAUDE.md).', 'CLAUDE.md'],
+    ['Supersedes the logging rule in [the agents file](docs/AGENTS.md).', 'docs/AGENTS.md'],
+  ])('%s', async (sentence, file) => {
+    const c = client();
+    const [, row] = await ingest(c, note(sentence), dated('Rules', '- REST routes. logging.', file.split('/').pop()!, 'acme/app', file.includes('/') ? 'docs/' : ''));
+    expect(storedLinks()).toBe(1);
+    expect(await partlyBy(c, row!, 'use')).toHaveLength(1);
+  });
+
+  it.each([
+    ['Supersedes the Node.js rule in CLAUDE.md.', 'Use Node 18.', 'Use moment.'],
+    ['Supersedes the Express.js rule in CLAUDE.md.', 'Use express handlers.', 'Use moment.'],
+  ])('%s picks the row with the word', async (sentence, wanted, other) => {
+    const c = client();
+    const [, hit, miss] = await ingest(c, note(sentence), dated('A', wanted), dated('B', other));
+    expect(await partlyBy(c, hit!, 'use')).toHaveLength(1);
+    expect(await partlyBy(c, miss!, 'use')).toBeUndefined();
+  });
+});
+
+describe('11. a file name matches a whole path segment', () => {
+  it('docs/OLD-CLAUDE.md is not CLAUDE.md', async () => {
+    const c = client();
+    await ingest(c, note('Supersedes the REST rule in CLAUDE.md.'), dated('Rules', '- Use REST routes.', 'OLD-CLAUDE.md', 'acme/app', 'docs/'));
+    expect(storedLinks()).toBe(0);
+  });
+
+  it('a vendored copy is taken only when the rule word picks it', async () => {
+    const c = client();
+    const [, top, vendored] = await ingest(c, note('Supersedes the REST rule in CLAUDE.md.'), dated('Dates', '- Use moment.'), dated('Vendor', '- Use REST routes.', 'CLAUDE.md', 'acme/app', 'vendor/'));
+    expect(await partlyBy(c, vendored!, 'use')).toHaveLength(1);
+    expect(await partlyBy(c, top!, 'use')).toBeUndefined();
+  });
+});
+
+describe('12. the listed ADR passes the same filters as any row', () => {
+  it('a superseded ADR is not appended, and the old row is still tagged', async () => {
+    const c = client({ judgeId: 'me' });
+    const [adrId, rowId, newer] = await ingest(c, adr(), claude(), { source_url: 'https://github.com/acme/app/blob/main/docs/adr/0009.md', title: 'ADR 0009', raw_text: 'Supersedes nothing at all here.' });
+    applyJudgement({ dbPath, judge: { judgeId: 'me', judgeLabel: null }, origin: { via: 'cli' } }, { action: 'replaces', newer: newer!, older: adrId! });
+    const res = await c.checkAlignment('app.get("/users", handler)', undefined, { depth: 'related' });
+    expect(res.relevant_decisions.map((d) => d.id)).toEqual([rowId]);
+    expect(res.relevant_decisions[0]!.partly_replaced_by).toHaveLength(1);
+  });
+
+  it('a decision marked not-a-decision is not appended, and the old row is still tagged', async () => {
+    const c = client({ judgeId: 'me' });
+    const [adrId, rowId] = await ingest(c, adr(), claude());
+    applyJudgement({ dbPath, judge: { judgeId: 'me', judgeLabel: null }, origin: { via: 'cli' } }, { action: 'not-a-decision', id: adrId! });
+    const res = await c.checkAlignment('app.get("/users", handler)', undefined, { depth: 'related' });
+    expect(res.relevant_decisions.map((d) => d.id)).toEqual([rowId]);
+    expect(res.relevant_decisions[0]!.partly_replaced_by).toHaveLength(1);
+  });
+});
+
+describe('13. ingest does not rescan the docs rows when nothing says "supersede"', () => {
+  const scans = (spy: { mock: { calls: unknown[][] } }) => spy.mock.calls.filter((a) => String(a[0]).includes("source_url IS NOT NULL")).length;
+
+  it('five plain rows trigger no docs scan', async () => {
+    const c = client();
+    const spy = vi.spyOn(DatabaseSync.prototype, 'prepare');
+    await ingest(c, ...[1, 2, 3, 4, 5].map((n) => dated(`Row${n}`, `- Rule number ${n}.`)));
+    const n = scans(spy);
+    spy.mockRestore();
+    expect(n).toBe(0);
+  });
+
+  it('control: a row with the sentence does scan', async () => {
+    const c = client();
+    const spy = vi.spyOn(DatabaseSync.prototype, 'prepare');
+    await ingest(c, note('Supersedes the REST rule in CLAUDE.md.'));
+    const n = scans(spy);
+    spy.mockRestore();
+    expect(n).toBeGreaterThan(0);
   });
 });
