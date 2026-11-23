@@ -434,7 +434,8 @@ export async function recordFunnelStage(
     // than a person choosing to do something, which is what every funnel stage means. Guarded
     // HERE for the same reason first_useful_decision's once-check is: one enforcement point
     // rather than one per call site.
-    if (inHookContext()) return false;
+    // The one exception is `agent_active`: a hook run IS the agent use it counts, and it sends at most once a UTC day.
+    if (inHookContext() && stage !== 'agent_active') return false;
 
     // L7: the sync measurement is built and checked before anything else, so a ping the gateway
     // would 400 is never counted as sent. Local only: the endpoint that knows this stage is the
@@ -450,7 +451,6 @@ export async function recordFunnelStage(
     const config = createConfigStore();
     if (ONCE_PER_INSTALL_STAGES.has(stage) && config.wasFunnelStageRecorded(stage)) return false;
     const today = new Date().toISOString().slice(0, 10);
-    if (stage === 'agent_active' && config.getAgentActiveDay() === today) return false;
 
     // Whether this call CAN send, checked before the once-mark (Copilot on #215):
     // marking an unsendable call permanently burned the stage for exactly the opt-in
@@ -466,7 +466,10 @@ export async function recordFunnelStage(
     if (ONCE_PER_INSTALL_STAGES.has(stage)) config.markFunnelStageRecorded(stage);
     // Marked before the send, for the same reason: a lost ping undercounts one day, where marking
     // after would re-send on every tool call from a machine that cannot reach the gateway.
-    if (stage === 'agent_active') config.setAgentActiveDay(today);
+    // `agent_active` is claimed with an atomic per-day marker (config.claimAgentActiveDay), because a hook is a
+    // new process per edit and N parallel ones must send one beacon between them. The claim is released
+    // below when the send is not delivered, so a cold DNS or TLS abort at the hook's cap does not burn the day.
+    if (stage === 'agent_active' && !config.claimAgentActiveDay(today)) return false;
 
     const commandPath = commandPathOf(command);
 
@@ -484,6 +487,12 @@ export async function recordFunnelStage(
         : measurement && 'agent' in measurement && stage === 'agent_launched'
           ? { agent: measurement.agent }
           : {});
+
+    if (isLocal && stage === 'agent_active') {
+      const outcome = await postAnonymousDetailed({ installId: config.getInstallId(), command: commandPath, cliVersion: pkg.version, stage }, opts.capMs);
+      if (outcome !== 'delivered') config.releaseAgentActiveDay(today);
+      return true;
+    }
 
     if (isLocal) {
       await postAnonymous({
@@ -535,6 +544,10 @@ export function localTierAllows(
   noticeShown: boolean,
 ): boolean {
   if (storedAnswerForbidsSending(consent)) return false;
+  // `agent_active` is the daily count of agent use. An install used only through its agent (hooks,
+  // `align mcp`) never prints the notice, so waiting for it would hide exactly those installs. Like
+  // the install beacon it needs no notice; every opt-out above and in the callers has already returned.
+  if (stage === 'agent_active') return true;
   return consent === 'granted' || noticeShown;
 }
 
@@ -549,6 +562,16 @@ function noticeShownOn(config: { getTelemetryNoticeShownAt(): string | undefined
 export async function postAnonymous(payload: Record<string, string | number | boolean>, capMs?: number): Promise<void> {
   const target = process.env['ALIGN_GATEWAY_URL'] || ALIGN_HOSTED_GATEWAY_URL;
   await postWithTimeout(`${target}/telemetry/anonymous`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }, capMs);
+}
+
+/** postAnonymous, saying what happened to the request (see postDelivered). Never throws. */
+export async function postAnonymousDetailed(payload: Record<string, string | number | boolean>, capMs: number = TELEMETRY_TIMEOUT_MS): Promise<DeliveryOutcome> {
+  const target = process.env['ALIGN_GATEWAY_URL'] || ALIGN_HOSTED_GATEWAY_URL;
+  return postDelivered(`${target}/telemetry/anonymous`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),

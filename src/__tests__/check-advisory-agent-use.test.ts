@@ -9,6 +9,8 @@ import type * as AdvisoryVerdictModule from '../lib/advisory-verdict.js';
 const mockCheckAlignment = vi.fn();
 const mockRecordAgentUse = vi.hoisted(() => vi.fn().mockResolvedValue(true));
 vi.mock('../lib/agent-use-telemetry.js', () => ({ recordAgentUse: mockRecordAgentUse }));
+const mockRecordFunnelStage = vi.hoisted(() => vi.fn().mockResolvedValue(true));
+vi.mock('../lib/usage-telemetry.js', () => ({ recordFunnelStage: mockRecordFunnelStage }));
 let mockEnvName = 'prod';
 
 vi.mock('../lib/config.js', () => ({
@@ -181,5 +183,49 @@ describe('the advisory hook counts its use', () => {
     exitSpy.mockRestore();
     writeSpy.mockRestore();
     expect(exits.at(-1)).toBe(0);
+  });
+});
+
+/**
+ * The daily "active today" beacon: one `agent_active` offer per real check, attributed to the hook
+ * (command `check`), under the same short cap. recordFunnelStage keeps it to once a UTC day and
+ * applies every opt-out; this file only pins that the hook offers it and that it cannot change the hook.
+ */
+describe('the advisory hook offers the daily agent_active beacon', () => {
+  it('a real check offers agent_active once, as check, under the hook cap', async () => {
+    gateway(() => Promise.resolve({ status: 'aligned', relevant_decisions: RELATED.relevant_decisions, conflicts: [] }));
+    await runCheck(['--advisory']);
+    const active = mockRecordFunnelStage.mock.calls.filter((c) => c[1] === 'agent_active');
+    expect(active).toHaveLength(1);
+    expect(active[0]!.slice(1)).toEqual(['agent_active', 'check', undefined, { capMs: 400 }]);
+  });
+
+  it('an edit with no text is not a check: nothing offered', async () => {
+    mockReadHookPayload.mockResolvedValue({ hook_event_name: 'PreToolUse', tool_name: 'Write', tool_input: { file_path: FILE, content: '' } });
+    gateway(() => Promise.resolve(null));
+    await runCheck(['--advisory']);
+    expect(mockRecordFunnelStage).not.toHaveBeenCalled();
+  });
+
+  it('a beacon that throws or hangs-then-rejects changes neither the exit code nor the output', async () => {
+    gateway(() => Promise.resolve({ status: 'aligned', relevant_decisions: RELATED.relevant_decisions, conflicts: [] }));
+    const run = async (): Promise<{ exits: Array<number | undefined>; out: string }> => {
+      const exits: Array<number | undefined> = [];
+      let out = '';
+      const exitSpy = vi.spyOn(process, 'exit').mockImplementation((code?: number) => { exits.push(code); throw new Error('exit'); });
+      const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation((c: unknown) => { out += String(c); return true; });
+      const program = new Command();
+      registerCheckCommand(program);
+      await program.parseAsync(['node', 'align', 'check', '--advisory']).catch(() => undefined);
+      exitSpy.mockRestore();
+      writeSpy.mockRestore();
+      return { exits, out };
+    };
+    const healthy = await run();
+    mockRecordFunnelStage.mockRejectedValueOnce(new Error('beacon exploded'));
+    const broken = await run();
+    expect(broken.exits).toEqual(healthy.exits);
+    expect(broken.out).toBe(healthy.out);
+    expect(broken.exits.at(-1)).toBe(0);
   });
 });

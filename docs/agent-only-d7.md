@@ -5,6 +5,7 @@
 - **Counted before this change:** an agent that starts a new `align mcp` server each day. The server's start sends one `cli.command` with command `mcp`, so each such day shows up (run A).
 - **Not counted before this change:** an agent that keeps one server running for days. It sent one ping on the day the server started and nothing after, so day 7 read as no use (run B, "before").
 - **Not counted, by design:** an install where nobody ever saw the telemetry notice. The notice needs a terminal, and `align mcp` never shows it, so nothing sends (run C).
+  - **Changed 23 Nov 2026:** `agent_active` no longer waits for the notice, and the edit-check hook sends it too (command `check`). Run C now sends the install count on day 0 and one `agent_active` a day, and nothing else. The run C table below is the earlier record, kept as it was.
 - **Added:** `cli.funnel.agent_active`. At most one a day per install, from the first successful MCP tool call that day, local mode only. Fields: install id, CLI version, command `mcp`, stage. No tool name, no count, no agent name (`src/__tests__/agent-only-d7-e2e.test.ts` run E checks the exact key set).
 
 The ticket's guess that "hooks, doctor, local and background sync send none" is right, and
