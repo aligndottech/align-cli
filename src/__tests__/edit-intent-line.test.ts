@@ -60,8 +60,8 @@ describe('intentLine: tokens come only from the edit and its path', () => {
 
   it('takes path words from the directory and the file name', () => {
     const out = words(intentLine({ filePath: 'crates/harness-core/src/llm_client.rs', text: 'settle invoice ledger' }));
-    // only the last three path segments count, so an absolute prefix never leaks in
-    expect(out).toEqual(['harness', 'core', 'src', 'llm', 'client', 'settle', 'invoice', 'ledger']);
+    // only the last two path segments count, so an absolute prefix never leaks in
+    expect(out).toEqual(['src', 'llm', 'client', 'settle', 'invoice', 'ledger']);
   });
 });
 
@@ -203,3 +203,72 @@ describe('privacy, garbage and thin lines', () => {
   });
 });
 
+
+describe('review fixes: non-source names are exact, blobs have a real shape, words survive', () => {
+  const prose = 'check the seat limit for each tenant';
+
+  it.each(['src/license.ts', 'src/license-gate.ts', 'src/changelog.service.ts', 'lib/changelog.ts'])('still builds a line for source file %s', (p) => {
+    expect(intentLine({ filePath: p, text: prose })).not.toBe('');
+  });
+  it.each(['CHANGELOG.txt', 'LICENSE.md', 'LICENSE-APACHE', 'LICENCE'])('is empty for %s', (p) => {
+    expect(intentLine({ filePath: p, text: prose })).toBe('');
+  });
+
+  it('keeps import paths that carry oauth2, s3, v2 and sha256', () => {
+    const a = words(intentLine({ filePath: 'src/a.ts', text: "import { x } from '../../services/oauth2/handlers/refresh';" }));
+    expect(a).toEqual(expect.arrayContaining(['services', 'oauth', 'handlers', 'refresh']));
+    const b = words(intentLine({ filePath: 'src/a.ts', text: "import z from '@aws/s3/v2/sha256/hasher';" }));
+    expect(b).toEqual(expect.arrayContaining(['aws', 'sha', 'hasher']));
+  });
+
+  it('keeps the words of a long SCREAMING_SNAKE constant', () => {
+    const out = words(intentLine({ filePath: 'src/a.ts', text: 'const MAX_RETRY_ATTEMPTS_V2_LIMIT_FOR_OAUTH2 = 5;' }));
+    expect(out).toEqual(expect.arrayContaining(['max', 'retry', 'attempts', 'limit', 'oauth']));
+  });
+
+  it('still builds no line from a base64 blob with plus and equals signs', () => {
+    expect(intentLine({ filePath: 'src/a.ts', text: 'k = "aGVsbG8rd29ybGQ9dGhpcytpcythbm90aGVyK2Jsb2I9QmFzZTY0Kw=="' })).toBe('');
+  });
+
+  it('counts the edit words even when the path carries the same words', () => {
+    expect(intentLine({ filePath: 'src/store/mysql/pool.ts', text: 'mysql pool connect' })).toBe('mysql pool connect');
+  });
+
+  it.each(['downstream', 'strengths', 'lengths', 'catchphrase', 'dbschema', 'httpclient'])('keeps the real word %s', (w) => {
+    expect(words(intentLine({ filePath: 'src/a.ts', text: `settle invoice ${w}` }))).toContain(w);
+  });
+  it('still rejects a run of seven consonants', () => {
+    expect(words(intentLine({ filePath: 'src/a.ts', text: 'settle invoice ledger qzvbnmk' }))).not.toContain('qzvbnmk');
+  });
+
+  it('keeps accented words whole', () => {
+    const out = words(intentLine({ filePath: 'src/a.ts', text: 'café résumé über naïve' }));
+    expect(out).toEqual(expect.arrayContaining(['café', 'résumé', 'über', 'naïve']));
+  });
+  it('splits camelCase around an accented letter', () => {
+    expect(words(intentLine({ filePath: 'src/a.ts', text: 'getÜberCafé settle invoice' }))).toEqual(expect.arrayContaining(['get', 'über', 'café']));
+  });
+  it('gives no line for an edit written only in CJK, and ignores CJK runs beside Latin words', () => {
+    expect(intentLine({ filePath: 'src/a.ts', text: '数据库连接池 切换 驱动 数据库 迁移' })).toBe('');
+    const mixed = words(intentLine({ filePath: 'src/a.ts', text: '数据库连接池 切换 到 mongodb 驱动 settle invoice' }));
+    expect(mixed).toEqual(['src', 'mongodb', 'settle', 'invoice']);
+  });
+});
+
+describe('review fixes: path privacy', () => {
+  const text = 'settle invoice ledger';
+  it('keeps the home user out when the file sits directly under the project', () => {
+    expect(words(intentLine({ filePath: '/home/thomas/proj/x.ts', text }))).not.toContain('thomas');
+    expect(words(intentLine({ filePath: '/home/thomas/pay.ts', text }))).toEqual(['pay', 'settle', 'invoice', 'ledger']);
+  });
+  it('keeps the user and the drive out of a Windows path', () => {
+    const out = words(intentLine({ filePath: 'C:\\Users\\tom\\proj\\src\\db.ts', text }));
+    expect(out).toEqual(['src', 'settle', 'invoice', 'ledger']);
+  });
+  it('keeps a macOS user out', () => {
+    expect(words(intentLine({ filePath: '/Users/tom/payroll.ts', text }))).toEqual(['payroll', 'settle', 'invoice', 'ledger']);
+  });
+  it('keeps a hyphenated repo name out', () => {
+    expect(words(intentLine({ filePath: '/home/thomas/acme-billing-core/src/pay.rs', text }))).toEqual(['src', 'pay', 'settle', 'invoice', 'ledger']);
+  });
+});

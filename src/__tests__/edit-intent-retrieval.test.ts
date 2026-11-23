@@ -163,15 +163,17 @@ describe('the edit hook retrieves with a second query built from the edit', () =
     expect(got).not.toContain(ids['adr-no-llm-in-gate']);
   });
 
-  it('falls back to the first query when the second embedding is slow, inside the 2500 ms cap', async () => {
+  it('measures the second query\'s budget from the start of the check, not from when it begins', async () => {
     const line = intentLine({ filePath: PATH, text: CODE });
     vi.mocked(getEmbedding).mockImplementation(async (t: string) => {
+      // the first embed eats 1500 ms of the 2000 ms total, so the slow second one may wait about 500 ms more
+      if (t === CODE) await new Promise((r) => setTimeout(r, 1500));
       if (t === line) await new Promise((r) => setTimeout(r, 6000));
       return vectors.get(t) ?? new Float32Array(DIM);
     });
     const t0 = Date.now();
     const got = retrieved(await hook(PATH, CODE));
-    expect(Date.now() - t0).toBeLessThan(2500);
+    expect(Date.now() - t0).toBeLessThan(2100);
     expect(got).toContain(ids['code-near']);
   }, 10000);
 });
