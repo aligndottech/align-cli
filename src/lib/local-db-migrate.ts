@@ -14,6 +14,7 @@ import { migrateV11 } from './local-db-v11.js';
 import { hasDetectorVersion, migrateV12 } from './local-db-v12.js';
 import { hasCoChangeTable, migrateCoChange } from './local-db-cochange.js';
 import { deleteIdentities, hasIdentityTable, migrateRefLinks } from './local-ref-links.js';
+import { hasPartialSupersessionTable, migratePartialSupersessions, relinkNamersOfFile } from './local-partial-supersession.js';
 
 export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS decisions (
@@ -174,7 +175,10 @@ export function deleteDecisionWithDependents(db: DatabaseSync, id: string): void
   db.prepare('DELETE FROM decision_audit WHERE decision_id = ?').run(id);
   // Absent in a graph still on its way through migrate() (the v4 tombstone step calls this).
   try { db.prepare('DELETE FROM co_change_rules WHERE decision_id = ?').run(id); } catch { /* no table yet */ }
+  try { db.prepare('DELETE FROM decision_partial_supersessions WHERE source_id = ? OR target_id = ?').run(id, id); } catch { /* no table yet */ }
+  const goneUrl = (db.prepare('SELECT source_url AS u FROM decisions WHERE id = ?').get(id) as { u: string | null } | undefined)?.u ?? null;
   db.prepare('DELETE FROM decisions WHERE id = ?').run(id);
+  try { relinkNamersOfFile(db, goneUrl); } catch { /* no table yet */ }
   // The lexical index (lexical-store.ts) holds terms derived from this decision's text. Its tables exist
   // only after a first search, so their absence is normal.
   try {
@@ -542,6 +546,8 @@ export function migrate(db: DatabaseSync): void {
       throw err;
     }
   }
+  // Additive: decision_partial_supersessions. See local-partial-supersession.ts.
+  if (!hasPartialSupersessionTable(db)) migratePartialSupersessions(db);
   // Additive: `scope_unit`, the part of a connector a row came from (jira:ALI). Nullable with no default, and an older CLI never
   // reads or writes it, so a row it stores has none and stays visible everywhere, which is the fail direction. See scope-unit.ts.
   // The purge and merge backups mirror `decisions` column for column (backup-copy.ts), so they take it too, appended in the same order.

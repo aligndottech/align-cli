@@ -534,6 +534,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       if (stored !== null) {
         db.replaceRefs(existingId, refs);
         db.resolveRefs(existingId, refIdentityFor(platform, sourceUrl), refs);
+        db.linkPartialSupersessions(existingId);
         const related = step === 'relink' ? await linkPass(db, rankerFor(session), existingId, stored, title, summary, opts.classify) : [];
         if (step === 'relink') db.markEnriched(existingId);
         return { id: existingId, title, summary, sourceUrl, platform, related, created: false, changed: false, redacted };
@@ -554,6 +555,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     // link now that the cited item has arrived. Harmless no-op for platforms with no
     // citable identity (refIdentityFor returns [] for a plain git/slack/cli capture).
     db.resolveRefs(id, refIdentityFor(platform, sourceUrl), refs);
+    db.linkPartialSupersessions(id);
     const epochBefore = db.rowSetEpoch();
     db.setEmbedding(id, embedding, EMBEDDING_MODEL_ID);
     // This run's own write: the matrix learns it by append, so the bump setEmbedding makes when
@@ -955,10 +957,21 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
         return later.length ? { later_on_topic: later } : {};
       };
       if (opts.depth === 'related') {
+        // A decision that replaces ONE rule in a retrieved row (an ADR saying "Supersedes the REST rule in
+        // CLAUDE.md") is named on that row and listed beside it even when retrieval did not return it, so
+        // the old rule is never shown alone. Added past the retrieval cap of 5, at most one per such row.
+        const shown = new Set(candidates.map(c => c.id));
+        // Visible under this check's own scope (repo and connector unit), like any row it returns; a tag never names
+        // a decision the search could not show, nor one marked not-a-decision or itself replaced. The newest decision
+        // left after those filters is the one named and listed; none left means no tag.
+        const inScope = (r: NonNullable<ReturnType<typeof db.getDecisionById>>) => unitVisible(r.scopeUnit, dbFilter.scopeRestrict)
+          && (dbFilter.repo === undefined || r.repo === dbFilter.repo || (r.repo === null && !!dbFilter.includeUnattributed));
+        const partial = new Map(candidates.map(c => [c.id, db.partialSupersessors(c.id).filter(r => inScope(r) && !hidden.has(r.id) && !db.isSuperseded(r.id)).slice(0, 1)] as const));
+        const replacers = [...partial.values()].flat().filter(r => !shown.has(r.id) && shown.add(r.id));
         return {
           status: 'retrieved',
           confidence: Math.max(...candidates.map(c => c.score)),
-          relevant_decisions: candidates.map(c => ({
+          relevant_decisions: [...candidates.map(c => ({
             id: c.id,
             title: c.title,
             summary: c.summary,
@@ -967,7 +980,10 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
             ...datesOf(c),
             ...provenanceOf(c),
             ...laterOf(c.id),
-          })),
+            ...(partial.get(c.id)!.length ? { partly_replaced_by: partial.get(c.id)!.map(r => ({ id: r.id, title: r.title })) } : {}),
+          })), ...replacers.map(r => ({
+            id: r.id, title: r.title, summary: r.summary, similarity: 0, url: r.sourceUrl ?? undefined, ...datesOf(r), ...provenanceOf(r),
+          }))],
           conflicts: [],
           ...(retrieved.notes.length ? { notes: [...bannerFor(retrieved.agentApplied), ...retrieved.notes] } : {}),
           message: `Found ${candidates.length} related decision(s) - retrieval only, not adjudicated.`,

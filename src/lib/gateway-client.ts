@@ -297,6 +297,8 @@ export interface AlignmentResult {
     decider_kind?: 'human' | 'agent' | 'unknown'; ratified?: boolean; ratified_at?: string | null; ratified_by?: string | null;
     /** LM, local only: a decision a person marked as replaced, with the one that replaces it. */
     status?: 'superseded'; successor?: { id: string; title: string; source_url?: string; relation: string };
+    /** Local only: decisions that replace ONE rule in this row (not the whole row, which is why `status` stays unset). */
+    partly_replaced_by?: Array<{ id: string; title: string }>;
   }>;
   conflicts?: Array<{
     decision_id: string;
