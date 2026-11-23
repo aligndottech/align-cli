@@ -17,6 +17,7 @@ import { localCitationFor } from './commit-cite.js';
 import { navigableSourceUrl } from './decision-links.js';
 import { type ContextDecision, renderDecisionsFile } from './decisions-context.js';
 import { createLocalGatewayClient } from './local-gateway-client.js';
+import { isCutTitle, isDependencyBumpSubject } from './commit-shape.js';
 import { extractReason } from './reason-extract.js';
 import { resolveEnv } from './resolve-env.js';
 
@@ -29,6 +30,7 @@ export interface ListedDecision {
   decider_kind?: string | null;
   ratified_by?: string | null;
   ratified_at?: string | null;
+  decided_at?: string | null;
 }
 
 /** One listed decision as the decisions file renders it. Shared with `align context sync`, so the two cannot drift. */
@@ -44,6 +46,7 @@ export function contextDecisionOf(d: ListedDecision): ContextDecision {
     ...(d.decider_kind ? { deciderKind: d.decider_kind } : {}),
     ...(d.ratified_by ? { ratifiedBy: d.ratified_by } : {}),
     ...(d.ratified_at ? { ratifiedAt: d.ratified_at } : {}),
+    ...(d.decided_at ? { decidedAt: d.decided_at } : {}),
   };
 }
 
@@ -104,8 +107,23 @@ export function decisionShapedRows(rows: ListedDecision[]): ListedDecision[] {
     if (!CODE_PLATFORMS.has(r.platform ?? '')) return true;
     // A feat: prefix is dropped first, so "feat: fix retry policy" is judged as the fix it is.
     const title = r.title.replace(FEAT_PREFIX, '');
-    return !FIX_SHAPED.test(title) && DECISION_SHAPED.test(title);
+    return !FIX_SHAPED.test(title) && !isDependencyBumpSubject(title) && DECISION_SHAPED.test(title);
   });
+}
+
+/** The graph keeps only the first 80 characters of a title, so a long commit subject arrives cut mid-word. Its summary starts with the whole subject. */
+const SUBJECT_CAP = 120;
+function wholeTitle(title: string, summary: string | undefined): string {
+  if (!isCutTitle(title)) return title;
+  const first = (summary ?? '').split('\n')[0]!.trim();
+  const recovered = first.startsWith(title);
+  if (recovered && first.length <= SUBJECT_CAP) return first;
+  const whole = recovered ? first : title;
+  const limit = recovered ? SUBJECT_CAP - 3 : title.length;
+  const cut = whole.slice(0, limit);
+  // A word ending exactly at the limit is whole already.
+  const atBoundary = whole.length > limit && /\s/.test(whole[limit]!);
+  return `${atBoundary ? cut : cut.replace(/\s*\S*$/, '')}...`.replace(/[\s,;:]+\.\.\.$/, '...');
 }
 
 export function selectForFile(rows: ListedDecision[], limit: number): { decisions: ContextDecision[]; leftOut: number; selected: ListedDecision[] } {
@@ -116,7 +134,7 @@ export function selectForFile(rows: ListedDecision[], limit: number): { decision
   const kept = [...keptRules.map((r) => ({ ...contextDecisionOf(r), kind: 'rule' as const })),
     ...keptChoices.map((r) => {
       const reason = extractReason(r.title, r.summary ?? '');
-      return { ...contextDecisionOf({ ...r, title: r.title.replace(FEAT_PREFIX, '') }), kind: 'decision' as const, ...(reason ? { reason } : {}) };
+      return { ...contextDecisionOf({ ...r, title: wholeTitle(r.title.replace(FEAT_PREFIX, ''), r.summary) }), kind: 'decision' as const, ...(reason ? { reason } : {}) };
     })];
   // The source rows of what is written, so a caller can judge those and not the ones left out.
   return { decisions: kept, leftOut: rows.length - kept.length, selected: [...keptRules, ...keptChoices] };

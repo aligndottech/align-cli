@@ -52,6 +52,16 @@ export function isReleaseOrBumpSubject(subject: string): boolean {
   return VERSION_ONLY.test(body) || BARE_BUMP_OR_RELEASE.test(body) || DEPENDENCY_MOVE.test(body);
 }
 
+// The dependency-bump family a commit log is full of. "Replace dependency a with b" is a manifest edit, not a choice, unlike
+// "Replace Redis with Valkey". Lead-in only, so prose that merely mentions a dependency is untouched.
+const DEPENDENCY_BUMP_LEAD = /^(?:(?:update|replace)\s+dependenc(?:y|ies)\b|bump\w*\s|chore\(deps(?:-dev)?\)|upgrad\w*\s+.+\sto\s+(?:version\s+)?v?\d+\.\d)/i;
+
+/** A subject that moves, replaces or upgrades a dependency and says nothing more. Used where subjects are accepted as decisions. */
+export function isDependencyBumpSubject(subject: string): boolean {
+  const body = subject.trim().replace(/^\(#\d+\)\s*/, '');
+  return DEPENDENCY_BUMP_LEAD.test(body) && !STATED_WHY.test(body);
+}
+
 /**
  * Subjects that read as housekeeping, not as a choice. Conventional `type:` / `type(scope):` shapes
  * only, so prose like "document the retry policy" is not demoted; git's own Merge subjects (not
