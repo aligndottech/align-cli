@@ -761,6 +761,8 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
       opts: {
         depth?: CheckDepth;
         title?: string;
+        /** Local retrieval only: a second query for the edit hook. The cloud gateway never receives it. */
+        intent?: string;
         /**
          * Who is running the check ('github-actions' from the align-check action)
          * and what it is checking ('github:acme/repo#12', the PR HEAD sha). Sent as a

@@ -172,7 +172,7 @@ describe('the hook asks for a verdict', () => {
   it('follows a non-empty retrieval with a depth "full" request for the same text and file path', async () => {
     await runCheck(['--advisory']);
 
-    expect(mockCheckAlignment).toHaveBeenNthCalledWith(1, PROPOSED, FILE, { depth: 'related' });
+    expect(mockCheckAlignment).toHaveBeenNthCalledWith(1, PROPOSED, FILE, { depth: 'related', intent: 'src main store mysql' });
     expect(mockCheckAlignment).toHaveBeenNthCalledWith(2, PROPOSED, FILE, { depth: 'full' });
   });
 });
