@@ -6,6 +6,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Command } from 'commander';
 import { registerCheckCommand } from '../commands/check.js';
+import type * as SecretPrecheck from '../lib/secret-precheck.js';
 
 const mockCheckAlignment = vi.fn();
 const mockGetStarterRules = vi.fn();
@@ -33,7 +34,7 @@ vi.mock('../lib/gateway-client.js', () => ({
 }));
 vi.mock('../lib/advisory-dedup.js', () => ({ dedupScope: (cwd: string) => cwd, recentlySurfaced: vi.fn(() => new Set<string>()), markSurfaced: vi.fn() }));
 vi.mock('../lib/secret-precheck.js', async (orig) => {
-  const real = await orig<typeof import('../lib/secret-precheck.js')>();
+  const real = await orig<typeof SecretPrecheck>();
   return { ...real, secretHitsInDiff: (d: string) => { if (scanThrows) throw new Error('boom'); return real.secretHitsInDiff(d); } };
 });
 
