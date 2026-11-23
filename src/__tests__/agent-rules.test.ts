@@ -240,9 +240,9 @@ describe('writeAgentsNudge', () => {
 });
 
 describe('writeCursorRule', () => {
-  it('writes .cursor/rules/align.md mentioning the decision graph', () => {
+  it('writes .cursor/rules/align.mdc mentioning the decision graph', () => {
     writeCursorRule(dir);
-    const rule = readFileSync(join(dir, '.cursor', 'rules', 'align.md'), 'utf8');
+    const rule = readFileSync(join(dir, '.cursor', 'rules', 'align.mdc'), 'utf8');
     expect(rule.toLowerCase()).toContain('align');
     expect(rule.toLowerCase()).toContain('decision');
   });
@@ -308,9 +308,9 @@ describe('setupAgentAlignment', () => {
     expect(existsSync(join(dir, '.claude', 'settings.json'))).toBe(true);
     expect(existsSync(join(dir, 'CLAUDE.md'))).toBe(true);
     expect(existsSync(join(dir, 'AGENTS.md'))).toBe(true);
-    expect(existsSync(join(dir, '.cursor', 'rules', 'align.md'))).toBe(true);
+    expect(existsSync(join(dir, '.cursor', 'rules', 'align.mdc'))).toBe(true);
     expect(written).toEqual(
-      expect.arrayContaining(['.claude/settings.json', 'CLAUDE.md', 'AGENTS.md', '.cursor/rules/align.md']),
+      expect.arrayContaining(['.claude/settings.json', 'CLAUDE.md', 'AGENTS.md', '.cursor/rules/align.mdc']),
     );
   });
 
@@ -369,7 +369,7 @@ describe('the agent tells the user what Align surfaced', () => {
     writeManagedNudge(dir);
     writeAgentsNudge(dir);
     writeCursorRule(dir);
-    for (const f of ['CLAUDE.md', 'AGENTS.md', join('.cursor', 'rules', 'align.md')]) {
+    for (const f of ['CLAUDE.md', 'AGENTS.md', join('.cursor', 'rules', 'align.mdc')]) {
       expect(readFileSync(join(dir, f), 'utf8')).toMatch(SAY);
     }
   });
@@ -388,7 +388,7 @@ describe('the instruction block does not name sources the project may not have',
   it.each([
     ['CLAUDE.md', () => writeManagedNudge(dir)],
     ['AGENTS.md', () => writeAgentsNudge(dir)],
-    ['.cursor/rules/align.md', () => writeCursorRule(dir)],
+    ['.cursor/rules/align.mdc', () => writeCursorRule(dir)],
   ] as const)('%s', (file, write) => {
     expect(write()).toBe(true);
     const text = readFileSync(join(dir, file), 'utf8');

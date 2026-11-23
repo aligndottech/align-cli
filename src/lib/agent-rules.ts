@@ -1,8 +1,9 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, lstatSync, readFileSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { carriesLocalEnv, type OnForeign } from './foreign-env.js';
 import { alignServerEntry, type McpFormat } from './mcp-setup.js';
-import { safeWriteJson, type SafeWriteOptions, safeWriteText } from './safe-config-write.js';
+import { recordedWrite, safeWriteJson, type SafeWriteOptions, safeWriteText } from './safe-config-write.js';
 
 // The deterministic auto-alignment layer. The MCP server already had
 // instructions (model discretion); these project-local, committed files make the
@@ -12,7 +13,7 @@ import { safeWriteJson, type SafeWriteOptions, safeWriteText } from './safe-conf
 //  - CLAUDE.md               managed nudge block (Claude Code)
 //  - AGENTS.md               managed nudge block (the cross-agent standard read by
 //                            Cursor, Windsurf, Codex, Gemini, Zed, and others)
-//  - .cursor/rules/align.md  project rule (Cursor ignores Claude Code hooks)
+//  - .cursor/rules/align.mdc project rule (Cursor ignores Claude Code hooks)
 //
 // The write-path hooks above only ever reach the model if the AGENT edits a
 // file. Nothing delivered the graph's content unprompted - a claim like "the agent
@@ -239,9 +240,33 @@ function cursorRuleBody(): string {
   ].join('\n');
 }
 
+// Cursor loads only .mdc files from .cursor/rules, so the .md name earlier builds wrote never took effect.
+const CURSOR_RULE = '.cursor/rules/align.mdc';
+const LEGACY_CURSOR_RULE = '.cursor/rules/align.md';
+
+// Remove the old .md only when the ledger shows align created it and it still holds exactly what align
+// last wrote. Anything else may be the user's, so it stays and one line says why.
+function retireLegacyCursorRule(cwd: string): void {
+  const file = path.join(cwd, ...LEGACY_CURSOR_RULE.split('/'));
+  let current: string;
+  try {
+    if (lstatSync(file).isSymbolicLink()) return;
+    current = readFileSync(file, 'utf8');
+  } catch {
+    return;
+  }
+  const entry = recordedWrite(file);
+  const note = (why: string) => console.error(`Left alone: ${LEGACY_CURSOR_RULE}: ${why}`);
+  if (!entry) return note('align has no record of writing it. Cursor ignores .md rules; delete it once you have checked it');
+  const unedited = entry.created && !entry.block && !(entry.owned && entry.owned.length > 0) && createHash('sha256').update(current).digest('hex') === entry.sha256;
+  if (!unedited) return note('it was edited or was there before align. Cursor ignores .md rules; delete it once you have checked it');
+  unlinkSync(file);
+}
+
 // Cursor project rule. Fully managed - overwritten each run.
 export function writeCursorRule(cwd: string): boolean {
-  const status = safeWriteText(path.join(cwd, '.cursor', 'rules', 'align.md'), () => cursorRuleBody(), projectWrite(cwd));
+  const status = safeWriteText(path.join(cwd, ...CURSOR_RULE.split('/')), () => cursorRuleBody(), projectWrite(cwd));
+  retireLegacyCursorRule(cwd);
   return status === 'written' || status === 'unchanged';
 }
 
@@ -610,7 +635,7 @@ const ALIGNMENT_WRITES: Array<{ file: string; write: (c: AlignmentWriteCtx) => b
   },
   { file: 'CLAUDE.md', write: (c) => writeManagedNudge(c.cwd) },
   { file: 'AGENTS.md', write: (c) => writeAgentsNudge(c.cwd) },
-  { file: '.cursor/rules/align.md', write: (c) => writeCursorRule(c.cwd) },
+  { file: CURSOR_RULE, write: (c) => writeCursorRule(c.cwd) },
   { file: '.mcp.json', write: (c) => writeProjectMcpConfig(c.cwd, c.projectEnv, c.onForeign) },
   { file: '.pi/mcp.json', write: (c) => writePiProjectMcpConfig(c.cwd, c.projectEnv, c.onForeign) },
   { file: '.pi/extensions/align.ts', write: (c) => writePiExtension(c.cwd, c.projectEnv, c.onForeign) },
@@ -624,7 +649,7 @@ const ALIGNMENT_WRITES: Array<{ file: string; write: (c: AlignmentWriteCtx) => b
  */
 const AGENT_PROJECT_FILES: Record<string, string[]> = {
   'claude-code': ['.claude/settings.json', 'CLAUDE.md', '.mcp.json'],
-  cursor: ['.cursor/rules/align.md', 'AGENTS.md'],
+  cursor: [CURSOR_RULE, 'AGENTS.md'],
   pi: ['.pi/mcp.json', '.pi/extensions/align.ts', 'AGENTS.md'],
   'gemini-cli': ['.gemini/settings.json', 'AGENTS.md'],
   opencode: ['.opencode/plugins/align.js', 'AGENTS.md'],
@@ -675,7 +700,8 @@ const PROJECT_FILE_TELLS: Array<[string, string[]]> = [
   ['.claude/settings.json', ['align check --advisory', SESSION_INJECT_COMMAND]],
   ['CLAUDE.md', [ALIGN_NUDGE_START]],
   ['AGENTS.md', [ALIGN_NUDGE_START]],
-  ['.cursor/rules/align.md', ['Align decision graph']],
+  [CURSOR_RULE, ['Align decision graph']],
+  [LEGACY_CURSOR_RULE, ['Align decision graph']],
   ['.mcp.json', ['"align"']],
   ['.pi/mcp.json', ['"align"']],
   ['.pi/extensions/align.ts', ['align check --advisory']],

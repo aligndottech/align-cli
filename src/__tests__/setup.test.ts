@@ -242,7 +242,7 @@ vi.mock('../lib/mcp-setup.js', async (importOriginal) => ({
 }));
 
 const mockSetupAgentAlignment = vi.hoisted(() =>
-  vi.fn().mockReturnValue(['.claude/settings.json', 'CLAUDE.md', '.cursor/rules/align.md']),
+  vi.fn().mockReturnValue(['.claude/settings.json', 'CLAUDE.md', '.cursor/rules/align.mdc']),
 );
 // Spread the real module for the same reason: setup also reads planAgentAlignment for the pre-write file list.
 vi.mock('../lib/agent-rules.js', async (importOriginal) => ({
@@ -2387,7 +2387,7 @@ describe('align setup', () => {
     // eslint-disable-next-line no-control-regex
     const ANSI = /\x1b\[[0-9;]*m/g;
     const CURSOR = { name: 'Cursor', configPath: '/h/.cursor/mcp.json', format: 'mcpServers' as const };
-    const WITH_PROJECT_MCP = ['.claude/settings.json', 'CLAUDE.md', 'AGENTS.md', '.cursor/rules/align.md', '.mcp.json'];
+    const WITH_PROJECT_MCP = ['.claude/settings.json', 'CLAUDE.md', 'AGENTS.md', '.cursor/rules/align.mdc', '.mcp.json'];
 
     async function outroTail(n: number): Promise<string> {
       const { outro } = await import('@clack/prompts');

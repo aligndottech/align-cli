@@ -183,6 +183,11 @@ export function setWriteRecorder(record: ((file: string, entry: WrittenConfig) =
   lookup = get;
 }
 
+/** What the ledger holds for one file, or undefined when align has no record of writing it. */
+export function recordedWrite(file: string): WrittenConfig | undefined {
+  return lookup?.(file);
+}
+
 export interface SafeWriteOptions {
   /** One line to the user, stderr. Defaults to console.error. */
   note?: (line: string) => void;
