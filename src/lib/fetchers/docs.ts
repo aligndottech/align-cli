@@ -3,7 +3,7 @@ import path from 'node:path';
 import { buildBlobUrl, getCurrentBranch, getRemoteUrl } from '../git.js';
 import { adrDecisionDate, GIT_CONCURRENCY, isShallowRepo, mapLimit } from './adr-date.js';
 import { ALIGN_NUDGE_END, ALIGN_NUDGE_START } from '../agent-rules.js';
-import { ALIGN_IMPORT_LINE } from '../decisions-context.js';
+import { ALIGN_IMPORT_LINE, isGeneratedDecisionsFile } from '../decisions-context.js';
 import type { PersonalImportItem } from '../personal-import.js';
 import type { CaptureFetchResult } from './capture.js';
 import type { CoChangeRule } from '../co-change-rule.js';
@@ -112,6 +112,8 @@ async function readAdrFiles(repoRoot: string): Promise<Array<{ relPath: string; 
       if (!entry.isFile() || !/\.(mdx?|adoc|asciidoc)$/i.test(entry.name)) continue;
       const relPath = `${dir}/${entry.name}`;
       const content = await readFile(path.join(repoRoot, dir, entry.name), 'utf8');
+      // `--out docs/decisions/x.md` lands here: Align's own output is not an ADR.
+      if (isGeneratedDecisionsFile(content)) continue;
       out.push({ relPath, content });
     }
   }
@@ -301,7 +303,10 @@ async function readDecisionLogItems(repoRoot: string, remoteUrl: string | null, 
   const items: DocsItem[] = [];
   for (const file of await findDecisionLogFiles(repoRoot)) {
     const seen = new Map<string, number>();
-    for (const entry of splitDecisionLog(await readLogFile(repoRoot, file))) {
+    const content = await readLogFile(repoRoot, file);
+    // `align up --out DECISIONS.md` writes here; reading it back would import Align's own output.
+    if (isGeneratedDecisionsFile(content)) continue;
+    for (const entry of splitDecisionLog(content)) {
       const slug = slugify(entry.id ?? entry.heading ?? entry.title);
       const n = seen.get(slug) ?? 0;
       seen.set(slug, n + 1);

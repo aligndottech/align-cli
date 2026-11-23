@@ -31,7 +31,7 @@ const VERSION_ONLY = /^(?:v(?:ersion)?\s*)?\d+\.\d+(?:\.\d+)?(?:[-+.][\w.-]+)?$/
 const BARE_BUMP_OR_RELEASE = /^(?:bump\w*|releas\w*)(?:\s*$|\s+v?\d+\.\d)/i;
 // One package token moving to a version, and nothing else: "bump x from 1 to 2", "Update dependency x to v3". More words
 // after the version ("... and fix type definition"), or a sentence in between ("Update docs for listening to 0.0.0.0"), is prose.
-const DEPENDENCY_MOVE = /^(?:bump\w*|updat\w*|upgrad\w*)\s+(?:dependency\s+)?[@\w./-]+\s+(?:from\s+v?\d[\w.-]*\s+)?(?:to\s+v?\d[\w.-]*)(?:\s+in\s.*|\s*\(.*\))?[.]?$/i;
+const DEPENDENCY_MOVE = /^(?:bump\w*|updat\w*|upgrad\w*)(\s+dependency)?\s+([@\w./-]+)\s+(?:from\s+(v?\d[\w.-]*)\s+)?(?:to\s+(?:version\s+)?(v?\d[\w.-]*))(?:\s+in\s.*|\s*\(.*\))?[.]?$/i;
 // A subject that says why is a decision whatever its shape: "bump timeout ... because the upstream is slow",
 // "bump minimum Node to 20, drops 18", "bump lodash to 4.17.21 (CVE-2021-23337)".
 export const STATED_WHY = /\b(?:because|so that|so we|so it|in order to|to keep|to avoid|to prevent|to ensure|to make sure|due to|since|cve-\d+|drops?|dropping|security|breaking)\b/i;
@@ -46,10 +46,97 @@ export const STATED_WHY = /\b(?:because|so that|so we|so it|in order to|to keep|
  * reason, "Release 2FA support", "feat!: v6.0.0 drops Node 18", and Revert "Bump x" (the prefix list handles that).
  * Dependency REPLACEMENTS ("replace a with b") are decisions and never match.
  */
-export function isReleaseOrBumpSubject(subject: string): boolean {
+export function isReleaseOrBumpSubject(subject: string, opts: { guessPackages?: boolean } = {}): boolean {
   const body = subject.trim().replace(CONVENTIONAL_PREFIX, '').replace(PR_REFERENCE, '').trim();
   if (STATED_WHY.test(body)) return false;
-  return VERSION_ONLY.test(body) || BARE_BUMP_OR_RELEASE.test(body) || DEPENDENCY_MOVE.test(body);
+  if (VERSION_ONLY.test(body) || BARE_BUMP_OR_RELEASE.test(body)) return true;
+  const move = DEPENDENCY_MOVE.exec(body);
+  if (!move) return false;
+  // A "bump" verb is housekeeping whatever it moves (the prefix list drops it at capture as well).
+  if (/^bump/i.test(body)) return isMoveShaped(move[2]!, move[3], move[4]!);
+  // Anything else needs a package-SHAPED name. "dependency" and "from <version>" are never evidence on their own.
+  // Capture (guessPackages: false) stops at the explicit "dependency" qualifier; display surfaces accept the name alone.
+  return isPackageToken(move[2]!, move[3], move[4]!) && (!!move[1] || opts.guessPackages !== false);
+}
+
+// A mechanical bump is the WHOLE subject: an action, one package-like token, an optional "from <version>", and
+// "to|with <version>" (a "with" must repeat the same package), then nothing. Anything after the version,
+// or a sentence where the package should be, is prose and stays a decision. "bump" is not here: main's
+// MECHANICAL_SUBJECT_PREFIXES already rejects every subject that starts with it, and this must not widen that.
+// The shape only finds the parts; `looksLikePackageBump` below decides whether they describe a package.
+const PKG = String.raw`[\w@./:-]+`;
+const VERSION = String.raw`v?\d[\w.+-]*`;
+const DEPENDENCY_BUMP_SHAPE = new RegExp(
+  String.raw`^(?:update|upgrade|replace)\w*(\s+(?:dependenc(?:y|ies)|package))?\s+(${PKG})(?:\s+from\s+(${VERSION}))?\s+(to|with)\s+(?:version\s+)?(?:(${PKG})\s+)?(${VERSION})$`,
+  'i',
+);
+// The shape of a token moving to a version, with no opinion on whether it is a package (the "bump" branch only).
+const MOVE_NAME = /^(?:@[a-z0-9._-]+\/[a-z0-9._-]+|[a-z0-9][a-z0-9._-]*(?:[/:][a-z0-9._-]+)*)$/i;
+const DOTTED_OR_V = /^v\d|\d\.\d/i;
+function isMoveShaped(name: string, from: string | undefined, version: string): boolean {
+  if (/^[A-Z0-9_]+$/.test(name) || name.includes('_')) return false; // a setting written as a constant
+  return MOVE_NAME.test(name) && (!!from || DOTTED_OR_V.test(version));
+}
+
+// Generic words an internal component or a layer is named with ("auth-service", "db-schema"). A hyphenated name
+// containing one is never taken for a package: keeping a bump is noise, dropping a decision is permanent loss.
+const GENERIC_SEGMENTS = new Set([
+  'service', 'services', 'svc', 'schema', 'schemas', 'api', 'app', 'server', 'client', 'worker', 'config', 'db',
+  'auth', 'core', 'web', 'ui', 'backend', 'frontend', 'infra', 'cache', 'queue', 'gateway', 'module', 'layer',
+]);
+const FILE_EXTENSION = /\.(?:ya?ml|json|toml|md|txt|js|ts|cfg|conf|ini|env|lock|xml|sql|sh|py)$/i;
+
+/**
+ * Is this NAME shaped like a published package: scoped (@org/pkg), dotted (socket.io), or a hyphenated lowercase
+ * name (xml-apis, jackson-databind, vite-plugin-react)? A digit alone (python3) and a bare noun (postgres, docs,
+ * manager) are not. "dependency", "package" and "from <version>" never make a name one. A "group:artifact" pair
+ * needs every part to qualify; an image tag (python:3.11) never does.
+ */
+export function isPackageShapedName(name: string): boolean {
+  if (name.includes(':')) {
+    const parts = name.split(':');
+    return parts.length === 2 && parts.every((p) => p !== '' && !/^v?\d/.test(p) && isPackageShapedName(p));
+  }
+  if (/^@[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*$/i.test(name)) return true;
+  if (/^[a-z][a-z0-9_-]*(?:\.[a-z0-9_-]+)+$/i.test(name)) return !FILE_EXTENSION.test(name);
+  const segments = name.split('-');
+  return segments.length > 1 && segments.every((s) => /^[a-z][a-z0-9]*$/.test(s)) && !segments.some((s) => GENERIC_SEGMENTS.has(s));
+}
+
+/** The shape of a package token moving to a version, and the name must be package-shaped. */
+function isPackageToken(name: string, from: string | undefined, version: string): boolean {
+  return isMoveShaped(name, from, version) && isPackageShapedName(name);
+}
+
+function looksLikePackageBump(m: RegExpExecArray): boolean {
+  const [, , name, from, joiner, withPkg, version] = m as unknown as string[];
+  // "Replace A with B 8" swaps one tool for another. Only the same package at a new version is a bump.
+  if (joiner!.toLowerCase() === 'with' && (withPkg ?? '').toLowerCase() !== name!.toLowerCase()) return false;
+  if (joiner!.toLowerCase() === 'to' && withPkg) return false;
+  return isPackageToken(name!, from, version!);
+}
+
+// STATED_WHY plus the words a policy or a requirement is written in. Free-standing only: "get-port" is a package, not a reason.
+const DEPENDENCY_WHY = new RegExp(
+  String.raw`(?<![-\w./:@])(?:get|as|require|requires|policy|eol|so|allow|enables|in order to)(?![-\w./:@])|${STATED_WHY.source}`,
+  'i',
+);
+
+/**
+ * A subject that moves, replaces or upgrades one package and says nothing more. RENDER ONLY (the decisions file): it
+ * guesses at a package name, so capture must never use it. Capture drops only isReleaseOrBumpSubject and isRenovateBump.
+ */
+export function isDependencyBumpSubject(subject: string): boolean {
+  const body = subject.trim().replace(/^\(#\d+\)\s*/, '').replace(CONVENTIONAL_PREFIX, '').replace(PR_REFERENCE, '').trim();
+  const m = DEPENDENCY_BUMP_SHAPE.exec(body);
+  return !!m && looksLikePackageBump(m) && !DEPENDENCY_WHY.test(body);
+}
+
+/** Renovate's own shape: "Update dependency x to v3", "Replace dependency a with a 1.0". Unambiguous because it says "dependency". */
+export function isRenovateBump(subject: string): boolean {
+  const body = subject.trim().replace(/^\(#\d+\)\s*/, '').replace(CONVENTIONAL_PREFIX, '').replace(PR_REFERENCE, '').trim();
+  const m = DEPENDENCY_BUMP_SHAPE.exec(body);
+  return !!m && !!m[1] && /^\s+dependenc/i.test(m[1]) && looksLikePackageBump(m) && !DEPENDENCY_WHY.test(body);
 }
 
 /**
