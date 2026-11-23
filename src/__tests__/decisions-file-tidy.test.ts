@@ -238,3 +238,70 @@ describe('dates are read as UTC', () => {
     expect(bullets(a).map((l) => /\((r@\w+)\)/.exec(l)![1])).toEqual([`r@${sha('c')}`, `r@${sha('d')}`]);
   });
 });
+
+describe('two owners with one repository name', () => {
+  const at = (title: string, owner: string, c: string, when: string): ContextDecision => ({
+    title, cite: `cli@${sha(c)}`, sourceUrl: `https://github.com/${owner}/cli/commit/${sha(c)}`, kind: 'decision', decidedAt: when,
+  });
+
+  it('does not collapse one title held by o1/cli and o2/cli', () => {
+    const out = renderDecisionsFile([
+      at('Use Text instead of String', 'o1', 'a', '2020-01-01T00:00:00Z'),
+      at('Use Text instead of String', 'o2', 'b', '2020-02-01T00:00:00Z'),
+    ]);
+    expect(out).not.toContain('commits)');
+    expect(bullets(out)).toHaveLength(2);
+  });
+
+  it('still collapses two commits of the same owner and name', () => {
+    const out = renderDecisionsFile([
+      at('Use Text instead of String', 'o1', 'a', '2020-01-01T00:00:00Z'),
+      at('Use Text instead of String', 'o1', 'b', '2020-02-01T00:00:00Z'),
+    ]);
+    expect(bullets(out)).toHaveLength(1);
+    expect(out).toContain('(2 commits)');
+  });
+
+  it('does not let o1/cli reverse o2/cli', () => {
+    const out = renderDecisionsFile([
+      at('Prefer Cats instead of Dogs', 'o1', 'c', '2019-01-01T00:00:00Z'),
+      at('Prefer Dogs instead of Cats', 'o2', 'd', '2022-01-01T00:00:00Z'),
+    ]);
+    expect(out).not.toContain('reverses');
+    expect(bullets(out)).toHaveLength(2);
+  });
+
+  it('still pairs a reversal inside one owner/name', () => {
+    const out = renderDecisionsFile([
+      at('Prefer Cats instead of Dogs', 'o1', 'c', '2019-01-01T00:00:00Z'),
+      at('Prefer Dogs instead of Cats', 'o1', 'd', '2022-01-01T00:00:00Z'),
+    ]);
+    expect(out).toContain('reverses');
+    expect(bullets(out)).toHaveLength(1);
+  });
+});
+
+describe('the one-year collapse window', () => {
+  // Anchored to the newest kept row of a title, not chained from row to row: three commits 200 days apart
+  // collapse the first two and list the third, because it is 400 days from the newest.
+  const DAY = 86_400_000;
+  const newest = Date.UTC(2022, 0, 1);
+  const iso = (daysBefore: number): string => new Date(newest - daysBefore * DAY).toISOString();
+  const pair = (gap: number): string => renderDecisionsFile([
+    d('Use Text instead of String', `r@${sha('a')}`, iso(0)),
+    d('Use Text instead of String', `r@${sha('b')}`, iso(gap)),
+  ]);
+
+  it('collapses at 364 days', () => { expect(bullets(pair(364))).toHaveLength(1); });
+  it('collapses at exactly 365 days', () => { expect(bullets(pair(365))).toHaveLength(1); });
+  it('lists both at 366 days', () => { expect(bullets(pair(366))).toHaveLength(2); });
+
+  it('anchors on the newest kept row, not on the row before', () => {
+    const out = renderDecisionsFile([
+      d('Use Text instead of String', `r@${sha('a')}`, iso(0)),
+      d('Use Text instead of String', `r@${sha('b')}`, iso(200)),
+      d('Use Text instead of String', `r@${sha('c')}`, iso(400)),
+    ]);
+    expect(bullets(out)).toHaveLength(2);
+  });
+});

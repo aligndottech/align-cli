@@ -36,9 +36,25 @@ describe('a subject the graph cut at 80 characters', () => {
     expect(d!.title).toBe(WHOLE_2);
   });
 
-  it('ends at a word boundary with an ellipsis when nothing whole is left', () => {
-    const [d] = selectForFile([row(WHOLE_1.slice(0, 80), 'unrelated summary text')], 30).decisions;
-    expect(d!.title).toBe('Renamed variable, changed class to be final instead of each method, use...');
+  it('ends at a word boundary with an ellipsis when the stored title stops on a dangling word and nothing whole is left', () => {
+    const stored = 'Renamed variable, changed class to be final instead of each method, use lists of';
+    expect(stored).toHaveLength(80);
+    const [d] = selectForFile([row(stored, 'unrelated summary text')], 30).decisions;
+    expect(d!.title).toBe('Renamed variable, changed class to be final instead of each method, use lists...');
+  });
+
+  it('keeps a complete 80 character title whole when the summary is unrelated', () => {
+    const title = 'Use one shared connection pool for every worker rather than one pool per request';
+    expect(title).toHaveLength(80);
+    const [d] = selectForFile([row(title, 'unrelated summary text')], 30).decisions;
+    expect(d!.title).toBe(title);
+  });
+
+  it('keeps a second complete 80 character title whole too', () => {
+    const title = 'Always route the retry queue through a separate worker pool, not one per request';
+    expect(title).toHaveLength(80);
+    const [d] = selectForFile([row(title, 'something else entirely')], 30).decisions;
+    expect(d!.title).toBe(title);
   });
 
   it('is cut at a word boundary when even the whole subject is very long', () => {

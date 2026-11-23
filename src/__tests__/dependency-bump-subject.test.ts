@@ -15,6 +15,7 @@ vi.mock('execa', () => ({ execa: vi.fn() }));
 
 import { isDependencyBumpSubject } from '../lib/commit-shape.js';
 import { isDecisionCommit } from '../lib/git.js';
+import { decisionShapedRows } from '../lib/context-from-graph.js';
 
 const NEAR_MISSES = [
   'Update dependency policy: no snapshots',
@@ -62,5 +63,55 @@ describe('isDecisionCommit and the bump family', () => {
     'chore(deps): bump x from 1 to 2 in the lockfile',
   ])('rejects %s, so `align ask` never gets it', (subject) => {
     expect(isDecisionCommit(subject)).toBe(false);
+  });
+});
+
+// Real decisions that the first bump shape swallowed: a config value, a runtime, or a tool swap is a choice.
+const CONFIG_AND_SWAP_DECISIONS = [
+  'Update timeout to 30',
+  'update MAX_RETRIES to 5',
+  'Update port to 8080',
+  'Update retry_limit to 3 (#44)',
+  'Upgrade python to 3.12',
+  'Replace redis with valkey 8',
+  'Replace jest with vitest 3',
+];
+const PACKAGE_BUMPS = [
+  'Replace dependency xml-apis:xml-apis with xml-apis:xml-apis 1.0.b2',
+  'Update lodash to 4.17.21',
+  'Update dependency @types/node to 20.1.0',
+  'Upgrade jackson-databind to version 2.15',
+  'Update lodash from 4 to 5',
+];
+
+describe('a config value, a runtime or a tool swap is a decision, not a bump', () => {
+  it.each(CONFIG_AND_SWAP_DECISIONS)('keeps %s', (subject) => {
+    expect(isDependencyBumpSubject(subject)).toBe(false);
+  });
+
+  it.each(CONFIG_AND_SWAP_DECISIONS.filter((s) => s.length >= 20))('keeps %s at capture (isDecisionCommit)', (subject) => {
+    expect(isDecisionCommit(subject)).toBe(true);
+  });
+
+  it.each(PACKAGE_BUMPS)('still rejects the package-shaped %s', (subject) => {
+    expect(isDependencyBumpSubject(subject)).toBe(true);
+  });
+
+  it.each(PACKAGE_BUMPS)('still rejects %s at capture', (subject) => {
+    expect(isDecisionCommit(subject)).toBe(false);
+  });
+
+  it('keeps a tool swap and drops a package bump when choosing rows for the file', () => {
+    const git = (title: string) => ({ title, platform: 'git' });
+    const kept = decisionShapedRows([
+      git('Replace redis with valkey 8'),
+      git('Replace jest with vitest 3'),
+      git('Replace dependency xml-apis:xml-apis with xml-apis:xml-apis 1.0.b2'),
+    ]).map((r) => r.title);
+    expect(kept).toEqual(['Replace redis with valkey 8', 'Replace jest with vitest 3']);
+  });
+
+  it('leaves "Bump ..." to the existing prefix rule', () => {
+    expect(isDecisionCommit('Bump lodash to 4.17.21 in the lockfile')).toBe(false);
   });
 });

@@ -10,6 +10,8 @@ import type { ContextDecision } from './decisions-context.js';
 export type TidyRow = ContextDecision & { commits?: number; reverses?: string; orig?: ContextDecision };
 
 const DAY = 86_400_000;
+// Anchored to the newest kept row of a title (rows arrive newest first), not chained from the previous row: a gap of
+// exactly 365 days collapses, 366 does not, and a third commit 200 days older than the second is 400 from the newest.
 const COLLAPSE_WITHIN_DAYS = 365;
 const COMMIT_CITE = /@[0-9a-f]{7,40}$/;
 
@@ -29,7 +31,10 @@ export function decidedTime(value?: string): number | undefined {
 }
 
 const time = (d: ContextDecision): number | undefined => decidedTime(d.decidedAt);
-const repoOf = (cite?: string): string => cite?.match(/^[^@#]+/)?.[0] ?? '';
+// owner/name from a commit, PR, MR or issue URL on a code host.
+const REPO_IN_URL = /^https?:\/\/[^/]+\/([^/]+\/[^/]+?)\/(?:-\/)?(?:commits?|pulls?|issues|merge_requests)\//i;
+/** The repository a row belongs to: owner/name from its source URL, so o1/cli and o2/cli stay apart; the cite's name when there is no URL. */
+const repoOf = (d: ContextDecision): string => d.sourceUrl?.match(REPO_IN_URL)?.[1]?.toLowerCase() ?? d.cite?.match(/^[^@#]+/)?.[0] ?? '';
 
 /** Newest first, then citation, then title. A missing date sorts after every dated row, never as "now". */
 export function newestFirst<T extends ContextDecision>(rows: T[]): T[] {
@@ -49,7 +54,7 @@ function collapseSameTitle(rows: TidyRow[]): TidyRow[] {
   for (const r of rows) {
     const t = time(r);
     const into = isCommit(r) && t !== undefined
-      ? out.find((o) => o.title === r.title && isCommit(o) && repoOf(o.cite) === repoOf(r.cite) && time(o) !== undefined && time(o)! - t <= COLLAPSE_WITHIN_DAYS * DAY)
+      ? out.find((o) => o.title === r.title && isCommit(o) && repoOf(o) === repoOf(r) && time(o) !== undefined && time(o)! - t <= COLLAPSE_WITHIN_DAYS * DAY)
       : undefined;
     if (into) into.commits = (into.commits ?? 1) + 1;
     else out.push(r);
@@ -88,10 +93,10 @@ function dropReversed(rows: TidyRow[], all: TidyRow[]): TidyRow[] {
   for (const r of rows) {
     const t = time(r);
     if (gone.has(r) || t === undefined || !r.cite) continue;
-    const older = rows.find((o) => o !== r && !gone.has(o) && o.cite && repoOf(o.cite) === repoOf(r.cite)
+    const older = rows.find((o) => o !== r && !gone.has(o) && o.cite && repoOf(o) === repoOf(r)
       && time(o) !== undefined && time(o)! < t && mirrors(r.title, o.title));
     if (!older) continue;
-    const family = all.filter((x) => repoOf(x.cite) === repoOf(r.cite) && (norm(x.title) === norm(r.title) || norm(x.title) === norm(older.title)));
+    const family = all.filter((x) => repoOf(x) === repoOf(r) && (norm(x.title) === norm(r.title) || norm(x.title) === norm(older.title)));
     if (family.length !== 2) continue;
     gone.add(older);
     r.reverses = older.cite;

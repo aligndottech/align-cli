@@ -120,12 +120,22 @@ function wholeTitle(title: string, summary: string | undefined): string {
   const first = (summary ?? '').split('\n')[0]!.trim();
   const recovered = first.startsWith(title);
   if (recovered && first.length <= SUBJECT_CAP) return first;
+  // No whole subject in the summary: a complete 80 character title looks just like a cut one, so only a title that
+  // visibly stops (on a dangling function word or an open token) loses its last word.
+  if (!recovered && !endsMidThought(title)) return title;
   const whole = recovered ? first : title;
   const limit = recovered ? SUBJECT_CAP - 3 : title.length;
   const cut = whole.slice(0, limit);
   // A word ending exactly at the limit is whole already.
   const atBoundary = whole.length > limit && /\s/.test(whole[limit]!);
   return `${atBoundary ? cut : cut.replace(/\s*\S*$/, '')}...`.replace(/[\s,;:]+\.\.\.$/, '...');
+}
+
+const DANGLING_WORD = /\s(?:a|an|the|of|to|and|or|for|in|on|at|by|with|from|than|that|so|as|but|into)$/i;
+/** Positive evidence the title was cut: it ends on a joining word, or inside an open path, call or quote. */
+function endsMidThought(title: string): boolean {
+  const t = title.trimEnd();
+  return DANGLING_WORD.test(t) || /[-_/@:(,]$/.test(t);
 }
 
 export function selectForFile(rows: ListedDecision[], limit: number): { decisions: ContextDecision[]; leftOut: number; selected: ListedDecision[] } {

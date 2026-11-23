@@ -31,7 +31,7 @@ const VERSION_ONLY = /^(?:v(?:ersion)?\s*)?\d+\.\d+(?:\.\d+)?(?:[-+.][\w.-]+)?$/
 const BARE_BUMP_OR_RELEASE = /^(?:bump\w*|releas\w*)(?:\s*$|\s+v?\d+\.\d)/i;
 // One package token moving to a version, and nothing else: "bump x from 1 to 2", "Update dependency x to v3". More words
 // after the version ("... and fix type definition"), or a sentence in between ("Update docs for listening to 0.0.0.0"), is prose.
-const DEPENDENCY_MOVE = /^(?:bump\w*|updat\w*|upgrad\w*)\s+(?:dependency\s+)?[@\w./-]+\s+(?:from\s+v?\d[\w.-]*\s+)?(?:to\s+v?\d[\w.-]*)(?:\s+in\s.*|\s*\(.*\))?[.]?$/i;
+const DEPENDENCY_MOVE = /^(?:bump\w*|updat\w*|upgrad\w*)(\s+dependency)?\s+([@\w./-]+)\s+(?:from\s+(v?\d[\w.-]*)\s+)?(?:to\s+(v?\d[\w.-]*))(?:\s+in\s.*|\s*\(.*\))?[.]?$/i;
 // A subject that says why is a decision whatever its shape: "bump timeout ... because the upstream is slow",
 // "bump minimum Node to 20, drops 18", "bump lodash to 4.17.21 (CVE-2021-23337)".
 export const STATED_WHY = /\b(?:because|so that|so we|so it|in order to|to keep|to avoid|to prevent|to ensure|to make sure|due to|since|cve-\d+|drops?|dropping|security|breaking)\b/i;
@@ -49,19 +49,50 @@ export const STATED_WHY = /\b(?:because|so that|so we|so it|in order to|to keep|
 export function isReleaseOrBumpSubject(subject: string): boolean {
   const body = subject.trim().replace(CONVENTIONAL_PREFIX, '').replace(PR_REFERENCE, '').trim();
   if (STATED_WHY.test(body)) return false;
-  return VERSION_ONLY.test(body) || BARE_BUMP_OR_RELEASE.test(body) || DEPENDENCY_MOVE.test(body);
+  if (VERSION_ONLY.test(body) || BARE_BUMP_OR_RELEASE.test(body)) return true;
+  const move = DEPENDENCY_MOVE.exec(body);
+  return !!move && isPackageMove(move[1], move[2]!, move[3], move[4]!);
 }
 
 // A mechanical bump is the WHOLE subject: an action, one package-like token, an optional "from <version>", and
-// "to|with <version>" (a "with" may name the replacement package first), then nothing. Anything after the version,
+// "to|with <version>" (a "with" must repeat the same package), then nothing. Anything after the version,
 // or a sentence where the package should be, is prose and stays a decision. "bump" is not here: main's
 // MECHANICAL_SUBJECT_PREFIXES already rejects every subject that starts with it, and this must not widen that.
+// The shape only finds the parts; `looksLikePackageBump` below decides whether they describe a package.
 const PKG = String.raw`[\w@./:-]+`;
 const VERSION = String.raw`v?\d[\w.+-]*`;
 const DEPENDENCY_BUMP_SHAPE = new RegExp(
-  String.raw`^(?:update|upgrade|replace)\w*(?:\s+(?:dependenc(?:y|ies)|package))?\s+${PKG}(?:\s+from\s+${VERSION})?\s+(?:to|with)\s+(?:version\s+)?(?:${PKG}\s+)?${VERSION}$`,
+  String.raw`^(?:update|upgrade|replace)\w*(\s+(?:dependenc(?:y|ies)|package))?\s+(${PKG})(?:\s+from\s+(${VERSION}))?\s+(to|with)\s+(?:version\s+)?(?:(${PKG})\s+)?(${VERSION})$`,
   'i',
 );
+// A token that names a setting or a runtime is a choice about it, not a package moving: "Update timeout to 3.5",
+// "Upgrade python to 3.12". An explicit "dependency"/"package" in the subject lifts the runtime list (a client
+// library called redis exists), never the setting list.
+const CONFIG_WORDS = new Set(['timeout', 'port', 'host', 'limit', 'retries', 'retry', 'delay', 'interval', 'size', 'level', 'mode', 'version', 'ttl', 'threshold', 'max', 'min', 'count', 'memory', 'cpu', 'workers', 'concurrency', 'pool']);
+const RUNTIME_WORDS = new Set(['python', 'node', 'nodejs', 'java', 'jdk', 'go', 'golang', 'ruby', 'php', 'rust', 'dotnet', 'postgres', 'postgresql', 'mysql', 'mariadb', 'mongodb', 'redis', 'docker', 'kubernetes', 'k8s', 'ubuntu', 'debian', 'alpine', 'linux', 'windows', 'macos', 'helm', 'terraform', 'android', 'ios']);
+const PACKAGE_NAME = /^(?:@[a-z0-9._-]+\/[a-z0-9._-]+|[a-z0-9][a-z0-9._-]*(?:[/:][a-z0-9._-]+)*)$/i;
+const BARE_LOWERCASE = /^[a-z][a-z0-9]*$/;
+const DOTTED_OR_V = /^v\d|\d\.\d/i;
+
+/** Does one token moving to a version read as a package (lodash, @types/node), not a setting or a runtime? */
+function isPackageMove(qualifier: string | undefined, name: string, from: string | undefined, version: string): boolean {
+  // Not a setting written as a constant (MAX_RETRIES, retry_limit) and not a bare config word.
+  if (/^[A-Z0-9_]+$/.test(name) || name.includes('_') || CONFIG_WORDS.has(name.toLowerCase())) return false;
+  if (!PACKAGE_NAME.test(name)) return false;
+  if (!qualifier && RUNTIME_WORDS.has(name.toLowerCase())) return false;
+  // A bare name is a package only when it is lowercase; a dotted or v-prefixed version (or a "from" version) backs it.
+  if (!/[-./:@]/.test(name) && !BARE_LOWERCASE.test(name)) return false;
+  return !!from || DOTTED_OR_V.test(version);
+}
+
+function looksLikePackageBump(m: RegExpExecArray): boolean {
+  const [, qualifier, name, from, joiner, withPkg, version] = m as unknown as string[];
+  // "Replace A with B 8" swaps one tool for another. Only the same package at a new version is a bump.
+  if (joiner!.toLowerCase() === 'with' && (withPkg ?? '').toLowerCase() !== name!.toLowerCase()) return false;
+  if (joiner!.toLowerCase() === 'to' && withPkg) return false;
+  return isPackageMove(qualifier, name!, from, version!);
+}
+
 // STATED_WHY plus the words a policy or a requirement is written in. Free-standing only: "get-port" is a package, not a reason.
 const DEPENDENCY_WHY = new RegExp(
   String.raw`(?<![-\w./:@])(?:get|as|require|requires|policy|eol|so|allow|enables|in order to)(?![-\w./:@])|${STATED_WHY.source}`,
@@ -71,7 +102,8 @@ const DEPENDENCY_WHY = new RegExp(
 /** A subject that moves, replaces or upgrades one package and says nothing more. Used where subjects are accepted as decisions. */
 export function isDependencyBumpSubject(subject: string): boolean {
   const body = subject.trim().replace(/^\(#\d+\)\s*/, '').replace(CONVENTIONAL_PREFIX, '').replace(PR_REFERENCE, '').trim();
-  return DEPENDENCY_BUMP_SHAPE.test(body) && !DEPENDENCY_WHY.test(body);
+  const m = DEPENDENCY_BUMP_SHAPE.exec(body);
+  return !!m && looksLikePackageBump(m) && !DEPENDENCY_WHY.test(body);
 }
 
 /**
