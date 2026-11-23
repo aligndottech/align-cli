@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { findFilesRecursive, sortByMtimeDesc } from '../fs-scan.js';
+import { findFilesRecursive, firstNonBlankLine, sortByMtimeDesc } from '../fs-scan.js';
 import type { CanonicalSession, SessionAdapter, SessionToolCall, SessionTurn } from '../types.js';
 
 interface PiLine {
@@ -28,7 +28,7 @@ function parseLine(raw: string): PiLine | null {
 /** Only pi's first line (`type: "session"`) carries cwd - unlike Claude Code, later lines
  *  do not repeat it, so this only needs to look at the first parseable line. */
 function peekCwd(filePath: string): string | null {
-  const firstLine = readFileSync(filePath, 'utf8').split('\n').find(l => l.trim());
+  const firstLine = firstNonBlankLine(filePath);
   if (!firstLine) return null;
   return parseLine(firstLine)?.cwd ?? null;
 }

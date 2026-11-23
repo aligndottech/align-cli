@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { findFilesRecursive, sortByMtimeDesc } from '../fs-scan.js';
+import { findFilesRecursive, readLines, sortByMtimeDesc } from '../fs-scan.js';
 import type { CanonicalSession, SessionAdapter, SessionToolCall, SessionTurn } from '../types.js';
 
 interface ClaudeCodeLine {
@@ -23,11 +23,12 @@ function parseLine(raw: string): ClaudeCodeLine | null {
   }
 }
 
-/** Reads just enough of the file to know which project it belongs to, without parsing the
- *  whole thing - every real line carries `cwd`, so the first parseable line is enough. */
+/** Reads just enough of the file to know which project it belongs to, without reading the
+ *  whole thing - every message line carries `cwd`, so the first one that does is enough. The
+ *  lines before it (a summary, a file-history snapshot) carry none: at most 8 of them across
+ *  2,507 real sessions, so this is a loop and not a look at line one. */
 function peekCwd(filePath: string): string | null {
-  const text = readFileSync(filePath, 'utf8');
-  for (const rawLine of text.split('\n')) {
+  for (const rawLine of readLines(filePath)) {
     if (!rawLine.trim()) continue;
     const line = parseLine(rawLine);
     if (line?.cwd) return line.cwd;

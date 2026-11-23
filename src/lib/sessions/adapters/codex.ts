@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { findFilesRecursive, sortByMtimeDesc } from '../fs-scan.js';
+import { findFilesRecursive, firstNonBlankLine, sortByMtimeDesc } from '../fs-scan.js';
 import type { CanonicalSession, SessionAdapter, SessionTurn } from '../types.js';
 
 interface CodexLine {
@@ -31,7 +31,7 @@ function parseLine(raw: string): CodexLine | null {
 }
 
 function peekMeta(filePath: string): { sessionId: string | null; cwd: string | null } {
-  const firstLine = readFileSync(filePath, 'utf8').split('\n').find(l => l.trim());
+  const firstLine = firstNonBlankLine(filePath);
   if (!firstLine) return { sessionId: null, cwd: null };
   const line = parseLine(firstLine);
   if (line?.type !== 'session_meta') return { sessionId: null, cwd: null };
