@@ -3,10 +3,11 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import { createConfigStore, type EnvName } from '../lib/config.js';
 import { resolveEnv } from '../lib/resolve-env.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
-import { getBaseDiff, getCurrentBranch, getHeadDiff, getStagedDiff, isGitRepo, listBranchNames, pickBaseRef } from '../lib/git.js';
+import { getBaseDiff, getCurrentBranch, getHeadDiff, getRepoRoot, getStagedDiff, isGitRepo, listBranchNames, pickBaseRef } from '../lib/git.js';
 import type { AlignmentResult } from '../lib/gateway-client.js';
 import { type HookPayload, readHookPayload } from '../lib/hook-payload.js';
 import { lineWriterCheck, proposedChangeText, type RelatedDecision } from '../lib/agent/edit-text.js';
@@ -499,6 +500,7 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
       text = proposedChangeText(payload?.tool_input);
       if (!text.trim()) process.exit(0);
       context = payload?.tool_input?.file_path ?? '';
+      if (context && !(await inThisRepository(context))) process.exit(0);
     } else {
       if (!(await isGitRepo())) process.exit(0);
       text = await getHeadDiff();
@@ -713,6 +715,25 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
     // Fail open: swallow everything (gateway error, network, bad config).
   }
   process.exit(0);
+}
+
+/**
+ * Whether the file an edit writes belongs to the repository the hook runs in. Agents also write scratch
+ * notes, plans in a temp folder and files in sibling checkouts while their session sits in a repo, and each
+ * of those got this repository's decisions as though it were a change to it. A file under the working
+ * folder belongs, with no git call; anywhere else git decides. A hook that itself runs outside any repo
+ * keeps checking against every repo, as it did.
+ */
+async function inThisRepository(filePath: string): Promise<boolean> {
+  const cwd = process.cwd();
+  const file = path.resolve(cwd, filePath);
+  const rel = path.relative(cwd, file);
+  if (rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel)) return true;
+  const here = await getRepoRoot();
+  if (!here) return true;
+  let dir = path.dirname(file);
+  while (!existsSync(dir) && path.dirname(dir) !== dir) dir = path.dirname(dir);
+  return (await getRepoRoot({ cwd: dir })) === here;
 }
 
 /** The most the advisory hook waits for its one telemetry send, once per rate-limit window per tool. */
