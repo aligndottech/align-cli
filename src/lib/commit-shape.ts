@@ -52,14 +52,26 @@ export function isReleaseOrBumpSubject(subject: string): boolean {
   return VERSION_ONLY.test(body) || BARE_BUMP_OR_RELEASE.test(body) || DEPENDENCY_MOVE.test(body);
 }
 
-// The dependency-bump family a commit log is full of. "Replace dependency a with b" is a manifest edit, not a choice, unlike
-// "Replace Redis with Valkey". Lead-in only, so prose that merely mentions a dependency is untouched.
-const DEPENDENCY_BUMP_LEAD = /^(?:(?:update|replace)\s+dependenc(?:y|ies)\b|bump\w*\s|chore\(deps(?:-dev)?\)|upgrad\w*\s+.+\sto\s+(?:version\s+)?v?\d+\.\d)/i;
+// A mechanical bump is the WHOLE subject: an action, one package-like token, an optional "from <version>", and
+// "to|with <version>" (a "with" may name the replacement package first), then nothing. Anything after the version,
+// or a sentence where the package should be, is prose and stays a decision. "bump" is not here: main's
+// MECHANICAL_SUBJECT_PREFIXES already rejects every subject that starts with it, and this must not widen that.
+const PKG = String.raw`[\w@./:-]+`;
+const VERSION = String.raw`v?\d[\w.+-]*`;
+const DEPENDENCY_BUMP_SHAPE = new RegExp(
+  String.raw`^(?:update|upgrade|replace)\w*(?:\s+(?:dependenc(?:y|ies)|package))?\s+${PKG}(?:\s+from\s+${VERSION})?\s+(?:to|with)\s+(?:version\s+)?(?:${PKG}\s+)?${VERSION}$`,
+  'i',
+);
+// STATED_WHY plus the words a policy or a requirement is written in. Free-standing only: "get-port" is a package, not a reason.
+const DEPENDENCY_WHY = new RegExp(
+  String.raw`(?<![-\w./:@])(?:get|as|require|requires|policy|eol|so|allow|enables|in order to)(?![-\w./:@])|${STATED_WHY.source}`,
+  'i',
+);
 
-/** A subject that moves, replaces or upgrades a dependency and says nothing more. Used where subjects are accepted as decisions. */
+/** A subject that moves, replaces or upgrades one package and says nothing more. Used where subjects are accepted as decisions. */
 export function isDependencyBumpSubject(subject: string): boolean {
-  const body = subject.trim().replace(/^\(#\d+\)\s*/, '');
-  return DEPENDENCY_BUMP_LEAD.test(body) && !STATED_WHY.test(body);
+  const body = subject.trim().replace(/^\(#\d+\)\s*/, '').replace(CONVENTIONAL_PREFIX, '').replace(PR_REFERENCE, '').trim();
+  return DEPENDENCY_BUMP_SHAPE.test(body) && !DEPENDENCY_WHY.test(body);
 }
 
 /**

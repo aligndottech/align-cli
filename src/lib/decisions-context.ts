@@ -38,6 +38,7 @@ import fs from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { deciderLabel } from './decider-kind.js';
+import { tidyDecisions, type TidyRow } from './decisions-tidy.js';
 import { alignConfigDir, ensurePrivateDir, writePrivateFile } from './private-files.js';
 
 export interface ContextDecision {
@@ -65,84 +66,6 @@ export interface ContextDecision {
 export const ALIGN_CONTEXT_PATH = '.align/decisions.md';
 export const ALIGN_IMPORT_LINE = `@${ALIGN_CONTEXT_PATH}`;
 
-/** A decision as rendered: the row, plus what tidying the list worked out about it. */
-type Row = ContextDecision & { commits?: number; reverses?: string };
-
-function time(d: ContextDecision): number | undefined {
-  const t = d.decidedAt ? Date.parse(d.decidedAt) : Number.NaN;
-  return Number.isNaN(t) ? undefined : t;
-}
-
-/**
- * Newest first by the decision's own date, then citation, then title. Deterministic whatever the
- * graph returned: without it a LIMIT with no ORDER BY upstream reorders the block between runs and
- * defeats idempotence without a single decision having changed (tdd.md's fourth shape).
- * A missing or unparseable date sorts after every dated row, never as "now".
- */
-function ordered(decisions: ContextDecision[]): ContextDecision[] {
-  return [...decisions].sort((a, b) => {
-    const ta = time(a);
-    const tb = time(b);
-    if (ta !== tb) return ta === undefined ? 1 : tb === undefined ? -1 : tb - ta;
-    return (a.cite ?? '').localeCompare(b.cite ?? '') || a.title.localeCompare(b.title);
-  });
-}
-
-const COMMIT_CITE = /@[0-9a-f]{7,40}$/;
-
-/** Several commits with one title are one decision. Only commits: two pages or tickets sharing a title are not repeats. */
-function collapseSameTitle(rows: Row[]): Row[] {
-  const seen = new Map<string, Row>();
-  const out: Row[] = [];
-  for (const r of rows) {
-    if (!r.cite || !COMMIT_CITE.test(r.cite)) { out.push(r); continue; }
-    const first = seen.get(r.title);
-    if (first) first.commits = (first.commits ?? 1) + 1;
-    else { seen.set(r.title, r); out.push(r); }
-  }
-  return out;
-}
-
-const words = (s: string): string[] => s.split(/\s+/).filter(Boolean);
-
-/** "(#994) Throw A instead of B" as [verb-and-A, B], or null when it does not have exactly that one shape. */
-function insteadOf(title: string): [string[], string[]] | null {
-  const parts = title.trim().replace(/^\(#\d+\)\s*/, '').split(/\s+instead of\s+/i);
-  return parts.length === 2 && parts[0] && parts[1] ? [words(parts[0]), words(parts[1])] : null;
-}
-
-/** "Use A instead of B" and "Use B instead of A": same lead-in, the two things swapped. */
-function mirrors(a: string, b: string): boolean {
-  const x = insteadOf(a);
-  const y = insteadOf(b);
-  if (!x || !y) return false;
-  let p = 0;
-  while (p < x[0].length && p < y[0].length && x[0][p] === y[0][p]) p++;
-  const thingX = x[0].slice(p).join(' ');
-  const thingY = y[0].slice(p).join(' ');
-  return thingX !== '' && thingY !== '' && thingY === x[1].join(' ') && y[1].join(' ') === thingX;
-}
-
-/**
- * A decision and its reversal must not both read as current. Only the newer of an exact mirror pair
- * is listed, tagged with what it reverses. Equal or missing dates leave both: which came last is
- * not known, and guessing would drop a live decision.
- */
-function dropReversed(rows: Row[]): Row[] {
-  const gone = new Set<Row>();
-  for (const r of rows) {
-    const t = time(r);
-    if (gone.has(r) || t === undefined || !r.cite) continue;
-    const older = rows.find((o) => o !== r && !gone.has(o) && o.cite && time(o) !== undefined && time(o)! < t && mirrors(r.title, o.title));
-    if (older) { gone.add(older); r.reverses = older.cite; }
-  }
-  return rows.filter((r) => !gone.has(r));
-}
-
-function tidy(decisions: ContextDecision[]): Row[] {
-  return dropReversed(collapseSameTitle(ordered(decisions).map((d) => ({ ...d }))));
-}
-
 /** The whole point of the split. An unratified agent claim must not render beside
  *  what the rest of the file states as fact - it goes in its own section, so a reader (human
  *  or agent) cannot mistake "said once, by an agent, mid-task" for "decided". */
@@ -150,7 +73,7 @@ function isUnratifiedClaim(d: ContextDecision): boolean {
   return deciderLabel({ decider_kind: d.deciderKind, ratified_by: d.ratifiedBy, ratified_at: d.ratifiedAt }) === 'agent-decided, unratified';
 }
 
-function line(d: Row): string {
+function line(d: TidyRow): string {
   const notes = `${d.commits ? ` (${d.commits} commits)` : ''}${d.reverses ? ` (reverses ${d.reverses})` : ''}`;
   const cite = d.cite ? ` (${d.cite})` : '';
   const link = d.sourceUrl ? ` - ${d.sourceUrl}` : '';
@@ -188,11 +111,9 @@ export function renderDecisionsFile(decisions: ContextDecision[], opts: { leftOu
     return `${[...header, none].join('\n')}\n`;
   }
 
-  // Tidied per section, so a row is never collapsed into or reversed by one listed under another heading.
-  const claims = tidy(decisions.filter(isUnratifiedClaim));
-  const restAll = decisions.filter((d) => !isUnratifiedClaim(d));
-  const rules = tidy(restAll.filter((d) => d.kind === 'rule'));
-  const rest = [...rules, ...tidy(restAll.filter((d) => d.kind !== 'rule'))];
+  const all = tidyDecisions(decisions);
+  const claims = all.filter(isUnratifiedClaim);
+  const rest = all.filter((d) => !isUnratifiedClaim(d));
 
   // A local graph's file has two kinds: the repo's written rules first, then the choices made in commits, PRs and tickets.
   const kinded = rest.some((d) => d.kind !== undefined);

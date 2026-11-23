@@ -8,6 +8,12 @@
  *  4. Given a title under the limit, Then it is untouched.
  *  5. Given a row with decided_at, Then the file decision carries it (the order depends on it).
  *  6. Given a dependency replacement already in the graph, Then it is not listed.
+ * Follow-up
+ *  7. Given a feat: title whose stored 80 characters include the prefix (exactly 80, with and without the prefix),
+ *     Then the whole subject is restored and the prefix stripped after.
+ *  8. Given a graph larger than the cap whose newest rows have the highest SHAs and oldest the lowest (two sets),
+ *     Then the file holds the newest N, not the first N in graph order.
+ *  9. Given bumps, repeats and a reversal in the graph, Then left-out counts neither them nor what is shown (two sets).
  */
 import { describe, expect, it } from 'vitest';
 import { type ListedDecision, selectForFile } from '../lib/context-from-graph.js';
@@ -63,5 +69,80 @@ describe('what else the file needs from a row', () => {
   it('does not list a dependency replacement already held in the graph', () => {
     const rows = [row('Replace dependency xml-apis:xml-apis with xml-apis:xml-apis 1.0.b2', ''), row('Use pnpm instead of npm', '')];
     expect(selectForFile(rows, 30).decisions.map((x) => x.title)).toEqual(['Use pnpm instead of npm']);
+  });
+});
+
+const exactly80 = (prefix: string): string => `${prefix}${'word '.repeat(30)}`.slice(0, 80);
+
+describe('a feat: title cut at 80 characters including its prefix', () => {
+  it.each([['feat: '], ['feat(core): ']])('restores the whole subject, then strips %s', (prefix) => {
+    const stored = exactly80(`${prefix}Use immutable value objects instead of mutable beans, `);
+    const whole = `${stored}and always copy on write`;
+    expect(stored).toHaveLength(80);
+    const [d] = selectForFile([row(stored, `${whole}\n\nAuthor: x`)], 30).decisions;
+    expect(d!.title).toBe(whole.slice(prefix.length));
+  });
+
+  it('does the same for an exactly 80 character title with no prefix', () => {
+    const stored = exactly80('Use immutable value objects instead of mutable beans, ');
+    const whole = `${stored}and always copy on write`;
+    const [d] = selectForFile([row(stored, `${whole}\n\nAuthor: x`)], 30).decisions;
+    expect(d!.title).toBe(whole);
+  });
+});
+
+const hex = (n: number): string => n.toString(16).padStart(40, '0');
+const dated = (i: number, title = `Use option ${i} instead of option ${i + 100}`): ListedDecision => ({
+  title, summary: '', platform: 'git', source_url: `https://github.com/o/r/commit/${hex(i)}`,
+  decided_at: new Date(Date.UTC(2020, 0, 1) + i * 86_400_000 * 400).toISOString(),
+});
+
+describe('the cap keeps the newest decisions', () => {
+  it('lists the newest 3 of 8, graph order oldest first, newest with the highest SHAs', () => {
+    const rows = Array.from({ length: 8 }, (_, i) => dated(i + 1));
+    const picked = selectForFile(rows, 3);
+    expect(picked.decisions.map((x) => x.title)).toEqual(['Use option 8 instead of option 108', 'Use option 7 instead of option 107', 'Use option 6 instead of option 106']);
+    expect(picked.leftOut).toBe(5);
+    expect(picked.selected).toHaveLength(3);
+  });
+
+  it('does so for 6 rows and a cap of 2, graph order newest first', () => {
+    const rows = Array.from({ length: 6 }, (_, i) => dated(6 - i));
+    const picked = selectForFile(rows, 2);
+    expect(picked.decisions.map((x) => x.title)).toEqual(['Use option 6 instead of option 106', 'Use option 5 instead of option 105']);
+    expect(picked.leftOut).toBe(4);
+  });
+});
+
+describe('what is left out is what is not shown', () => {
+  it('counts neither bumps, nor repeats folded into a shown line, nor a hidden reversal', () => {
+    const rows = [
+      dated(1, 'Replace dependency xml-apis:xml-apis with xml-apis:xml-apis 1.0.b2'),
+      dated(2, 'Replace dependency xml-apis:xml-apis with xml-apis:xml-apis 1.0.b3'),
+      { ...dated(3, 'Use Text instead of String'), decided_at: '2024-01-01T00:00:00Z' },
+      { ...dated(4, 'Use Text instead of String'), decided_at: '2024-02-01T00:00:00Z' },
+      { ...dated(5, 'Throw A instead of B'), decided_at: '2020-01-01T00:00:00Z' },
+      { ...dated(6, 'Throw B instead of A'), decided_at: '2021-01-01T00:00:00Z' },
+      { ...dated(7, 'fix: crash on empty input because the parser never checked'), decided_at: '2022-01-01T00:00:00Z' },
+      { ...dated(8, 'Use Path instead of File'), decided_at: '2023-01-01T00:00:00Z' },
+    ];
+    const picked = selectForFile(rows, 30);
+    expect(picked.decisions.map((x) => x.title)).toEqual(['Use Text instead of String', 'Use Path instead of File', 'Throw B instead of A']);
+    expect(picked.decisions[0]).toMatchObject({ commits: 2 });
+    // Only the fix-shaped row is in the graph and not in the file.
+    expect(picked.leftOut).toBe(1);
+  });
+
+  it('counts a row the cap cut as left out, once, and the repeats folded into a shown line as neither', () => {
+    const rows = [
+      { ...dated(1, 'Use Alpha instead of Beta'), decided_at: '2020-01-01T00:00:00Z' },
+      { ...dated(2, 'Use Gamma instead of Delta'), decided_at: '2022-01-01T00:00:00Z' },
+      { ...dated(3, 'Use Gamma instead of Delta'), decided_at: '2022-02-01T00:00:00Z' },
+      { ...dated(4, 'Use Eta instead of Zeta'), decided_at: '2021-01-01T00:00:00Z' },
+    ];
+    const picked = selectForFile(rows, 2);
+    expect(picked.decisions.map((x) => x.title)).toEqual(['Use Gamma instead of Delta', 'Use Eta instead of Zeta']);
+    expect(picked.decisions[0]).toMatchObject({ commits: 2 });
+    expect(picked.leftOut).toBe(1);
   });
 });

@@ -17,7 +17,8 @@ import { localCitationFor } from './commit-cite.js';
 import { navigableSourceUrl } from './decision-links.js';
 import { type ContextDecision, renderDecisionsFile } from './decisions-context.js';
 import { createLocalGatewayClient } from './local-gateway-client.js';
-import { isCutTitle, isDependencyBumpSubject } from './commit-shape.js';
+import { isDependencyBumpSubject, TITLE_CUT_AT } from './commit-shape.js';
+import { decidedTime, tidyDecisions } from './decisions-tidy.js';
 import { extractReason } from './reason-extract.js';
 import { resolveEnv } from './resolve-env.js';
 
@@ -114,7 +115,8 @@ export function decisionShapedRows(rows: ListedDecision[]): ListedDecision[] {
 /** The graph keeps only the first 80 characters of a title, so a long commit subject arrives cut mid-word. Its summary starts with the whole subject. */
 const SUBJECT_CAP = 120;
 function wholeTitle(title: string, summary: string | undefined): string {
-  if (!isCutTitle(title)) return title;
+  // Not isCutTitle: that trims, and a title cut right after a space is 80 characters stored and 79 trimmed.
+  if (title.length < TITLE_CUT_AT) return title;
   const first = (summary ?? '').split('\n')[0]!.trim();
   const recovered = first.startsWith(title);
   if (recovered && first.length <= SUBJECT_CAP) return first;
@@ -128,14 +130,36 @@ function wholeTitle(title: string, summary: string | undefined): string {
 
 export function selectForFile(rows: ListedDecision[], limit: number): { decisions: ContextDecision[]; leftOut: number; selected: ListedDecision[] } {
   const rules = rows.filter((r) => r.platform === 'docs');
-  const choices = decisionShapedRows(rows);
   const keptRules = rules.slice(0, limit);
-  const keptChoices = choices.slice(0, Math.max(0, limit - Math.min(rules.length, limit)));
-  const kept = [...keptRules.map((r) => ({ ...contextDecisionOf(r), kind: 'rule' as const })),
-    ...keptChoices.map((r) => {
-      const reason = extractReason(r.title, r.summary ?? '');
-      return { ...contextDecisionOf({ ...r, title: wholeTitle(r.title.replace(FEAT_PREFIX, ''), r.summary) }), kind: 'decision' as const, ...(reason ? { reason } : {}) };
-    })];
-  // The source rows of what is written, so a caller can judge those and not the ones left out.
-  return { decisions: kept, leftOut: rows.length - kept.length, selected: [...keptRules, ...keptChoices] };
+  // Merge repeats and hide reversals BEFORE the cap and the counts, so the cap keeps the newest decisions
+  // (not the first N in graph order) and every number describes what the file shows.
+  const sourceOf = new Map<ContextDecision, ListedDecision>();
+  const choices = decisionShapedRows(rows).map((r) => {
+    const reason = extractReason(r.title, r.summary ?? '');
+    // The cut test reads the title as stored, prefix included: the graph cut those 80 characters, not the stripped ones.
+    const d: ContextDecision = { ...contextDecisionOf({ ...r, title: wholeTitle(r.title, r.summary).replace(FEAT_PREFIX, '') }), kind: 'decision', ...(reason ? { reason } : {}) };
+    sourceOf.set(d, r);
+    return d;
+  });
+  // Newest first for the cap, and where dates tie or are missing, the graph's own order: the cap among undated rows
+  // keeps what it always kept, instead of whichever sorts first by citation.
+  const rank = (d: ContextDecision): number => decidedTime(d.decidedAt) ?? Number.NEGATIVE_INFINITY;
+  const tidied = tidyDecisions(choices)
+    .map((t) => ({ t, at: choices.indexOf(t.orig!) }))
+    .sort((a, b) => rank(b.t) - rank(a.t) || a.at - b.at)
+    .map((x) => x.t);
+  const keptChoices = tidied.slice(0, Math.max(0, limit - keptRules.length));
+  const decisions = [
+    ...keptRules.map((r) => ({ ...contextDecisionOf(r), kind: 'rule' as const })),
+    ...keptChoices.map(({ orig: _orig, ...d }) => d),
+  ];
+  // What is not in the file because it is not an item at all (a dependency bump) or is folded into a listed one is not "left out".
+  const bumps = rows.filter((r) => CODE_PLATFORMS.has(r.platform ?? '') && isDependencyBumpSubject(r.title.replace(FEAT_PREFIX, ''))).length;
+  const folded = choices.length - tidied.length;
+  return {
+    decisions,
+    leftOut: rows.length - bumps - folded - decisions.length,
+    // The source rows of what is written, so a caller can judge those and not the ones left out.
+    selected: [...keptRules, ...keptChoices.map((t) => sourceOf.get(t.orig!)!)],
+  };
 }
