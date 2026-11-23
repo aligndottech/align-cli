@@ -292,3 +292,108 @@ jobs:
       # when it already holds this exact version, instead of failing the promotion as a duplicate.
       - name: Publish server.json
         run: bash scripts/mcp-registry-publish.sh server.json
+
+  # The Claude Code plugin (plugins/align) pins an exact @aligndottech/cli@X.Y.Z, because the plugin
+  # directory rejects @latest. The pin follows the PROMOTED release, so it can only move after the
+  # promote job above. It used to be a manual step after promotion and it sat at 0.83.2 for nine
+  # releases, so plugin users ran a hook without the edit-time secret deny. This job opens the pin PR
+  # itself; a human still merges it. A failure here never undoes the promotion: it is its own job.
+  #
+  # Main only: a workflow_dispatch from another ref would otherwise check out that ref's tree and open
+  # a PR carrying its commits. workflow_run always runs on the default branch.
+  plugin-pin:
+    needs: [resolve, promote]
+    if: ${{ github.event_name == 'workflow_run' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # the push and the PR use the release-bot app token, minted only for that step
+    steps:
+      # The default branch, explicitly, and no stored credentials: repo code (the sync script) runs
+      # below, and no token is in the environment or in .git/config while it does.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.19'
+
+      # Shape-checked like promote's own step, then compared with npm: if latest has moved on (a newer
+      # promotion landed) or not caught up, skip rather than pin to something that is not latest.
+      - name: Decide the pin
+        id: pin
+        env:
+          TAG: ${{ needs.resolve.outputs.tag }}
+        run: |
+          version="${TAG#cli-v}"
+          if ! printf '%s' "$version" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "FATAL: tag '$TAG' does not resolve to a plain X.Y.Z version (got '$version')"
+            exit 1
+          fi
+          latest=""
+          for attempt in 1 2 3 4 5; do
+            latest="$(npm view @aligndottech/cli dist-tags.latest)" || latest=""
+            [ "$latest" = "$version" ] && break
+            [ "$attempt" -lt 5 ] && sleep "${PIN_RETRY_SLEEP:-5}"
+          done
+          if [ "$latest" != "$version" ]; then
+            echo "skip: npm latest is '$latest', not the promoted $version. The pin follows latest only."
+            echo "go=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "go=true" >> "$GITHUB_OUTPUT"
+
+      - name: Rewrite the pins
+        id: sync
+        if: ${{ steps.pin.outputs.go == 'true' }}
+        env:
+          ALIGN_SYNC_LATEST: ${{ steps.pin.outputs.version }}
+        run: |
+          node scripts/sync-plugin-version.mjs
+          if git diff --quiet; then
+            echo "skip: the plugin is already pinned to $ALIGN_SYNC_LATEST"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # The sync script touches exactly these two files. Anything else in the diff means the
+          # tree is not what this job thinks it is, so stop before anything is pushed.
+          changed="$(git diff --name-only | sort | tr '\n' ' ')"
+          if [ "$changed" != "plugins/align/.claude-plugin/plugin.json plugins/align/hooks/hooks.json " ]; then
+            echo "FATAL: unexpected files changed: $changed"
+            exit 1
+          fi
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      # Minted only now, after every step that runs repo code. Enterprise policy blocks the default
+      # GITHUB_TOKEN from opening PRs (see release-please.yml), and a GITHUB_TOKEN PR would not run CI.
+      - uses: actions/create-github-app-token@v1
+        id: app-token
+        if: ${{ steps.sync.outputs.changed == 'true' }}
+        with:
+          app-id: ${{ secrets.RELEASE_PLEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
+
+      # Idempotent: the branch is bot-owned and only ever holds this one commit, so a re-run after a
+      # closed PR or a failed `gh pr create` force-pushes it and opens the PR again.
+      - name: Open the pin PR
+        if: ${{ steps.sync.outputs.changed == 'true' }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          VERSION: ${{ steps.pin.outputs.version }}
+        run: |
+          branch="chore/plugin-pin-$VERSION"
+          git config user.name "align-release-bot"
+          git config user.email "align-release-bot@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add plugins/align
+          git commit -m "chore(plugin): pin the Claude Code plugin to the promoted $VERSION"
+          git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$branch"
+          if [ -n "$(gh pr list --head "$branch" --state open --json number --jq '.[].number')" ]; then
+            echo "pin PR for $VERSION already open; branch updated"
+            exit 0
+          fi
+          gh pr create --base main --head "$branch" \
+            --title "chore(plugin): pin the Claude Code plugin to the promoted $VERSION" \
+            --body "Opened by promote-release.yml after $VERSION was promoted to npm latest. It runs scripts/sync-plugin-version.mjs, the step docs/RELEASING.md describes. Merge it so Claude Code plugin users get $VERSION. Close any older pin PR."
