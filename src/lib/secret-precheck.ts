@@ -223,3 +223,20 @@ export async function judgeWithSecretCheck(judge: () => Promise<AlignmentResult>
     return mergeSecretHits(null, err, hits, allowed);
   }
 }
+
+/** The proposed new text of an agent edit, as a diff that adds every line of it, so the diff scanner judges it. */
+export function addedLinesDiff(file: string, text: string): string {
+  const lines = text.split('\n');
+  return `diff --git a/${file} b/${file}\n--- a/${file}\n+++ b/${file}\n@@ -0,0 +1,${lines.length} @@\n${lines.map((l) => `+${l}`).join('\n')}\n`;
+}
+
+/** The deny text for an edit: kind and place only, never the value. Lines count within the NEW text (an Edit sends a fragment, not the file). */
+export function secretDenyReason(hits: SecretHit[]): string {
+  const shown = hits.slice(0, MAX_NAMED).map((h) => `- ${h.kind} in ${shownPath(h.file)} (line ${h.line} of the new text)`);
+  return [
+    'Blocked: this edit adds what looks like a secret.',
+    ...shown,
+    hits.length > MAX_NAMED ? `- and ${hits.length - MAX_NAMED} more` : '',
+    `Remove it and read it from the environment instead. If it is deliberate (a test fixture, a doc), add ${ALLOW_MARKER} on that line. If the user confirms this edit is intended, they can set ALIGN_RULES_ACK=1 for the session.`,
+  ].filter(Boolean).join('\n');
+}

@@ -82,19 +82,34 @@ the `full` check, because there it calls your own AI provider.
 
 ## Secrets in the diff
 
-A rule such as "never commit a real secret" may not be retrieved for a diff, so the judge never weighs it.
-`align check` therefore scans the lines a change ADDS for well-known provider token shapes (GitHub, AWS access
-key, Slack, Stripe, Google, OpenAI-style, Anthropic, GitLab, Linear, a password inside a URL, a private key header)
-with no model call. A hit is a critical conflict naming the file, the line and the kind of secret, never the value,
-and it exits `1` like any conflict, including in `--hook` and `--ci`. It runs beside the judge, so it still flags
-when the judge is down. It does not run in `--advisory` mode. Generic `password=` text and public key fingerprints
-(`SHA256:...`) are not flagged. Documented placeholders are not flagged either: `AKIA...EXAMPLE`, `sk-your-key-here`
-style keys, a URL password that is `${VAR}`, `<password>`, `changeme` or one repeated character. A private key header
-counts only with a base64 body line after it in the same file.
+A rule such as "never commit a real secret" may not be retrieved for a diff, so the judge never weighs it. Align
+therefore looks for well-known provider token shapes directly, with no model call, no network and no ratified rule
+(GitHub, AWS access key, Slack, Stripe, Google, OpenAI-style, Anthropic, GitLab, Linear, a password inside a URL, a
+private key). A hit names the kind, the file and the line, never the value.
 
-**Escape hatch:** write `align:allow-secret` on the same line, or on the line directly above, to say a secret-shaped
-value is deliberate (a test fixture, a doc example). Nothing else turns the check off. A `--resolve` naming a secret
-finding is ignored, because the finding is not a decision.
+**Covered**
+
+- **Edit time:** the agent hook (`align check --advisory`, PreToolUse on Write and Edit) refuses the FIRST attempt
+  to write new text holding one. It works in local mode. `ALIGN_RULES_ACK=1` is the session break glass.
+- **`align check` and the pre-commit hook:** a hit in the lines the change ADDS is a critical conflict and exits `1`.
+- **CI:** `align check --ci --base <ref>` does the same and still flags when the judge is down.
+
+**Not covered**
+
+- A secret written by a shell command (`echo TOKEN > f` in a Bash tool call): the edit hook only reads Write and Edit.
+- `git commit --no-verify`, which skips the pre-commit hook (CI still checks the pull request).
+- Token shapes not on the list, and a secret split across lines.
+- `--advisory` after the fact (PostToolUse): the edit has landed, so nothing is refused there.
+
+Not flagged: public key fingerprints (`SHA256:...`), documented examples (`AKIA...EXAMPLE`, Stripe's published
+test key, the AWS documentation secret), and placeholders such as `sk-your-key-here`, or a URL password that is
+`${VAR}`, `<password>`, `changeme`, `TOKEN`, equal to the user name or one repeated character. A private key header
+counts only with a body: on the same line, or in the next few added lines.
+
+**Escape hatch:** write `align:allow-secret` as its own token on the same line, or on the added line directly above,
+to say a secret-shaped value is deliberate (a test fixture, a doc example). When it suppresses something, the output
+says so in a note. Nothing else turns the check off. A `--resolve` naming a secret finding is ignored, because the
+finding is not a decision.
 
 ## Co-change rules
 
