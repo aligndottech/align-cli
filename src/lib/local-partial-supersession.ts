@@ -31,33 +31,54 @@ export function migratePartialSupersessions(db: DatabaseSync): void {
 
 // A word may hold a dot ("Node.js") but a dot that ends the sentence ends the match.
 const WORD = String.raw`(?:[\w-]|\.(?=\w))+`;
-const NOTE = new RegExp(
-  String.raw`\bsupersedes\s+the\s+(${WORD}(?:\s+${WORD}){0,7}?)\s+(?:rule|section|convention|policy|guideline|decision)s?\s+in\s+(?:\[[^\]\n]*\]\(([^)\s]+)\)|\x60?([\w./-]+)\x60?)`,
-  'gi',
-);
+const FILE_PART = String.raw`(?:the\s+)?(?:\[[^\]\n]*\]\(([^)\s]+)\)|\x60?([\w./-]+)\x60?)(?:\s+file\b)?`;
+// One "the <words> rule in <file>" item, matched where the previous one ended.
+const ITEM = new RegExp(String.raw`(?:ADR[- ]?\d+\s*(?:,\s*and|,|and)?\s+)*the\s+(${WORD}(?:\s+${WORD}){0,7}?)\s+(?:rule|section|convention|policy|guideline|decision)s?\s+in\s+${FILE_PART}\s*(?:(?:,\s*and|,|and)\s+)?`, 'iy');
+// The verb must START its clause: a line start after an optional bullet, bold or italic marks and a
+// subject ("This ADR", "We"), or the start of a sentence. "ADR 2 says it supersedes ..." is not a decision.
+const CLAUSE = /(?:^|(?<=[.!?]\s))[ \t]*(?:[-*+][ \t]+|\d+[.)][ \t]+)?[*_]*(?:(?:this\s+(?:adr|decision)|we)\s+)?supersedes[*_]*:?[*_]*\s+/gim;
+const NEGATION = /\b(?:not|never|no\s+longer|doesn'?t|don'?t|isn'?t|wasn'?t)\b/i;
 // Words that name a kind of thing or a connective, never which rule.
 const FILLER = new Set(['that', 'this', 'with', 'from', 'only', 'rule', 'rules', 'section', 'sections', 'convention', 'policy', 'guideline', 'decision', 'using', 'when', 'them', 'they', 'have', 'been', 'more']);
 const DOC_FILE = /\.(?:md|mdx|rst|txt)$/i;
 
 export interface SupersedeNote { file: string; words: string[] }
 
+/** What a reader would call the ADR's own statement: no code fences, quotations or quoted lines. */
+function ownProse(text: string): string {
+  let fenced = false;
+  return text.split(/\r?\n/).filter((line) => {
+    if (/^\s*(?:```|~~~)/.test(line)) { fenced = !fenced; return false; }
+    return !fenced && !/^\s*>/.test(line);
+  }).join('\n').replace(/"[^"\n]*"|“[^”\n]*”/g, ' ');
+}
+
+/** When unsure, nothing: a clause with any negation, or text after the items that is not another item, yields no note. */
 export function supersedeNotes(text: string): SupersedeNote[] {
-  return [...text.matchAll(NOTE)].flatMap((m) => {
-    const file = (m[2] ?? m[3] ?? '').split(/[#?]/)[0]!.replace(/\.+$/, '').replace(/^(?:\.{1,2}\/)+/, '').replace(/^\//, '');
-    if (!DOC_FILE.test(file)) return [];
-    const words = m[1]!.split(/[^A-Za-z0-9]+/).map((w) => w.toLowerCase()).filter((w) => w.length >= 4 && !FILLER.has(w));
-    return [{ file, words }];
-  });
+  const prose = ownProse(text);
+  const out: SupersedeNote[] = [];
+  for (const m of prose.matchAll(CLAUSE)) {
+    const rest = prose.slice(m.index + m[0].length);
+    const body = rest.slice(0, (/\.(?=\s|$)|\n/.exec(rest)?.index ?? rest.length) + 1);
+    if (NEGATION.test(body)) continue;
+    ITEM.lastIndex = 0;
+    for (let it = ITEM.exec(body); it; it = ITEM.exec(body)) {
+      const file = (it[2] ?? it[3] ?? '').split(/[#?]/)[0]!.replace(/\.+$/, '').replace(/^(?:\.{1,2}\/)+/, '').replace(/^\//, '');
+      if (!DOC_FILE.test(file)) break;
+      out.push({ file, words: it[1]!.split(/[^A-Za-z0-9]+/).map((w) => w.toLowerCase()).filter((w) => w.length >= 4 && !FILLER.has(w)) });
+    }
+  }
+  return out;
 }
 
 interface DocRow { id: string; sourceUrl: string; repo: string | null; text: string }
 
 const DOCS = `SELECT id, source_url AS sourceUrl, repo, title || char(10) || summary AS text FROM decisions WHERE platform = 'docs' AND source_url IS NOT NULL`;
 
-/** A whole path segment, as stored: "docs/OLD-CLAUDE.md" is not "CLAUDE.md". */
-const inFile = (r: DocRow, file: string): boolean => r.sourceUrl.split(/[#?]/)[0]!.endsWith(`/${file}`);
-/** Same repository, or one side names none (a local file): the scoping every other read here gives an unattributed row. */
-const sameRepo = (a: string | null, b: string | null): boolean => a === null || b === null || a === b;
+/** A whole path segment, any case ("claude.md" names CLAUDE.md): "docs/OLD-CLAUDE.md" is not "CLAUDE.md". */
+const inFile = (r: DocRow, file: string): boolean => r.sourceUrl.split(/[#?]/)[0]!.toLowerCase().endsWith(`/${file.toLowerCase()}`);
+/** The same repository, or both unattributed. One side naming none is NOT a match: a local file says nothing about a repository's. */
+const sameRepo = (a: string | null, b: string | null): boolean => a === b;
 
 /**
  * The rows of the note's file it can mean: those holding a rule word (any case), else the file's
@@ -65,7 +86,10 @@ const sameRepo = (a: string | null, b: string | null): boolean => a === null || 
  */
 function targetsOf(note: SupersedeNote, docs: DocRow[], source: DocRow): string[] {
   const rows = docs.filter((r) => r.id !== source.id && inFile(r, note.file) && sameRepo(r.repo, source.repo));
-  const named = rows.filter((r) => note.words.some((w) => new RegExp(`\\b${w}\\b`, 'i').test(r.text)));
+  const score = (r: DocRow) => new Set(note.words.filter((w) => new RegExp(`\\b${w}\\b`, 'i').test(r.text))).size;
+  const scored = rows.map((r) => ({ r, n: score(r) }));
+  const best = Math.max(0, ...scored.map((x) => x.n));
+  const named = scored.filter((x) => best > 0 && x.n === best).map((x) => x.r);
   return (named.length ? named : rows.length === 1 ? rows : []).map((r) => r.id);
 }
 
@@ -100,6 +124,19 @@ export function linkPartialSupersessions(db: DatabaseSync, id: string): void {
 export function partialSupersessorsOf(db: DatabaseSync, targetId: string): string[] {
   if (!hasPartialSupersessionTable(db)) return [];
   return (db.prepare(
-    `SELECT s.id AS id FROM decision_partial_supersessions p JOIN decisions s ON s.id = p.source_id WHERE p.target_id = ? ORDER BY s.created_at DESC, s.id`,
+    `SELECT s.id AS id FROM decision_partial_supersessions p JOIN decisions s ON s.id = p.source_id WHERE p.target_id = ? ORDER BY s.created_at DESC, s.rowid DESC`,
   ).all(targetId) as Array<{ id: string }>).map((r) => r.id);
+}
+
+/**
+ * A row of `url`'s file is gone: redo the resolution of every decision naming that file, so a link
+ * that rested on the single-row fallback or on the deleted row does not go stale.
+ */
+export function relinkNamersOfFile(db: DatabaseSync, url: string | null): void {
+  if (url === null || !hasPartialSupersessionTable(db)) return;
+  const namers = (db.prepare(`SELECT id, source_url AS sourceUrl, repo, title || char(10) || summary AS text FROM decisions WHERE platform = 'docs' AND (title LIKE '%supersede%' OR summary LIKE '%supersede%')`).all() as unknown as DocRow[])
+    .filter((o) => supersedeNotes(o.text).some((n) => inFile({ sourceUrl: url } as DocRow, n.file)));
+  if (namers.length === 0) return;
+  const docs = db.prepare(DOCS).all() as unknown as DocRow[];
+  for (const o of namers) relink(db, o, docs);
 }

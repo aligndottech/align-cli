@@ -962,13 +962,12 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
         // the old rule is never shown alone. Added past the retrieval cap of 5, at most one per such row.
         const shown = new Set(candidates.map(c => c.id));
         // Visible under this check's own scope (repo and connector unit), like any row it returns; a tag never names
-        // a decision the search could not show. Only the LIST also drops what the other rows drop: a decision marked
-        // not-a-decision, or one itself replaced. The old row keeps its tag either way.
+        // a decision the search could not show, nor one marked not-a-decision or itself replaced. The newest decision
+        // left after those filters is the one named and listed; none left means no tag.
         const inScope = (r: NonNullable<ReturnType<typeof db.getDecisionById>>) => unitVisible(r.scopeUnit, dbFilter.scopeRestrict)
           && (dbFilter.repo === undefined || r.repo === dbFilter.repo || (r.repo === null && !!dbFilter.includeUnattributed));
-        const partial = new Map(candidates.map(c => [c.id, db.partialSupersessors(c.id).filter(inScope)] as const));
-        const replacers = [...partial.values()].flatMap(rows => rows.slice(0, 1))
-          .filter(r => !hidden.has(r.id) && !db.isSuperseded(r.id) && !shown.has(r.id) && shown.add(r.id));
+        const partial = new Map(candidates.map(c => [c.id, db.partialSupersessors(c.id).filter(r => inScope(r) && !hidden.has(r.id) && !db.isSuperseded(r.id)).slice(0, 1)] as const));
+        const replacers = [...partial.values()].flat().filter(r => !shown.has(r.id) && shown.add(r.id));
         return {
           status: 'retrieved',
           confidence: Math.max(...candidates.map(c => c.score)),

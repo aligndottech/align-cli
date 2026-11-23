@@ -21,6 +21,7 @@ vi.mock('../lib/local-relationship-classifier.js', () => ({
 }));
 
 import { buildRelatedOutput } from '../commands/check.js';
+import { deleteDecisionWithDependents } from '../lib/local-db-migrate.js';
 import { applyJudgement } from '../lib/curation/mark.js';
 import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
 
@@ -204,12 +205,30 @@ describe('6. rows of another repository are never linked', () => {
     execFileSync('git', ['init', '-q'], { cwd: dir });
     execFileSync('git', ['remote', 'add', 'origin', 'https://github.com/acme/app.git'], { cwd: dir });
     const c = client();
-    // The rules row names no repository (a local file), so it is in scope; the ADR belongs to another repository.
-    const [, rulesId] = await ingest(c, note('Supersedes the REST rule in CLAUDE.md.', 'other/svc'), { source_url: 'file:///work/CLAUDE.md#rules', title: 'Rules', raw_text: '- Use REST routes.' });
-    expect(storedLinks()).toBe(1);
+    const [, rulesId] = await ingest(c, note('Supersedes the REST rule in CLAUDE.md.', 'other/svc'), dated('Rules', '- Use REST routes.'));
+    expect(storedLinks()).toBe(0);
     const res = await c.checkAlignment('app.get("/users", handler)', undefined, { depth: 'related' });
     expect(res.relevant_decisions.map((d) => d.id)).toEqual([rulesId]);
     expect(res.relevant_decisions[0]!.partly_replaced_by).toBeUndefined();
+  });
+});
+
+describe('6b. an unattributed row is not a wildcard', () => {
+  const local = (title: string, text: string): Item => ({ source_url: `file:///work/${title}/CLAUDE.md`, title, raw_text: text });
+  it('a local ADR does not link a repository row of the same file name', async () => {
+    const c = client();
+    await ingest(c, adr('Supersedes the REST rule in CLAUDE.md.', 'ADR local', 'file:///work/adr/0004.md'), dated('Rules', '- Use REST routes.', 'CLAUDE.md', 'orgb/svc'));
+    expect(storedLinks()).toBe(0);
+  });
+  it('a repository ADR does not link a local row', async () => {
+    const c = client();
+    await ingest(c, note('Supersedes the REST rule in CLAUDE.md.', 'orgb/svc'), local('rules', '- Use REST routes.'));
+    expect(storedLinks()).toBe(0);
+  });
+  it('two unattributed rows still link', async () => {
+    const c = client();
+    await ingest(c, adr('Supersedes the REST rule in CLAUDE.md.', 'ADR local', 'file:///work/adr/0004.md'), local('rules', '- Use REST routes.'));
+    expect(storedLinks()).toBe(1);
   });
 });
 
@@ -297,23 +316,38 @@ describe('11. a file name matches a whole path segment', () => {
   });
 });
 
-describe('12. the listed ADR passes the same filters as any row', () => {
-  it('a superseded ADR is not appended, and the old row is still tagged', async () => {
+describe('12. a hidden or replaced ADR is neither listed nor named', () => {
+  const me = { judgeId: 'me', judgeLabel: null };
+  it('a superseded ADR is not appended and the old row carries no tag', async () => {
     const c = client({ judgeId: 'me' });
     const [adrId, rowId, newer] = await ingest(c, adr(), claude(), { source_url: 'https://github.com/acme/app/blob/main/docs/adr/0009.md', title: 'ADR 0009', raw_text: 'Supersedes nothing at all here.' });
-    applyJudgement({ dbPath, judge: { judgeId: 'me', judgeLabel: null }, origin: { via: 'cli' } }, { action: 'replaces', newer: newer!, older: adrId! });
+    applyJudgement({ dbPath, judge: me, origin: { via: 'cli' } }, { action: 'replaces', newer: newer!, older: adrId! });
     const res = await c.checkAlignment('app.get("/users", handler)', undefined, { depth: 'related' });
     expect(res.relevant_decisions.map((d) => d.id)).toEqual([rowId]);
-    expect(res.relevant_decisions[0]!.partly_replaced_by).toHaveLength(1);
+    expect(res.relevant_decisions[0]!.partly_replaced_by).toBeUndefined();
   });
 
-  it('a decision marked not-a-decision is not appended, and the old row is still tagged', async () => {
+  it('a not-a-decision ADR is not appended and the old row carries no tag', async () => {
     const c = client({ judgeId: 'me' });
     const [adrId, rowId] = await ingest(c, adr(), claude());
-    applyJudgement({ dbPath, judge: { judgeId: 'me', judgeLabel: null }, origin: { via: 'cli' } }, { action: 'not-a-decision', id: adrId! });
+    applyJudgement({ dbPath, judge: me, origin: { via: 'cli' } }, { action: 'not-a-decision', id: adrId! });
     const res = await c.checkAlignment('app.get("/users", handler)', undefined, { depth: 'related' });
     expect(res.relevant_decisions.map((d) => d.id)).toEqual([rowId]);
-    expect(res.relevant_decisions[0]!.partly_replaced_by).toHaveLength(1);
+    expect(res.relevant_decisions[0]!.partly_replaced_by).toBeUndefined();
+  });
+
+  it.each(['not-a-decision', 'replaced'])('when the newest ADR is %s, the older valid one is listed and named', async (how) => {
+    const c = client({ judgeId: 'me' });
+    const older = adr('Supersedes the REST rule in CLAUDE.md.', 'ADR 0004: GraphQL', 'https://github.com/acme/app/blob/main/docs/adr/0004.md');
+    const newer = adr('Supersedes the REST rule in CLAUDE.md.', 'ADR 0008: gRPC', 'https://github.com/acme/app/blob/main/docs/adr/0008.md');
+    const last = { source_url: 'https://github.com/acme/app/blob/main/docs/adr/0010.md', title: 'ADR 0010', raw_text: 'Unrelated.' };
+    const [oldId, newId, rowId, lastId] = await ingest(c, older, newer, claude(), last);
+    applyJudgement({ dbPath, judge: me, origin: { via: 'cli' } }, how === 'replaced' ? { action: 'replaces', newer: lastId!, older: newId! } : { action: 'not-a-decision', id: newId! });
+    const res = await c.checkAlignment('app.get("/users", handler)', undefined, { depth: 'related' });
+    const ids = res.relevant_decisions.map((d) => d.id);
+    expect(ids).toContain(oldId);
+    expect(ids).not.toContain(newId);
+    expect(res.relevant_decisions.find((d) => d.id === rowId)!.partly_replaced_by).toEqual([{ id: oldId, title: 'ADR 0004: GraphQL' }]);
   });
 });
 
@@ -336,5 +370,94 @@ describe('13. ingest does not rescan the docs rows when nothing says "supersede"
     const n = scans(spy);
     spy.mockRestore();
     expect(n).toBeGreaterThan(0);
+  });
+});
+
+describe('14. only a clause that starts with the verb counts', () => {
+  it.each([
+    'ADR 2 said "Supersedes the REST rule in CLAUDE.md" but never applied it.',
+    'ADR 2 says it supersedes the logging rule in CLAUDE.md, which we now reverse.',
+    'Previously, ADR 3 Supersedes the logging rule in CLAUDE.md.',
+    '> Supersedes the REST rule in CLAUDE.md.',
+    '\n```\nSupersedes the REST rule in CLAUDE.md.\n```',
+    'It does not supersedes the REST rule in CLAUDE.md.',
+    'Supersedes the REST rule in CLAUDE.md, but not the logging rule.',
+    'We said \u201cSupersedes the REST rule in CLAUDE.md\u201d once.',
+    'Supersedes the REST rule in CLAUDE.md no longer.',
+  ])('%s links nothing', async (text) => {
+    const c = client();
+    await ingest(c, note(text), dated('Rules', '- Use REST routes and logging.'));
+    expect(storedLinks()).toBe(0);
+  });
+
+  it.each([
+    '- Supersedes the REST rule in CLAUDE.md.',
+    'This ADR supersedes the REST rule in CLAUDE.md.',
+    '1. Supersedes the REST rule in CLAUDE.md',
+  ])('%s still links', async (text) => {
+    const c = client();
+    await ingest(c, note(text), dated('Rules', '- Use REST routes.'));
+    expect(storedLinks()).toBe(1);
+  });
+});
+
+describe('15. the common ADR header styles', () => {
+  it.each([
+    'Supersedes: the REST rule in CLAUDE.md',
+    '- **Supersedes** the REST rule in CLAUDE.md',
+    '**Supersedes:** the REST rule in CLAUDE.md',
+    'Supersedes the REST rule in the CLAUDE.md file.',
+    'Supersedes the REST rule in claude.md.',
+    'Supersedes ADR 0002 and the REST rule in CLAUDE.md.',
+  ])('%s', async (text) => {
+    const c = client();
+    await ingest(c, note(text), dated('Rules', '- Use REST routes.'));
+    expect(storedLinks()).toBe(1);
+  });
+
+  it.each([
+    ['Supersedes the REST rule in CLAUDE.md and the logging rule in AGENTS.md.'],
+    ['Supersedes the REST rule in CLAUDE.md, and the logging rule in AGENTS.md'],
+  ])('%s gives two links', async (text) => {
+    const c = client();
+    await ingest(c, note(text), dated('Rules', '- Use REST routes.'), dated('Style', '- Keep logging structured.', 'AGENTS.md'));
+    expect(storedLinks()).toBe(2);
+  });
+});
+
+describe('16. the rows that hold most of the rule words win', () => {
+  it.each([
+    ['Supersedes the code style rule in CLAUDE.md.', 'Code style: tabs.', 'Review code weekly.'],
+    ['Supersedes the REST route rule in CLAUDE.md.', 'REST route naming.', 'Use REST clients in tests.'],
+  ])('%s', async (sentence, best, other) => {
+    const c = client();
+    const [hit, miss] = await ingest(c, dated('A', best), dated('B', other), note(sentence));
+    expect(storedLinks()).toBe(1);
+    expect(await partlyBy(c, hit!, 'use')).toHaveLength(1);
+    expect(await partlyBy(c, miss!, 'use')).toBeUndefined();
+  });
+
+  it('rows tied on the best score all link', async () => {
+    const c = client();
+    await ingest(c, dated('A', 'Code style: tabs.'), dated('B', 'Code style: spaces.'), note('Supersedes the code style rule in CLAUDE.md.'));
+    expect(storedLinks()).toBe(2);
+  });
+});
+
+describe('17. a deleted row re-resolves the ADRs naming its file', () => {
+  it.each([
+    ['Supersedes the REST rule in CLAUDE.md.', '- Use REST routes.', '- Use moment.'],
+    ['Supersedes the Jest rule in CLAUDE.md.', '- Use Jest.', '- Use dayjs.'],
+  ])('%s', async (sentence, wanted, other) => {
+    const c = client();
+    const [matching, fallback] = await ingest(c, dated('B', wanted), dated('A', other), note(sentence));
+    expect(await partlyBy(c, matching!, 'use')).toHaveLength(1);
+    c.close();
+    opened.pop();
+    const raw = new DatabaseSync(dbPath);
+    deleteDecisionWithDependents(raw, matching!);
+    raw.close();
+    const again = client();
+    expect(await partlyBy(again, fallback!, 'use')).toHaveLength(1); // now the file's only row
   });
 });
