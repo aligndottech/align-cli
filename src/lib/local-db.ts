@@ -10,6 +10,7 @@ import { createLexicalStore, type LexicalStore } from './lexical-store.js';
 import { foldKeylessTwin } from './local-db-v7.js';
 import { insertLinkRow as writeLinkRow } from './local-link-write.js';
 import { linkByReference } from './local-ref-links.js';
+import { linkPartialSupersessions, partialSupersessorsOf } from './local-partial-supersession.js';
 import { discussionStart } from './github-text.js';
 import { connectorItemKey, KEYED_PLATFORMS } from './source-key.js';
 import { alignConfigDir, ensurePrivateDir, precreatePrivateFile, tightenGraphFiles } from './private-files.js';
@@ -830,6 +831,16 @@ export function createLocalDb(dbPath: string) {
      */
     resolveRefs(newDecisionId: string, candidates: Array<{ ref: string; platform: string }>, ownRefs?: Array<{ ref: string; platform: string }>): void {
       linkByReference(db, newDecisionId, candidates, ownRefs);
+    },
+
+    /** Record "Supersedes ... in <file>" sentences, both ways. local-partial-supersession.ts has why it is not a `supersedes` link. */
+    linkPartialSupersessions(decisionId: string): void {
+      linkPartialSupersessions(db, decisionId);
+    },
+
+    /** Decisions that say they replace part of this one, newest first. */
+    partialSupersessors(decisionId: string): DecisionRow[] {
+      return partialSupersessorsOf(db, decisionId).flatMap((id) => api.getDecisionById(id) ?? []);
     },
 
     /**

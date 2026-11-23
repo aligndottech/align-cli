@@ -1020,6 +1020,13 @@ function replacedNote(d: RelatedDecision): string {
   return d.successor?.title ? ` (replaced by: ${safeTitle(d.successor.title)})` : ' (replaced)';
 }
 
+// A decision that replaces one rule in this row, not all of it: the row stays in force for the rest, so this is a
+// tag and never the "(replaced)" mark. The replacing decision is listed beside it by the local client.
+function partlyReplacedNote(d: RelatedDecision): string {
+  const by = d.partly_replaced_by?.[0]?.title;
+  return by ? ` (partly replaced by: ${safeTitle(by)})` : '';
+}
+
 // A later decision on the same topic, said the way align_ask says it. Only the id is shown: the title is one lookup away.
 function laterNote(d: RelatedDecision): string {
   const id = d.later_on_topic?.[0]?.id;
@@ -1095,7 +1102,7 @@ function decisionBullets(decisions: RelatedDecision[], budget: { left: number },
   return newestFirst(decisions).flatMap((d) => {
     const excerpt = excerptOf(d, budget.left, focus);
     budget.left -= excerpt.length;
-    const head = `- ${dateTag(d)}${safeTitle(d.title)}${replacedNote(d)}${laterNote(d)}${authorNote(d)}${stalenessNote(d, now)}${reviewByNote(d, now)}`;
+    const head = `- ${dateTag(d)}${safeTitle(d.title)}${replacedNote(d)}${partlyReplacedNote(d)}${laterNote(d)}${authorNote(d)}${stalenessNote(d, now)}${reviewByNote(d, now)}`;
     return excerpt ? [head, `  ${excerpt}`] : [head];
   });
 }
