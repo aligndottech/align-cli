@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.92.0](https://github.com/aligndottech/align-cli/compare/cli-v0.91.0...cli-v0.92.0) (2026-11-23)
+
+
+### Features
+
+* **docs:** find ADR directories by name anywhere in the repo, and say which were read ([#709](https://github.com/aligndottech/align-cli/issues/709)) ([e30dca6](https://github.com/aligndottech/align-cli/commit/e30dca6f8264c2416903ad8f2723cd885c9aefa3))
+* **docs:** import a list of agent rules as one decision per rule ([#712](https://github.com/aligndottech/align-cli/issues/712)) ([fede8fd](https://github.com/aligndottech/align-cli/commit/fede8fd4f4511c56537e872cc57210f342827a01))
+* **hook:** ask retrieval a second question built from the edit's own words ([#707](https://github.com/aligndottech/align-cli/issues/707)) ([47af31d](https://github.com/aligndottech/align-cli/commit/47af31dc752dd637e19226a786bfd598788b7c98))
+* **local:** note when an ADR replaces one rule in another file ([#706](https://github.com/aligndottech/align-cli/issues/706)) ([f91fe18](https://github.com/aligndottech/align-cli/commit/f91fe18b14282a81157baabd40bd1e79237951d0))
+
+
+### Bug Fixes
+
+* **capture:** drop changelog and readme sync commits; name nvm in the Node floor message ([#710](https://github.com/aligndottech/align-cli/issues/710)) ([4126599](https://github.com/aligndottech/align-cli/commit/412659967d9899625a014aeea015ddad7a7535bc))
+* **check:** flag known secret shapes in the diff and the edit hook; keep public key fingerprints ([#711](https://github.com/aligndottech/align-cli/issues/711)) ([ab22154](https://github.com/aligndottech/align-cli/commit/ab22154a1cef5da9346d5b472e5f38dd80f97dd4))
+* **check:** the edit hook does not check files outside the repo it runs in ([#699](https://github.com/aligndottech/align-cli/issues/699)) ([1eb2d3b](https://github.com/aligndottech/align-cli/commit/1eb2d3ba541b409da12d24d6339a7d04880faa5e))
+* **check:** the edit hook ranks with the stored keyword index, not the dense order alone ([#702](https://github.com/aligndottech/align-cli/issues/702)) ([15e8cc3](https://github.com/aligndottech/align-cli/commit/15e8cc3a83880a7d8b2dd2b434d3c8da3f0b71d8))
+* **docs:** read ADRs from docs/architecture-decisions ([#697](https://github.com/aligndottech/align-cli/issues/697)) ([af4e601](https://github.com/aligndottech/align-cli/commit/af4e601c9008a9023c73c4f6e7554113b1095d10))
+* **git:** a port in a remote URL is not part of the repo ([#700](https://github.com/aligndottech/align-cli/issues/700)) ([b873d78](https://github.com/aligndottech/align-cli/commit/b873d78d42385f1af5d72fe726855622c36799d7))
+* **local:** turn off the embedding runtime's own telemetry, which aborted exits with 134 ([#701](https://github.com/aligndottech/align-cli/issues/701)) ([d33e76c](https://github.com/aligndottech/align-cli/commit/d33e76cac215c648ef7e14c063d37e0c1234a6fd))
+* **sessions:** free-text candidates come from typed turns, and "let's" counts before any verb ([#703](https://github.com/aligndottech/align-cli/issues/703)) ([3ae61b6](https://github.com/aligndottech/align-cli/commit/3ae61b6b929dfab8cd9dbe10e3bd1626f1e1084c))
+* **setup:** write Cursor's rule as align.mdc so Cursor loads it ([#705](https://github.com/aligndottech/align-cli/issues/705)) ([810bdcf](https://github.com/aligndottech/align-cli/commit/810bdcf87022eab8d7d445caa6ab5ef38b325d0b))
+* **up:** make DECISIONS.md read as a decision list and stop it feeding back into the next run ([#708](https://github.com/aligndottech/align-cli/issues/708)) ([a3ccd7a](https://github.com/aligndottech/align-cli/commit/a3ccd7ac7a64811cff32d20ba439aa8499cf9b3a))
+
+
+### Performance Improvements
+
+* **sessions:** locating a project's sessions reads each transcript's opening lines, not the whole file ([#704](https://github.com/aligndottech/align-cli/issues/704)) ([e7056c9](https://github.com/aligndottech/align-cli/commit/e7056c964e895d86f7c55beb85020cda151f2975))
+
 ## [0.91.0](https://github.com/aligndottech/align-cli/compare/cli-v0.90.0...cli-v0.91.0) (2026-11-20)
 
 
