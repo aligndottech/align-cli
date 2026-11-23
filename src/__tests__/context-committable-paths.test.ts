@@ -124,3 +124,20 @@ describe('a failed write leaves no temporary file behind to be committed', () =>
     expect(fs.readdirSync(path.join(repo, '.align')).filter((f) => f.includes('align-tmp'))).toEqual([]);
   });
 });
+
+describe('a section over 30 rules', () => {
+  it('still lets the committed DECISIONS.md be written: the overflow row is graph-only', async () => {
+    const { fetchDocsItems } = await import('../lib/fetchers/docs.js');
+    const { selectForFile } = await import('../lib/context-from-graph.js');
+    git('remote', 'add', 'origin', 'https://github.com/acme/api.git');
+    put('AGENTS.md', `## Big rules\n\n${Array.from({ length: 35 }, (_, i) => `- Never touch file number ${i} directly.`).join('\n')}\n`);
+    git('add', '.'); commit();
+    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
+    expect(items).toHaveLength(31);
+    // The graph stores 80 characters of a title and the whole text as the summary.
+    const rows = items.map((i) => ({ title: (i.title ?? '').slice(0, 80), platform: 'docs', summary: i.raw_text, source_url: i.source_url }));
+    const picked = selectForFile(rows, 40);
+    expect(picked.decisions).toHaveLength(30);
+    expect(committableFromRepo(picked.selected.map((r) => ({ platform: r.platform ?? '', title: r.title, source_url: r.source_url })), repo)).toBe(true);
+  }, 30_000);
+});

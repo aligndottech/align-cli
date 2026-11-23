@@ -45,7 +45,7 @@ export function secretsIn(text: string): string[] {
     // A build fingerprint or digest is not a credential (see isBuildIdentifier), so judge every match, not the first.
     const all = new RegExp(c.re.source, 'gi');
     for (let m = all.exec(text); m; m = all.exec(text)) {
-      if (!DIGEST.test(m[0]) && !isBuildIdentifier(m[0])) { found.push(c.placeholder); break; }
+      if (!DIGEST.test(m[0]) && !isBuildIdentifier(m[0]) && !isPublicFingerprint(text, m.index)) { found.push(c.placeholder); break; }
     }
   }
   // The bare AWS secret shape is only a secret near the word "aws", exactly as the server decides.
@@ -136,12 +136,49 @@ const isBuildIdentifier = (match: string): boolean => {
   return ID_LABEL.test(label) && !CREDENTIAL_WORD.test(label) && HEX_ID.test(match.slice(i + 1));
 };
 
+/**
+ * An OpenSSH key fingerprint, `SHA256:` then exactly 43 base64 characters (what `ssh-keygen -l` prints and commit
+ * signature notes quote), is a hash of a PUBLIC key. Judged on the text at the match, not on the match: the base64
+ * alphabet has `/`, which ends the generic pattern's match early. Any other length, or any other label, is not this.
+ * It is exempt only as an EXACT token: if more value characters run on after the 43 (`_`, `-`, `.` and a letter,
+ * `=`), the whole match is not a fingerprint and is redacted, so a secret cannot ride behind one.
+ */
+const SSH_FINGERPRINT = /^sha256:[A-Za-z0-9+/]{43}(?![A-Za-z0-9+/=_-])(?!\.[A-Za-z0-9])/i;
+const isPublicFingerprint = (text: string, offset: number): boolean => SSH_FINGERPRINT.test(text.slice(offset));
+
+export interface SecretMatch { placeholder: string; match: string }
+
+/**
+ * Every span the list would rewrite, each judged independently on the original text (redactSecrets applies them in
+ * sequence). The caller decides which kinds matter. Never log or return the `match` of a real finding.
+ */
+const MATCHERS = REWRITES.map((w) => ({ w, re: new RegExp(w.re.source, w.re.flags) }));
+export function secretMatches(text: string): SecretMatch[] {
+  const out: SecretMatch[] = [];
+  for (const { w, re } of MATCHERS) {
+    re.lastIndex = 0;
+    for (let m = re.exec(text); m; m = re.exec(text)) {
+      if (m[0] === '') { re.lastIndex += 1; continue; }
+      if (w.replacement === '<CREDENTIALS>' && (DIGEST.test(m[0]) || isBuildIdentifier(m[0]) || isPublicFingerprint(text, m.index))) continue;
+      out.push({ placeholder: placeholderOf(w.replacement), match: m[0] });
+    }
+  }
+  return out;
+}
+
+/** The bare 40-character AWS secret shape, which is a secret only with a label (see the pre-check). */
+export const AWS_BARE_SECRET = new RegExp(patterns.aws_bare_secret, 'g');
+
 export function redactSecrets(text: string): Redaction {
   let count = 0;
   let out = text;
   for (const w of REWRITES) {
     out = out.replace(w.re, (...args: unknown[]) => {
-      if (w.replacement === '<CREDENTIALS>' && (DIGEST.test(args[0] as string) || isBuildIdentifier(args[0] as string))) return args[0] as string;
+      if (w.replacement === '<CREDENTIALS>') {
+        const offset = args.find((a, i) => i > 0 && typeof a === 'number') as number;
+        const whole = args[args.length - 1] as string;
+        if (DIGEST.test(args[0] as string) || isBuildIdentifier(args[0] as string) || isPublicFingerprint(whole, offset)) return args[0] as string;
+      }
       count += 1;
       // replace() passes the match, then each capture group, then the offset (the first number).
       const groups = args.slice(1, args.findIndex((a, i) => i > 0 && typeof a === 'number'));
