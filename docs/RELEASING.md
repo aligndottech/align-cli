@@ -101,8 +101,16 @@ plugin directory rejects `@latest`. The pin is the last **promoted** release, ne
 stages: an exact pin ignores dist-tags, so bumping it in the release PR would hand plugin users a
 version still on `next`, before E2E has passed. release-please updates only the plugin's `version` field.
 
-After `promote-release.yml` succeeds and `npm view @aligndottech/cli dist-tags.latest` shows the new
-version, move the pin on a branch off main and merge it as its own PR:
+`promote-release.yml` moves the pin itself. Its `plugin-pin` job runs after the promote job, checks
+that `npm view @aligndottech/cli dist-tags.latest` is the promoted version, runs
+`scripts/sync-plugin-version.mjs`, and opens a `chore(plugin): pin ...` PR with the release-bot app
+token. Merge that PR. It runs only from the default branch, skips when latest has moved past the
+promoted version or the pin is already current, and a re-run force-updates its own `chore/plugin-pin-X.Y.Z`
+branch, so a closed PR or a failed `gh pr create` can be retried. If two releases promote before the first
+pin PR merges, close the older PR. This was a manual step until 0.92.0, and the pin sat at 0.83.2
+for nine releases.
+
+If the job fails, do it by hand on a branch off main:
 
 ```bash
 npm run sync-plugin-version     # rewrites the pins to npm's latest dist-tag, never package.json
