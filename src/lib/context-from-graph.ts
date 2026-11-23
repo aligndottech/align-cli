@@ -131,21 +131,34 @@ function wholeTitle(title: string, summary: string | undefined): string {
 
 /**
  * A docs row that is one rule of a list (fetchers/docs-rule-list.ts) has the rule as its title, and the graph keeps 80
- * characters of that. Its summary starts with the whole rule, so the file prints the rule and not a stump.
+ * characters of that. Its summary starts with the whole rule, so the file prints the rule and not a stump. Only a
+ * rule row is touched: its summary ends with the marker the importer writes, which an ADR or a heading never has.
  */
 const RULE_TITLE_CAP = 300;
-function wholeRuleTitle(r: ListedDecision): string {
-  if (r.title.length < TITLE_CUT_AT) return r.title;
-  const first = (r.summary ?? '').split('\n')[0]!.trim();
-  return first.startsWith(r.title) && first.length <= RULE_TITLE_CAP ? first : r.title;
+const RULE_MARKER = /\n\nFrom the ".+" section\.\s*$/;
+export const isRuleRow = (r: ListedDecision): boolean => r.platform === 'docs' && RULE_MARKER.test(r.summary ?? '');
+function displayRuleTitle(r: ListedDecision): string {
+  if (!isRuleRow(r)) return r.title;
+  // Emphasis markers are for the source file; the generated file is read as plain text.
+  const first = (r.summary ?? '').split('\n')[0]!.replace(/\*\*|__/g, '').trim();
+  return first.length > RULE_TITLE_CAP ? `${first.slice(0, RULE_TITLE_CAP).trimEnd()}...` : first;
 }
+
+/** Rule rows may take this share of the file, so commits, PRs and ADRs keep room in a repo with one long rule list. */
+const RULE_SHARE_OF_CAP = 2 / 3;
 
 /** Hidden from the file only (never from capture): a subject that names a package with strong evidence. */
 const isFileBump = (r: ListedDecision): boolean => CODE_PLATFORMS.has(r.platform ?? '') && isDependencyBumpSubject(r.title.replace(FEAT_PREFIX, ''));
 
 export function selectForFile(rows: ListedDecision[], limit: number): { decisions: ContextDecision[]; leftOut: number; selected: ListedDecision[] } {
-  const rules = rows.filter((r) => r.platform === 'docs');
-  const keptRules = rules.slice(0, limit).map((r) => ({ ...r, title: wholeRuleTitle(r) }));
+  const docs = rows.filter((r) => r.platform === 'docs');
+  // A section imported whole by an older version, now imported as one row per rule: the whole-section row would print
+  // beside its own rules. Hide it from the file (it stays in the graph). A rule that was REWORDED gets a new row and the
+  // old wording stays too: known limit, the importer cannot tell a reword from a new rule.
+  const ruleUrls = docs.filter(isRuleRow).map((r) => r.source_url ?? '');
+  const stale = docs.filter((r) => !isRuleRow(r) && r.source_url && r.source_url.includes('#') && ruleUrls.some((u) => u.startsWith(`${r.source_url}--`)));
+  const rules = docs.filter((r) => !stale.includes(r));
+  const keptRules = rules.slice(0, Math.floor(limit * RULE_SHARE_OF_CAP));
   // Merge repeats and hide reversals BEFORE the cap and the counts, so the cap keeps the newest decisions
   // (not the first N in graph order) and every number describes what the file shows.
   const sourceOf = new Map<ContextDecision, ListedDecision>();
@@ -165,7 +178,8 @@ export function selectForFile(rows: ListedDecision[], limit: number): { decision
     .map((x) => x.t);
   const keptChoices = tidied.slice(0, Math.max(0, limit - keptRules.length));
   const decisions = [
-    ...keptRules.map((r) => ({ ...contextDecisionOf(r), kind: 'rule' as const })),
+    // `selected` keeps the stored rows: the committed-file check reads their titles as the importer wrote them.
+    ...keptRules.map((r) => ({ ...contextDecisionOf({ ...r, title: displayRuleTitle(r) }), kind: 'rule' as const })),
     ...keptChoices.map(({ orig: _orig, ...d }) => d),
   ];
   // What is not in the file because it is not an item at all (a dependency bump) or is folded into a listed one is not "left out".
@@ -173,7 +187,7 @@ export function selectForFile(rows: ListedDecision[], limit: number): { decision
   const folded = choices.length - tidied.length;
   return {
     decisions,
-    leftOut: rows.length - bumps - folded - decisions.length,
+    leftOut: rows.length - bumps - folded - stale.length - decisions.length,
     // The source rows of what is written, so a caller can judge those and not the ones left out.
     selected: [...keptRules, ...keptChoices.map((t) => sourceOf.get(t.orig!)!)],
   };

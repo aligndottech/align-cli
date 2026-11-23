@@ -9,8 +9,9 @@
  *  - it holds a bulleted or numbered list of at least MIN_RULES top-level items;
  *  - nothing but a short intro (and `###` group headings) sits outside the list, so a prose
  *    paragraph, before or after the list, keeps the section whole;
- *  - at least 80% of the items open with an imperative or a modal ("Never ...", "Use ...",
- *    "Do not ..."), so a list of links, files or examples keeps the section whole.
+ *  - it is a bulleted list, never a numbered one (numbered lists are install steps and procedures);
+ *  - at least 60% of the items carry a modal or a negation (never, always, must, do not, should, avoid, prefer,
+ *    only, require), so a list of commands, options, links or changelog lines keeps the section whole.
  * Indented continuation lines and sub-bullets stay with their parent rule.
  */
 export interface SplitRule {
@@ -24,38 +25,39 @@ export interface SplitRule {
 
 export const MIN_RULES = 3;
 export const MAX_RULES_PER_SECTION = 30;
-const MAX_INTRO_CHARS = 300;
+export const MAX_INTRO_CHARS = 300;
+/** The share of items that must state an obligation or a prohibition. 3 of 5 splits, 4 of 7 does not. */
+export const MODAL_SHARE = 0.6;
 
-const MARKER = /^([-*+]|\d{1,3}[.)])\s+(\S.*)$/;
-const IMPERATIVE = new RegExp(
-  `^(?:${[
-    'never', 'always', 'do', "don't", 'dont', 'must', 'should', 'shall', 'no', 'only', 'avoid', 'prefer', 'use', 'keep', 'ask',
-    'run', 'write', 'add', 'make', 'ensure', 'require', 'commit', 'push', 'check', 'follow', 'put', 'name', 'create', 'update',
-    'delete', 'remove', 'read', 'test', 'document', 'review', 'open', 'stop', 'wait', 'confirm', 'verify', 'treat', 'store',
-    'pin', 'prefix', 'return', 'handle', 'log', 'set', 'limit', 'reuse', 'document', 'respect', 'explain', 'mention', 'include',
-    'surface', 'flag', 'fail', 'start', 'build', 'format', 'lint', 'validate', 'sanitize', 'escape', 'cite', 'link', 'tag',
-  ].join('|')})\\b`,
-  'i',
-);
+const MARKER = /^[-*+]\s+(\S.*)$/;
+const NUMBERED = /^\s*\d{1,3}[.)]\s/;
+const MODAL = /\b(?:never|always|must|do not|don't|dont|should|avoid|prefer|only|require[ds]?)\b/i;
 
 function clean(s: string): string {
   return s.replace(/\*\*|__/g, '').replace(/\s+/g, ' ').trim();
 }
 
+export interface RuleList {
+  rules: SplitRule[];
+  /** Rules past MAX_RULES_PER_SECTION, which are not kept. */
+  dropped: number;
+}
+
 /** Returns the rules, or null when the section is not a plain list of rules. */
-export function splitRuleList(body: string): SplitRule[] | null {
-  const lines = body.split('\n');
+export function splitRuleList(rawBody: string): RuleList | null {
+  const lines = rawBody.replace(/\r\n?/g, '\n').split('\n');
   const rules: Array<{ first: string; lines: string[]; group?: string }> = [];
   let intro = '';
   let group: string | undefined;
   let seenList = false;
   for (const line of lines) {
     if (!line.trim()) continue;
+    if (NUMBERED.test(line) && !/^\s{2,}/.test(line)) return null;
     const indented = /^\s{2,}\S|^\t/.test(line);
     const m = !indented ? line.match(MARKER) : null;
     if (m) {
       seenList = true;
-      rules.push({ first: m[2]!, lines: [m[2]!], ...(group ? { group } : {}) });
+      rules.push({ first: m[1]!, lines: [m[1]!], ...(group ? { group } : {}) });
       continue;
     }
     const h = line.match(/^###+\s+(.+)$/);
@@ -75,11 +77,14 @@ export function splitRuleList(body: string): SplitRule[] | null {
     return null;
   }
   if (!seenList || rules.length < MIN_RULES || intro.trim().length > MAX_INTRO_CHARS) return null;
-  const imperative = rules.filter((r) => IMPERATIVE.test(clean(r.first))).length;
-  if (imperative / rules.length < 0.8) return null;
-  return rules.slice(0, MAX_RULES_PER_SECTION).map((r) => ({
-    text: r.first.trim(),
-    full: r.lines.join('\n'),
-    ...(r.group ? { group: r.group } : {}),
-  }));
+  const modal = rules.filter((r) => MODAL.test(clean(r.first))).length;
+  if (modal / rules.length < MODAL_SHARE) return null;
+  return {
+    rules: rules.slice(0, MAX_RULES_PER_SECTION).map((r) => ({
+      text: r.first.trim(),
+      full: r.lines.join('\n'),
+      ...(r.group ? { group: r.group } : {}),
+    })),
+    dropped: Math.max(0, rules.length - MAX_RULES_PER_SECTION),
+  };
 }

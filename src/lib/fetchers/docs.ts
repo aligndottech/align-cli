@@ -10,6 +10,7 @@ import type { CoChangeRule } from '../co-change-rule.js';
 import {
   CHANGELOG_FILES, CONTRIBUTING_FILES, type DocKind, inferCoChangeRule, isRuleSection, isVersionedReleaseHeading, README_FILES, sectionBody,
 } from './docs-conventions.js';
+import { createHash } from 'node:crypto';
 import { splitRuleList } from './docs-rule-list.js';
 import { entryDate, findDecisionLogFiles, readLogFile, splitDecisionLog } from './docs-decision-log.js';
 
@@ -176,7 +177,7 @@ async function readAgentRulesItems(
   repoRoot: string,
   remoteUrl: string | null,
   branch: string,
-): Promise<{ items: PersonalImportItem[]; droppedShort: number; droppedRelease: number }> {
+): Promise<{ items: PersonalImportItem[]; droppedShort: number; droppedRelease: number; droppedRules: Array<{ section: string; count: number }> }> {
   const items: PersonalImportItem[] = [];
   // Headed sections the length floor dropped, so the capture report can name
   // them. The headingless preamble (an H1 line, an intro sentence) is not counted when it
@@ -184,6 +185,8 @@ async function readAgentRulesItems(
   let droppedShort = 0;
   // Release batch notes in project.md: history, counted so the report can say they were left out.
   let droppedRelease = 0;
+  // Rules past the per-section cap, so the capture report can name the section that lost them.
+  const droppedRules: Array<{ section: string; count: number }> = [];
   const seenReal = new Set<string>(); // a case-insensitive filesystem answers tenets.md and TENETS.md with one file
   for (const candidate of AGENT_RULES_FILES) {
     let raw: string;
@@ -203,7 +206,7 @@ async function readAgentRulesItems(
     } catch {
       continue; // file not present in this repo - not an error
     }
-    const stripped = stripAlignOwnedContent(raw);
+    const stripped = stripAlignOwnedContent(raw.replace(/\r\n?/g, '\n'));
     // Two `## Section` with the same text (a Database section under both a gateway and a
     // brain heading, say) would otherwise slugify to the same anchor and collide on
     // source_url, which is the dedup/identity key downstream - one of the two would be
@@ -227,19 +230,28 @@ async function readAgentRulesItems(
         seenSlugs.set(slug, seen + 1);
         anchor = `#${slug}${seen > 0 ? `-${seen + 1}` : ''}`;
       }
-      const rules = section.heading ? splitRuleList(withoutComments(section.body)) : null;
-      if (rules) {
+      const list = section.heading ? splitRuleList(withoutComments(section.body)) : null;
+      if (list) {
         // One decision per rule. The title is the rule as written (the privacy check for --out needs it verbatim in
-        // the committed file); the section travels in the text as context. The url is the section
-        // anchor plus the rule's own words, so a re-import of unchanged text lands on the same row.
-        const seenRules = new Map<string, number>();
-        for (const rule of rules) {
-          const ruleSlug = slugify(rule.text).slice(0, 60).replace(/-+$/, '');
-          const n = seenRules.get(ruleSlug) ?? 0;
-          seenRules.set(ruleSlug, n + 1);
+        // the committed file); the section travels in the text as context. The url is the section anchor plus the
+        // rule's own words, so a re-import of unchanged text lands on the same row. A rule that is REWORDED gets a new
+        // url and so a new row: the old one stays in the graph (known limit, not engineered around).
+        if (list.dropped > 0) droppedRules.push({ section: section.heading!, count: list.dropped });
+        const slugOf = (t: string): string => slugify(t).slice(0, 60).replace(/-+$/, '');
+        const slugCount = new Map<string, number>();
+        for (const rule of list.rules) slugCount.set(slugOf(rule.text), (slugCount.get(slugOf(rule.text)) ?? 0) + 1);
+        const seenKeys = new Map<string, number>();
+        for (const rule of list.rules) {
+          const slug = slugOf(rule.text);
+          // An empty slug (non-Latin text) or a shared 60-character prefix gets a hash of the whole rule, never an
+          // order-dependent counter, so inserting or reordering a rule does not move its neighbours' ids.
+          const hash = createHash('sha1').update(rule.text).digest('hex').slice(0, 8);
+          const key = slug && slugCount.get(slug) === 1 ? slug : slug ? `${slug}-${hash}` : hash;
+          const n = seenKeys.get(key) ?? 0;
+          seenKeys.set(key, n + 1); // only an exact repeat of the same rule text still needs a counter
           const prefix = rule.group ? `${section.heading}, ${rule.group}` : section.heading!;
           items.push({
-            source_url: `${buildBlobUrl(remoteUrl, branch, file)}${anchor}--${ruleSlug}${n > 0 ? `-${n + 1}` : ''}`,
+            source_url: `${buildBlobUrl(remoteUrl, branch, file)}${anchor}--${key}${n > 0 ? `-${n + 1}` : ''}`,
             platform: 'docs',
             raw_text: `${rule.full}\n\nFrom the "${prefix}" section.`,
             title: rule.text,
@@ -255,7 +267,7 @@ async function readAgentRulesItems(
       });
     }
   }
-  return { items, droppedShort, droppedRelease };
+  return { items, droppedShort, droppedRelease, droppedRules };
 }
 
 
@@ -353,6 +365,8 @@ async function readDocsItems(opts: { limit: number; cwd?: string }): Promise<{
   droppedShort: number;
   /** README/CONTRIBUTING/changelog sections that state no rule. */
   droppedNonRule: number;
+  /** Rules past a section's cap, by section. */
+  droppedRules: Array<{ section: string; count: number }>;
 }> {
   const repoRoot = opts.cwd ?? process.cwd();
   const gitOpts = opts.cwd ? { cwd: opts.cwd } : undefined;
@@ -372,9 +386,9 @@ async function readDocsItems(opts: { limit: number; cwd?: string }): Promise<{
   const remaining = opts.limit - adrItems.length;
   // Capped even at exact equality: the agent-rules files were never opened BECAUSE the
   // limit was already full, so something may have been left out and nobody counted it.
-  if (remaining <= 0) return { items: adrItems, scanned: adrFiles.length, capped: true, droppedShort: 0, droppedNonRule: 0 };
+  if (remaining <= 0) return { items: adrItems, scanned: adrFiles.length, capped: true, droppedShort: 0, droppedNonRule: 0, droppedRules: [] };
 
-  const { items: agentRulesItems, droppedShort, droppedRelease } = await readAgentRulesItems(repoRoot, remoteUrl, branch);
+  const { items: agentRulesItems, droppedShort, droppedRelease, droppedRules } = await readAgentRulesItems(repoRoot, remoteUrl, branch);
   const conventions = await readConventionItems(repoRoot, remoteUrl, branch);
   const logItems = await readDecisionLogItems(repoRoot, remoteUrl, branch);
   const candidates = adrFiles.length + agentRulesItems.length + conventions.items.length + logItems.length;
@@ -386,6 +400,7 @@ async function readDocsItems(opts: { limit: number; cwd?: string }): Promise<{
     capped: candidates > opts.limit,
     droppedShort: droppedShort + conventions.droppedShort,
     droppedNonRule: conventions.droppedNonRule + droppedRelease,
+    droppedRules,
   };
 }
 
@@ -400,7 +415,7 @@ async function readDocsItems(opts: { limit: number; cwd?: string }): Promise<{
  * ADRs alone fill the limit, so no count is invented for it.
  */
 export async function fetchDocsItems(opts: { limit: number; cwd?: string }): Promise<CaptureFetchResult> {
-  const { items, scanned, capped, droppedShort, droppedNonRule } = await readDocsItems(opts);
+  const { items, scanned, capped, droppedShort, droppedNonRule, droppedRules } = await readDocsItems(opts);
   return {
     items,
     report: {
@@ -410,6 +425,7 @@ export async function fetchDocsItems(opts: { limit: number; cwd?: string }): Pro
         ...(droppedShort > 0
           ? [{ count: droppedShort, detail: `sections under ${MIN_CHUNK_CHARS} characters (a bare heading or a one-line pointer)` }]
           : []),
+        ...droppedRules.map(({ section, count }) => ({ count, detail: `rules past the 30 kept from the "${section}" section` })),
         ...(droppedNonRule > 0
           ? [{ count: droppedNonRule, detail: 'README, CONTRIBUTING and changelog sections that state no rule (install steps, release entries)' }]
           : []),

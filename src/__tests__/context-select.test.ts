@@ -77,3 +77,51 @@ describe('selectForFile - one docs row per rule', () => {
     expect(decisions[0]!.title).toBe('Testing');
   });
 });
+
+describe('selectForFile - rule rows and the file cap', () => {
+  const U = 'https://github.com/o/r/blob/main/AGENTS.md';
+  const ruleRow = (i: number, title = `Never touch file number ${i}.`) => ({
+    title, platform: 'docs', summary: `${title}\n\nFrom the "Core principles" section.`, source_url: `${U}#core-principles--rule-${i}`,
+  });
+
+  it('lets rule rows take at most two thirds of the cap, so a commit row keeps its place', () => {
+    const rows = [...Array.from({ length: 35 }, (_, i) => ruleRow(i)), { title: 'Use Postgres instead of Mongo', platform: 'github', summary: 'because of joins', source_url: 'https://github.com/o/r/pull/1' }];
+    const { decisions } = selectForFile(rows, 30);
+    expect(decisions.filter((d) => d.kind === 'rule')).toHaveLength(20);
+    expect(decisions.some((d) => d.title === 'Use Postgres instead of Mongo')).toBe(true);
+  });
+
+  it('hides an old whole-section row that sits beside its own rule rows', () => {
+    const old = { title: 'Core principles', platform: 'docs', summary: 'Core principles\n\n- Never a.\n- Never b.', source_url: `${U}#core-principles` };
+    const { decisions } = selectForFile([old, ruleRow(1), ruleRow(2)], 30);
+    expect(decisions.map((d) => d.title)).not.toContain('Core principles');
+    expect(decisions).toHaveLength(2);
+  });
+
+  it('keeps a whole-section row whose section has no rule rows', () => {
+    const lone = { title: 'Testing', platform: 'docs', summary: 'Testing\n\nRun the tests.', source_url: `${U}#testing` };
+    expect(selectForFile([lone, ruleRow(1)], 30).decisions.map((d) => d.title)).toContain('Testing');
+  });
+
+  it('shows the first 300 characters of a long rule, ending in ..., with no ** markers', () => {
+    const long = `**Never** ${'x'.repeat(327)}`; // 337 characters as written
+    expect(long).toHaveLength(337);
+    const { decisions } = selectForFile([ruleRow(1, long.slice(0, 80))].map((r) => ({ ...r, summary: `${long}\n\nFrom the "Core principles" section.` })), 30);
+    const t = decisions[0]!.title;
+    expect(t.endsWith('...')).toBe(true);
+    expect(t).not.toContain('**');
+    expect(t).toHaveLength(303);
+  });
+
+  it('leaves a long ordinary docs heading and a long ADR title alone', () => {
+    const heading = 'A very long section heading that runs well past the eighty characters the graph keeps of a title';
+    const row = { title: heading.slice(0, 80), platform: 'docs', summary: `${heading}\n\nBody text.`, source_url: `${U}#long` };
+    expect(selectForFile([row], 30).decisions[0]!.title).toBe(heading.slice(0, 80));
+  });
+
+  it('keeps the stored rule title in `selected`, so the committed-file check still finds it', () => {
+    const long = `**Never** ${'x'.repeat(327)}`;
+    const row = { ...ruleRow(1, long.slice(0, 80)), summary: `${long}\n\nFrom the "Core principles" section.` };
+    expect(selectForFile([row], 30).selected[0]!.title).toBe(long.slice(0, 80));
+  });
+});

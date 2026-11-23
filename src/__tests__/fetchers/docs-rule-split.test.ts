@@ -90,12 +90,6 @@ describe('AGENTS.md rule lists', () => {
     expect(items).toHaveLength(1);
   });
 
-  it('splits a numbered list of rules', async () => {
-    const items = await importAgents('## Rules\n\n1. Never commit a secret.\n2. Always run the tests.\n3. Ask before deleting files.\n');
-    expect(items).toHaveLength(3);
-    expect(items[2]!.title).toBe('Ask before deleting files.');
-  });
-
   it('caps one section at 30 rules', async () => {
     const list = Array.from({ length: 40 }, (_, i) => `- Never touch file number ${i} directly.`).join('\n');
     const items = await importAgents(`## Rules\n\n${list}\n`);
@@ -106,5 +100,103 @@ describe('AGENTS.md rule lists', () => {
     const long = 'Never force-push to main or run git reset --hard without asking first, because other people and other agents build on that branch and a rewritten history strands their work';
     const items = await importAgents(`## Rules\n\n- ${long}.\n- Always run the tests.\n- Ask before deleting files.\n`);
     expect(items[0]!.title).toBe(`${long}.`);
+  });
+
+  it('never splits a numbered list, even of rules', async () => {
+    expect(await importAgents('## Install\n\n1. Never run this as root.\n2. Always use a clean machine.\n3. Do not skip the checksum.\n')).toHaveLength(1);
+    expect(await importAgents('## Install\n\n1) Clone the repo.\n2) Run the installer.\n3) Restart your shell.\n')).toHaveLength(1);
+  });
+
+  it('never splits a Label: `command` list', async () => {
+    const items = await importAgents('## Commands\n\n- Build: `pnpm build`\n- Test: `pnpm test`\n- Lint: `pnpm lint`\n');
+    expect(items).toHaveLength(1);
+  });
+
+  it('never splits an option list', async () => {
+    const items = await importAgents('## Flags\n\n- Use `--fast` to skip the slow checks.\n- Use `--json` to print one object.\n- Use `--quiet` to hide progress.\n');
+    expect(items).toHaveLength(1);
+  });
+
+  it('never splits a changelog-style list', async () => {
+    const items = await importAgents('## Changes\n\n- Add the export command\n- Add a retry to the fetcher\n- Update dependencies\n');
+    expect(items).toHaveLength(1);
+  });
+
+  it('splits at exactly 60% modal items (3 of 5) and keeps the section whole just under it (4 of 7)', async () => {
+    const m = (n: number) => `- Never touch file ${n}.`;
+    const p = (n: number) => `- Notes on file ${n}.`;
+    expect(await importAgents(`## R\n\n${[m(1), m(2), m(3), p(4), p(5)].join('\n')}\n`)).toHaveLength(5);
+    expect(await importAgents(`## R\n\n${[m(1), m(2), m(3), m(4), p(5), p(6), p(7)].join('\n')}\n`)).toHaveLength(1);
+  });
+
+  it('splits at 70% modal (7 of 10) and keeps 50% whole (2 of 4)', async () => {
+    const m = (n: number) => `- Never touch file ${n}.`;
+    const p = (n: number) => `- Notes on file ${n}.`;
+    const seven = Array.from({ length: 10 }, (_, i) => (i < 7 ? m(i) : p(i))).join('\n');
+    expect(await importAgents(`## R\n\n${seven}\n`)).toHaveLength(10);
+    expect(await importAgents(`## R\n\n${[m(1), m(2), p(3), p(4)].join('\n')}\n`)).toHaveLength(1);
+  });
+
+  it('splits at exactly 3 rules and keeps 2 whole', async () => {
+    expect(await importAgents('## R\n\n- Never commit a secret.\n- Always run the tests.\n- Ask before deleting, and never guess.\n')).toHaveLength(3);
+    expect(await importAgents('## R\n\n- Never commit a secret.\n- Always run the tests.\n')).toHaveLength(1);
+  });
+
+  it('allows an intro of exactly 300 characters and refuses 301', async () => {
+    const list = '- Never commit a secret.\n- Always run the tests.\n- Do not force push.\n';
+    expect(await importAgents(`## R\n\n${'x'.repeat(300)}\n\n${list}`)).toHaveLength(3);
+    expect(await importAgents(`## R\n\n${'x'.repeat(301)}\n\n${list}`)).toHaveLength(1);
+  });
+
+  it('splits a CRLF file the same as an LF one', async () => {
+    const items = await importAgents(PRINCIPLES.replace(/\n/g, '\r\n'));
+    expect(items).toHaveLength(5);
+    expect(items[0]!.title).toBe('Never commit a real secret, token or key.');
+  });
+
+  it('reports the rules past the cap, with the section', async () => {
+    repo = '';
+    const list = Array.from({ length: 33 }, (_, i) => `- Never touch file number ${i} directly.`).join('\n');
+    const r = mkdtempSync(join(tmpdir(), 'align-rulesplit-'));
+    repo = r;
+    vi.mocked(execa).mockResolvedValue({ stdout: 'main' } as Awaited<ReturnType<typeof execa>>);
+    writeFileSync(join(r, 'AGENTS.md'), `## Big rules\n\n${list}\n`);
+    const { report } = await fetchDocsItems({ limit: 100, cwd: r });
+    expect(report.skips).toContainEqual({ count: 3, detail: 'rules past the 30 kept from the "Big rules" section' });
+  });
+
+  it('gives two non-Latin rules distinct urls', async () => {
+    const items = await importAgents('## R\n\n- Never 提交 密钥。\n- Always 运行 测试。\n- Do not 强制 推送。\n');
+    expect(new Set(items.map((i) => i.source_url)).size).toBe(3);
+  });
+
+  it('keeps a rule url when a rule is inserted or the rules are reordered', async () => {
+    const a = 'Never commit a real secret.';
+    const b = 'Always run the tests first.';
+    const c = 'Do not force push to main.';
+    const base = await importAgents(`## R\n\n- ${a}\n- ${b}\n- ${c}\n`);
+    const urlOf = (items: typeof base, text: string) => items.find((i) => i.title === text)!.source_url;
+    const reordered = await importAgents(`## R\n\n- ${c}\n- Never ever.\n- ${a}\n- ${b}\n`);
+    for (const t of [a, b, c]) expect(urlOf(reordered, t)).toBe(urlOf(base, t));
+  });
+
+  it('keeps non-Latin rule urls when the rules are reordered', async () => {
+    const x = 'Never 提交 密钥。';
+    const y = 'Always 运行 测试。';
+    const z = 'Do not 强制 推送。';
+    const one = await importAgents(`## R\n\n- ${x}\n- ${y}\n- ${z}\n`);
+    const two = await importAgents(`## R\n\n- ${z}\n- ${x}\n- ${y}\n`);
+    for (const t of [x, y, z]) expect(two.find((i) => i.title === t)!.source_url).toBe(one.find((i) => i.title === t)!.source_url);
+  });
+
+  it('keeps rules that share a 60-character prefix apart, by hash and not by position', async () => {
+    const prefix = 'Never commit a secret to the repository under any condition ';
+    const x = `${prefix}in a branch.`;
+    const y = `${prefix}in a tag.`;
+    const one = await importAgents(`## R\n\n- ${x}\n- ${y}\n- Always run the tests.\n`);
+    const two = await importAgents(`## R\n\n- ${y}\n- Always run the tests.\n- ${x}\n`);
+    expect(new Set(one.map((i) => i.source_url)).size).toBe(3);
+    expect(two.find((i) => i.title === x)!.source_url).toBe(one.find((i) => i.title === x)!.source_url);
+    expect(two.find((i) => i.title === y)!.source_url).toBe(one.find((i) => i.title === y)!.source_url);
   });
 });
