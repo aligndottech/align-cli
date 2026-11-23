@@ -2,11 +2,12 @@ import { type Command, Option } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
 import { spawn } from 'node:child_process';
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import { createConfigStore, type EnvName } from '../lib/config.js';
 import { resolveEnv } from '../lib/resolve-env.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
-import { getBaseDiff, getCurrentBranch, getHeadDiff, getStagedDiff, isGitRepo, listBranchNames, pickBaseRef } from '../lib/git.js';
+import { getBaseDiff, getCurrentBranch, getHeadDiff, getStagedDiff, gitOutput, isGitRepo, listBranchNames, pickBaseRef } from '../lib/git.js';
 import type { AlignmentResult } from '../lib/gateway-client.js';
 import { type HookPayload, readHookPayload } from '../lib/hook-payload.js';
 import { lineWriterCheck, proposedChangeText, type RelatedDecision } from '../lib/agent/edit-text.js';
@@ -499,6 +500,7 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
       text = proposedChangeText(payload?.tool_input);
       if (!text.trim()) process.exit(0);
       context = payload?.tool_input?.file_path ?? '';
+      if (context && !(await inThisRepository(context))) process.exit(0);
     } else {
       if (!(await isGitRepo())) process.exit(0);
       text = await getHeadDiff();
@@ -713,6 +715,51 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
     // Fail open: swallow everything (gateway error, network, bad config).
   }
   process.exit(0);
+}
+
+/**
+ * Whether the file an edit writes belongs to the repository the hook runs in. Agents also write scratch
+ * notes, plans in a temp folder and files in sibling checkouts while their session sits in a repo, and each
+ * of those got this repository's decisions as though it were a change to it. A file under the working
+ * folder belongs, with no git call; anywhere else git decides, by the common git folder, so a linked worktree
+ * and its main checkout are one repository. Links are followed first, on both sides. A hook that itself runs
+ * outside any repo keeps checking against every repo, as it did.
+ */
+async function inThisRepository(filePath: string): Promise<boolean> {
+  const cwd = realPathOf(process.cwd());
+  const file = realPathOf(path.resolve(process.cwd(), filePath));
+  const rel = path.relative(cwd, file);
+  if (rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel)) return true;
+  const here = await commonGitDir(cwd);
+  if (!here) return true;
+  let dir = path.dirname(file);
+  while (!existsSync(dir) && path.dirname(dir) !== dir) dir = path.dirname(dir);
+  return (await commonGitDir(dir)) === here;
+}
+
+/** The git folder every worktree of the repository at `cwd` shares. Git may print it relative to `cwd`. */
+async function commonGitDir(cwd: string): Promise<string | null> {
+  const out = await gitOutput(['rev-parse', '--git-common-dir'], { cwd });
+  return out ? realPathOf(path.resolve(cwd, out)) : null;
+}
+
+/**
+ * Where a path really is: its nearest existing ancestor with links resolved, then the part that does not
+ * exist yet. A file written through a link belongs to the repository its target is in, not the one the link is.
+ */
+function realPathOf(target: string): string {
+  const absent: string[] = [];
+  let dir = path.resolve(target);
+  for (;;) {
+    try {
+      return path.join(realpathSync.native(dir), ...absent);
+    } catch {
+      const parent = path.dirname(dir);
+      if (parent === dir) return path.resolve(target);
+      absent.unshift(path.basename(dir));
+      dir = parent;
+    }
+  }
 }
 
 /** The most the advisory hook waits for its one telemetry send, once per rate-limit window per tool. */
