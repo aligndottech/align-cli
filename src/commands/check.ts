@@ -38,6 +38,7 @@ import { isoDay, isoInstant } from '../lib/decision-render.js';
 import type { ChangeSource } from '../lib/co-change-check.js';
 import type { CoChangeViolation } from '../lib/co-change.js';
 import type { FileDecision } from '../lib/decisions-file.js';
+import { intentLine } from '../lib/edit-intent-line.js';
 
 // The hook budget on EVERY host is <=10s (Claude Code HOOK_TIMEOUT_SECONDS, and the 10s
 // execFile timeout in the pi and OpenCode shims). Adjudication measured ~11s whenever
@@ -614,17 +615,17 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
     // A dependency the edit adds is a sentence retrieval can match; raw JSON or an import line is not
     // (src/lib/agent/dependency-intent.ts). Asked beside the raw text, in the same retrieval window.
     const depQuery = dependencyIntentQuery(payload?.tool_input, payload?.cwd ?? cwd);
-    const related = (query: string): Promise<AlignmentResult | null> =>
+    const related = (query: string, intent?: string): Promise<AlignmentResult | null> =>
       Promise.race([
         // The SAME embedding retrieval `align check` uses, minus the adjudication. Plain
         // `searchDecisions` is keyword-based and returns nothing for a sentence of edit
         // content, which is why this path needed gateway #1415 rather than the search API.
-        client.checkAlignment(query, context, { depth: 'related' }),
+        client.checkAlignment(query, context, { depth: 'related', ...(intent ? { intent } : {}) }),
         new Promise<null>((resolve) => setTimeout(() => resolve(null), RETRIEVAL_TIMEOUT_MS)),
       ]);
     try {
       const [result, depResult] = await Promise.all([
-        related(text),
+        related(text, intentLine({ filePath, text })),
         depQuery ? related(depQuery).catch(() => null) : Promise.resolve(null),
       ]);
       const merged = mergeRelated(result?.relevant_decisions, depResult?.relevant_decisions);

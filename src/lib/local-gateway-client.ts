@@ -23,6 +23,7 @@ import type { TimelineRow, TopicTimelineResult } from './mcp-timeline-tools.js';
 import { redactSecrets } from './share/secret-scan.js';
 import { noteRedacted } from './redaction-notice.js';
 import { LOCAL_CONFLICTS_NOTE } from './local-conflicts-note.js';
+import { maxScorePerDecision } from './edit-intent-line.js';
 import { EmbeddingMatrix, MATRIX_MAX_ROWS, type Ranker } from './similarity/embedding-matrix.js';
 import { syncImportedCoChangeRule } from './co-change-store.js';
 import { captureFieldsForUrl, type IngestOptions, type IngestResult, type IngestSession, ingestStep, type LocalBatchItem, type LocalBatchOptions } from './local-ingest.js';
@@ -51,7 +52,7 @@ export { CAPTURE_CLASSIFY_TOP_K } from './local-ingest.js';
 /** Writers found with blame that join the judge's candidates; the search candidates (up to 5) are on top of these. */
 const MAX_BLAME_CANDIDATES = 4;
 
-type CheckOpts = { depth?: CheckDepth; title?: string };
+type CheckOpts = { depth?: CheckDepth; title?: string; intent?: string };
 
 export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: string; matrixMaxRows?: number; judgeId?: string; scopeConfig?: Pick<ReturnType<typeof createConfigStore>, 'getConnectorScope'> } = {}) {
   const db = createLocalDb(dbPath);
@@ -907,7 +908,11 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       // The edit hook's five are chosen from every row over its floor by the dense rank fused with the stored
       // keyword rank. An adjudicated check keeps the dense five: each of its candidates costs a provider call
       // and can move an exit code, and that order was not measured.
-      const found = await findSimilar(embedding, opts.depth === 'related' ? Number.MAX_SAFE_INTEGER : 5 + hidden.size, threshold, undefined, dbFilter);
+      const topK = opts.depth === 'related' ? Number.MAX_SAFE_INTEGER : 5 + hidden.size;
+      let found = await findSimilar(embedding, topK, threshold, undefined, dbFilter);
+      if (opts.depth === 'related' && opts.intent) {
+        found = maxScorePerDecision(found, await findSimilar(await getEmbedding(opts.intent), topK, threshold, undefined, dbFilter));
+      }
       const retrieved = splitRetrieved(opts.depth === 'related' ? fusedWithStoredKeywords(diff, found, hidden.size) : found, hidden, 5, (id) => db.getDecisionById(id)?.title);
       const similar = retrieved.kept;
       const searched = similar
