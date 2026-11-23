@@ -7,6 +7,7 @@ import { execa } from 'execa';
 vi.mock('execa', () => ({ execa: vi.fn() }));
 
 import { fetchDocsItems } from '../../lib/fetchers/docs.js';
+import { GENERATED_HEADER, renderDecisionsFile } from '../../lib/decisions-context.js';
 
 const LEDGER = `# Defect ledger
 
@@ -175,5 +176,28 @@ describe('fetchDocsItems - decision log files', () => {
     write('DECISIONS.md', 'D1: Use PostgreSQL\n');
     const items = await run();
     expect(items.map((i) => i.title)).toEqual(['D1: Use PostgreSQL']);
+  });
+
+  it('skips a decision log file Align generated, so --out DECISIONS.md is not read back', async () => {
+    fresh();
+    write('DECISIONS.md', renderDecisionsFile([
+      { title: 'Never log tokens', cite: 'README.md', kind: 'rule' },
+      { title: 'Use pnpm instead of npm', cite: 'r@abcdef1', kind: 'decision', decidedAt: '2025-01-01T00:00:00Z' },
+    ] as never));
+    write('docs/decisions.md', 'D1: A real decision the user wrote by hand\n');
+    const urls = (await run()).map((i) => i.source_url);
+    expect(urls).toEqual(['https://github.com/acme/api/blob/main/docs/decisions.md#d1']);
+  });
+
+  it('still reads a hand-written decisions.md', async () => {
+    fresh();
+    write('DECISIONS.md', '# Decisions\n\nD1: Use PostgreSQL for the graph\n');
+    expect((await run()).map((i) => i.title)).toEqual(['D1: Use PostgreSQL for the graph']);
+  });
+
+  it('still reads a hand-written file that only mentions the generated header further down', async () => {
+    fresh();
+    write('DECISIONS.md', `D1: Generated files carry a header\n\nAlign writes "${GENERATED_HEADER}" at the top of its own output.\n`);
+    expect((await run()).map((i) => i.title)).toEqual(['D1: Generated files carry a header']);
   });
 });
