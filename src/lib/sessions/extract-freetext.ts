@@ -31,17 +31,35 @@ export interface RawFreeTextCandidate {
  * here is a missed candidate, not a wrong one (the LLM pass only ever narrows further), so
  * staying narrow and growing this as more real sessions are captured beats guessing at
  * phrasings nobody has actually said.
+ *
+ * Grown once since, from 4,321 real sessions (pi and Claude Code): "let's" used to count only
+ * before six verbs, and typed redirects mostly use others ("let's not", "let's keep", "let's
+ * remove"). Any verb after it found 3.8 times the typed redirects, and 39% of the turns it
+ * added were judged decisions, against 10% for the list before it. Three wider phrasings were
+ * measured the same way and left out as too imprecise: "actually" (18%), "rather than" (7%)
+ * and "don't" (3%).
  */
 const DECISION_PHRASES: readonly RegExp[] = [
   /\binstead of\b/i,
-  /\blet'?s (go with|use|do|switch to|just use|just go with)\b/i,
+  /\blet'?s\b/i,
   /\bdecid(e|ed|ing|ision)\b/i,
   /\bgo with\b/i,
   /\bswitch(ed|ing)? to\b/i,
 ];
 
+/**
+ * A turn longer than this was not typed mid-session, and is not tested for a phrase at all. The
+ * human role is also where a harness puts what it injects - a compaction summary, a skill file, a
+ * prompt another program wrote - and any text that long contains "instead of" somewhere: across
+ * 32,632 real human-role turns (4,321 sessions, two agents) a phrase matched 0.5% of the turns
+ * under 200 characters and 83% of those over 8,000. Those long turns were 73% of all candidates
+ * and 96% of the text sent for confirmation, and none was a typed redirect: the longest one
+ * found was 7,034 characters (a pasted note with the instruction after it).
+ */
+const MAX_TYPED_TURN_CHARS = 8000;
+
 function isDecisionShaped(text: string): boolean {
-  return DECISION_PHRASES.some(p => p.test(text));
+  return text.length <= MAX_TYPED_TURN_CHARS && DECISION_PHRASES.some(p => p.test(text));
 }
 
 /**
