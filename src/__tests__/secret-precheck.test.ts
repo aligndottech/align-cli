@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { judgeWithSecretCheck, secretHitsInDiff, SECRET_PRECHECK_ID } from '../lib/secret-precheck.js';
+import { judgeWithSecretCheck, SECRET_PRECHECK_ID, secretHitsInDiff } from '../lib/secret-precheck.js';
 import { lastCheckFor } from '../lib/curation/last-check.js';
 
 // Every fixture that looks like a credential is built at runtime, never written as a literal.
@@ -24,7 +24,7 @@ describe('diff parsing', () => {
     expect(hits).toEqual([{ file: 'a.txt', line: 3, kind: 'GitHub token' }]);
   });
   it('numbers a second hunk from its own header, and context rows count', () => {
-    const d = header('a.txt') + hunk(1, ['+one']) + `@@ -40,2 +50,3 @@\n ctx\n-gone\n+${GH}\n+two\n`;
+    const d = `${header('a.txt')}${hunk(1, ['+one'])}@@ -40,2 +50,3 @@\n ctx\n-gone\n+${GH}\n+two\n`;
     expect(secretHitsInDiff(d)).toEqual([{ file: 'a.txt', line: 51, kind: 'GitHub token' }]);
   });
   it('reports the NEW name of a rename', () => {
