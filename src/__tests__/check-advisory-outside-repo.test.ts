@@ -20,6 +20,8 @@ import { registerCheckCommand } from '../commands/check.js';
  * 6. a file outside the repository that links into it: it is checked (needs file symlinks, which Windows may refuse)
  * 7. a folder inside the repository that links out of it: a file written through it is not
  * 8. the same, for a file that does not exist yet
+ * 9. a linked worktree is the same repository: a new file in it is checked from the main checkout
+ * 10. the same from the worktree, for a file in the main checkout; a file in another repository still is not
  */
 const mockCheckAlignment = vi.fn();
 const mockPayload = vi.fn();
@@ -41,6 +43,7 @@ let root: string;
 let repo: string;
 let other: string;
 let scratch: string;
+let worktree: string;
 let fileLinks = true;
 const startCwd = process.cwd();
 
@@ -49,6 +52,7 @@ beforeAll(() => {
   repo = path.join(root, 'repo');
   other = path.join(root, 'other');
   scratch = path.join(root, 'scratch');
+  worktree = path.join(root, 'worktree');
   for (const d of [repo, other, scratch, path.join(repo, 'src')]) mkdirSync(d, { recursive: true });
   symlinkSync(path.join(repo, 'src'), path.join(scratch, 'into-repo'), 'junction');
   symlinkSync(scratch, path.join(repo, 'out-of-repo'), 'junction');
@@ -57,6 +61,8 @@ beforeAll(() => {
   writeFileSync(path.join(repo, 'README.md'), 'hello\n');
   writeFileSync(path.join(repo, 'src', 'existing.ts'), 'export {};\n');
   writeFileSync(path.join(scratch, 'notes.md'), 'notes\n');
+  git(repo, '-c', 'user.name=t', '-c', 'user.email=t@e.co', '-c', 'commit.gpgsign=false', 'commit', '--allow-empty', '-q', '-m', 'init');
+  git(repo, 'worktree', 'add', '-q', worktree, '-b', 'linked');
   try {
     symlinkSync(path.join(repo, 'src', 'existing.ts'), path.join(scratch, 'existing-link.ts'), 'file');
   } catch {
@@ -143,6 +149,19 @@ describe('the pre-edit hook only checks files in the repository it runs in', () 
     expect(await preEdit(repo, 'out-of-repo/new/plan.md')).toBe('');
     expect(mockCheckAlignment).not.toHaveBeenCalled();
     expect(await preEdit(repo, path.join(scratch, 'into-repo', 'new', 'sessions.ts'))).toContain('Chose Postgres for sessions');
+    expect(mockCheckAlignment).toHaveBeenCalled();
+  });
+
+  it('checks a new file in a linked worktree of this repository', async () => {
+    const out = await preEdit(repo, path.join(worktree, 'src', 'sessions.ts'));
+    expect(mockCheckAlignment).toHaveBeenCalled();
+    expect(out).toContain('Chose Postgres for sessions');
+  });
+
+  it('checks a file in the main checkout from a linked worktree, and not one in another repository', async () => {
+    expect(await preEdit(worktree, path.join(other, 'plan.md'))).toBe('');
+    expect(mockCheckAlignment).not.toHaveBeenCalled();
+    expect(await preEdit(worktree, path.join(repo, 'README.md'))).toContain('Chose Postgres for sessions');
     expect(mockCheckAlignment).toHaveBeenCalled();
   });
 });

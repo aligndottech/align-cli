@@ -7,7 +7,7 @@ import path from 'node:path';
 import { createConfigStore, type EnvName } from '../lib/config.js';
 import { resolveEnv } from '../lib/resolve-env.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
-import { getBaseDiff, getCurrentBranch, getHeadDiff, getRepoRoot, getStagedDiff, isGitRepo, listBranchNames, pickBaseRef } from '../lib/git.js';
+import { getBaseDiff, getCurrentBranch, getHeadDiff, getStagedDiff, gitOutput, isGitRepo, listBranchNames, pickBaseRef } from '../lib/git.js';
 import type { AlignmentResult } from '../lib/gateway-client.js';
 import { type HookPayload, readHookPayload } from '../lib/hook-payload.js';
 import { lineWriterCheck, proposedChangeText, type RelatedDecision } from '../lib/agent/edit-text.js';
@@ -721,19 +721,26 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
  * Whether the file an edit writes belongs to the repository the hook runs in. Agents also write scratch
  * notes, plans in a temp folder and files in sibling checkouts while their session sits in a repo, and each
  * of those got this repository's decisions as though it were a change to it. A file under the working
- * folder belongs, with no git call; anywhere else git decides. Links are followed first, on both sides. A
- * hook that itself runs outside any repo keeps checking against every repo, as it did.
+ * folder belongs, with no git call; anywhere else git decides, by the common git folder, so a linked worktree
+ * and its main checkout are one repository. Links are followed first, on both sides. A hook that itself runs
+ * outside any repo keeps checking against every repo, as it did.
  */
 async function inThisRepository(filePath: string): Promise<boolean> {
   const cwd = realPathOf(process.cwd());
   const file = realPathOf(path.resolve(process.cwd(), filePath));
   const rel = path.relative(cwd, file);
   if (rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel)) return true;
-  const here = await getRepoRoot();
+  const here = await commonGitDir(cwd);
   if (!here) return true;
   let dir = path.dirname(file);
   while (!existsSync(dir) && path.dirname(dir) !== dir) dir = path.dirname(dir);
-  return (await getRepoRoot({ cwd: dir })) === here;
+  return (await commonGitDir(dir)) === here;
+}
+
+/** The git folder every worktree of the repository at `cwd` shares. Git may print it relative to `cwd`. */
+async function commonGitDir(cwd: string): Promise<string | null> {
+  const out = await gitOutput(['rev-parse', '--git-common-dir'], { cwd });
+  return out ? realPathOf(path.resolve(cwd, out)) : null;
 }
 
 /**
