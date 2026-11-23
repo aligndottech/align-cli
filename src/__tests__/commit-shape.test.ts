@@ -41,8 +41,8 @@ describe('isReleaseOrBumpSubject', () => {
     '5.11.2',
     'Version 5.9.0',
     'chore(release): 5.9.0',
-    'Update dependency lodash to v3',
-    'Upgrade pino from 9 to 10',
+    'Update dependency tiny-lru to v3',
+    'Upgrade pino-pretty from 9 to 10',
     'fix: bump lodash from 4.17.20 to 4.17.21',
     'build(deps): bump tiny-lru from 10.4.1 to 11.0.1 (#4694)',
   ])('is housekeeping: %s', (subject) => {

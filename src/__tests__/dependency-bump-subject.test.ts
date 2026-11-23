@@ -33,9 +33,9 @@ const NEAR_MISSES = [
 describe('isDependencyBumpSubject', () => {
   it.each([
     'Replace dependency xml-apis:xml-apis with xml-apis:xml-apis 1.0.b2',
-    'Update dependency react to v18.3.1',
+    'Update dependency react-dom to v18.3.1',
     'Upgrade jackson-databind to version 2.15',
-    'Update lodash from 4.17.20 to 4.17.21',
+    'Update lodash.merge from 4.17.20 to 4.17.21',
     '(#12) Update dependency @types/node to 20.1.0 (#13)',
   ])('rejects the mechanical shape %s', (subject) => {
     expect(isDependencyBumpSubject(subject)).toBe(true);
@@ -58,7 +58,7 @@ describe('isDependencyBumpSubject', () => {
 describe('isDecisionCommit and the bump family', () => {
   it.each([
     'Replace dependency xml-apis:xml-apis with xml-apis:xml-apis 1.0.b2',
-    'Update dependency react to v18.3.1',
+    'Update dependency react-dom to v18.3.1',
     'Bump lodash from 4.17.20 to 4.17.21',
     'chore(deps): bump x from 1 to 2 in the lockfile',
   ])('rejects %s, so `align ask` never gets it', (subject) => {
@@ -79,7 +79,7 @@ const CONFIG_AND_SWAP_DECISIONS = [
 const PACKAGE_BUMPS = [
   'Replace dependency xml-apis:xml-apis with xml-apis:xml-apis 1.0.b2',
   'Update xml-apis to 1.0.b2',
-  'Update lodash from 4 to 5',
+  'Update lodash.merge from 4 to 5',
   'Update dependency @types/node to 20.1.0',
   'Upgrade jackson-databind to version 2.15',
 ];
@@ -101,16 +101,16 @@ describe('a bare noun moving to a version is a decision at capture and in the fi
     expect(isDecisionCommit(subject)).toBe(true);
   });
 
-  it('capture never guesses a package: Update lodash from 4 to 5 is housekeeping to display surfaces only', () => {
-    expect(isReleaseOrBumpSubject('Update lodash from 4 to 5')).toBe(true);
-    expect(isReleaseOrBumpSubject('Update lodash from 4 to 5', { guessPackages: false })).toBe(false);
+  it('capture never guesses a package: Update lodash.merge from 4 to 5 is housekeeping to display surfaces only', () => {
+    expect(isReleaseOrBumpSubject('Update lodash.merge from 4 to 5')).toBe(true);
+    expect(isReleaseOrBumpSubject('Update lodash.merge from 4 to 5', { guessPackages: false })).toBe(false);
   });
 
   it('agrees between the file rule and the capture rule on an image tag', () => {
     expect(isDependencyBumpSubject('Update python:3.11 to 3.12')).toBe(isReleaseOrBumpSubject('Update python:3.11 to 3.12'));
   });
 
-  it.each(['Update dependency docs to v2', 'Update package config to 2.0', 'Update @types/node to 20.1.0', 'Update jackson-databind to 2.15'])('hides %s in the file when it names a package', (subject) => {
+  it.each(['Update dependency @types/react to v2', 'Update package vite-plugin-react to 2.0', 'Update @types/node to 20.1.0', 'Update jackson-databind to 2.15'])('hides %s in the file when it names a package', (subject) => {
     expect(isDependencyBumpSubject(subject)).toBe(true);
   });
 });
