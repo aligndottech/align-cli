@@ -183,6 +183,11 @@ export function setWriteRecorder(record: ((file: string, entry: WrittenConfig) =
   lookup = get;
 }
 
+/** What the ledger holds for one file, or undefined when align has no record of writing it. */
+export function recordedWrite(file: string): WrittenConfig | undefined {
+  return lookup?.(file);
+}
+
 export interface SafeWriteOptions {
   /** One line to the user, stderr. Defaults to console.error. */
   note?: (line: string) => void;
@@ -255,6 +260,11 @@ function symlinkOnPath(fs: SafeFs, file: string, root: string | undefined): { pa
   }
   const hit = linkAt(fs, file);
   return hit && hit !== 'missing' ? hit : null;
+}
+
+/** True when a symlink sits on the way to `file` (or is the file), by the same check the writer applies. */
+export function hasSymlinkOnPath(file: string, root: string | undefined): boolean {
+  return symlinkOnPath(realFs(), file, root) !== null;
 }
 
 function modeOf(fs: SafeFs, file: string): number | null {

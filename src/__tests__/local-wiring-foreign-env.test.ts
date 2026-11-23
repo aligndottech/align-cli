@@ -41,7 +41,7 @@ describe('project files: setupAgentAlignment with env local', () => {
       expect(written).not.toContain('.mcp.json');
       // Everything else is still written.
       expect(existsSync(path.join(dir, 'CLAUDE.md'))).toBe(true);
-      expect(existsSync(path.join(dir, '.cursor/rules/align.md'))).toBe(true);
+      expect(existsSync(path.join(dir, '.cursor/rules/align.mdc'))).toBe(true);
     },
   );
 

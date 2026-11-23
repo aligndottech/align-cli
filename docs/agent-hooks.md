@@ -429,5 +429,5 @@ Hook limits worth knowing:
 |---|---|
 | **MCP server** | Claude Code, Cursor, Claude Desktop, VS Code, Windsurf, Zed, Codex, Copilot CLI, Gemini CLI, pi, OpenCode |
 | **Edit hooks** | Edits are checked against the graph. Advisory by default. Recorded real-host payloads exist for headless runs of Claude Code, pi and OpenCode. Interactive Claude Code sessions are not tested ([coverage](hook-coverage.md)). Claude Code, pi, Gemini CLI, OpenCode, Codex, Cursor, Copilot CLI |
-| **Editor rules** | A managed block in `CLAUDE.md`, `AGENTS.md` and `.cursor/rules/align.md` |
+| **Editor rules** | A managed block in `CLAUDE.md` and `AGENTS.md`, and a fully managed `.cursor/rules/align.mdc` |
 | **Shared `.mcp.json`** | One committed file sets up the whole team |

@@ -116,17 +116,17 @@ describe('undo after first run', () => {
 
   it('c. leaves a file align created and the user then edited, and names it', async () => {
     firstRun();
-    writeFileSync(path.join(repo, '.cursor/rules/align.md'), `${read('.cursor/rules/align.md')}my own rule\n`);
-    const edited = read('.cursor/rules/align.md');
+    writeFileSync(path.join(repo, '.cursor/rules/align.mdc'), `${read('.cursor/rules/align.mdc')}my own rule\n`);
+    const edited = read('.cursor/rules/align.mdc');
 
     expect(await undo()).toBe(1);
-    expect(read('.cursor/rules/align.md')).toBe(edited);
+    expect(read('.cursor/rules/align.mdc')).toBe(edited);
     // The message names the OS-native path (backslashes on Windows), so compare separator-normalised.
-    expect(errs.join('\n').replaceAll('\\', '/')).toContain('.cursor/rules/align.md');
+    expect(errs.join('\n').replaceAll('\\', '/')).toContain('.cursor/rules/align.mdc');
     // everything else was still taken out
     expect(existsSync(path.join(repo, '.mcp.json'))).toBe(false);
     expect(existsSync(path.join(repo, '.claude'))).toBe(false);
-    expect(Object.keys(manifest).map((f) => path.relative(repo, f).replaceAll('\\', '/'))).toEqual(['.cursor/rules/align.md']);
+    expect(Object.keys(manifest).map((f) => path.relative(repo, f).replaceAll('\\', '/'))).toEqual(['.cursor/rules/align.mdc']);
   });
 
   it('c2. keeps a user\'s own hook in .claude/settings.json and takes only align\'s out', async () => {
