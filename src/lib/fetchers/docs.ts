@@ -256,12 +256,13 @@ async function readAgentRulesItems(
           });
         }
         if (list.overflow.length > 0) {
-          // Rules past the cap stay in the graph, and so checkable, as one row rather than vanishing.
+          // Rules past the cap stay in the graph, and so checkable, as one row rather than vanishing. The trailing marker
+          // makes it graph-only: its title is not in the committed file, so listing it in DECISIONS.md would make --out refuse.
           const title = `Further rules from the ${section.heading} section`;
           items.push({
             source_url: `${base}~further-rules`,
             platform: 'docs',
-            raw_text: `${title}\n\n${list.overflow.map((t) => `- ${t}`).join('\n')}\n\nFrom the "${section.heading}" section.`,
+            raw_text: `${title}\n\n${list.overflow.map((t) => `- ${t}`).join('\n')}\n\nFrom the "${section.heading}" section. (further rules, graph only)`,
             title,
           });
         }

@@ -159,4 +159,17 @@ describe('selectForFile - rule rows and the file cap', () => {
     expect(decisions.filter((d) => d.kind === 'rule')).toHaveLength(20);
     expect(decisions).toHaveLength(30);
   });
+
+  const overflowRow = () => ({
+    title: 'Further rules from the Core principles section', platform: 'docs',
+    summary: 'Further rules from the Core principles section\n\n- Never x.\n\nFrom the "Core principles" section. (further rules, graph only)',
+    source_url: `${U}#core-principles~further-rules`,
+  });
+
+  it('keeps the overflow row out of the file, out of `selected`, and out of the left-out count', () => {
+    const r = selectForFile([ruleRow(1), ruleRow(2), overflowRow()], 30);
+    expect(r.decisions.map((d) => d.title)).toEqual(['Never touch file number 1.', 'Never touch file number 2.']);
+    expect(r.selected.map((x) => x.title)).not.toContain('Further rules from the Core principles section');
+    expect(r.leftOut).toBe(0);
+  });
 });

@@ -135,7 +135,10 @@ function wholeTitle(title: string, summary: string | undefined): string {
  * rule row is touched: its summary ends with the marker the importer writes, which an ADR or a heading never has.
  */
 const RULE_TITLE_CAP = 300;
-const RULE_MARKER = /\n\nFrom the ".+" section\.\s*$/;
+const RULE_MARKER = /\n\nFrom the ".+" section\.(?: \(further rules, graph only\))?\s*$/;
+const OVERFLOW_MARKER = /\n\nFrom the ".+" section\. \(further rules, graph only\)\s*$/;
+/** The one row that holds a section's rules past the per-section cap (fetchers/docs.ts). Graph only, never in the file. */
+const isOverflowRow = (r: ListedDecision): boolean => r.platform === 'docs' && OVERFLOW_MARKER.test(r.summary ?? '');
 export const isRuleRow = (r: ListedDecision): boolean => r.platform === 'docs' && RULE_MARKER.test(r.summary ?? '');
 function displayRuleTitle(r: ListedDecision): string {
   if (!isRuleRow(r)) return r.title;
@@ -151,7 +154,8 @@ const RULE_SHARE_OF_CAP = 2 / 3;
 const isFileBump = (r: ListedDecision): boolean => CODE_PLATFORMS.has(r.platform ?? '') && isDependencyBumpSubject(r.title.replace(FEAT_PREFIX, ''));
 
 export function selectForFile(rows: ListedDecision[], limit: number): { decisions: ContextDecision[]; leftOut: number; selected: ListedDecision[] } {
-  const docs = rows.filter((r) => r.platform === 'docs');
+  const overflow = rows.filter(isOverflowRow);
+  const docs = rows.filter((r) => r.platform === 'docs' && !isOverflowRow(r));
   // A section imported whole by an older version, now imported as one row per rule: the whole-section row would print
   // beside its own rules. Hide it from the file (it stays in the graph). A rule that was REWORDED gets a new row and the
   // old wording stays too: known limit, the importer cannot tell a reword from a new rule.
@@ -190,7 +194,7 @@ export function selectForFile(rows: ListedDecision[], limit: number): { decision
   const folded = choices.length - tidied.length;
   return {
     decisions,
-    leftOut: rows.length - bumps - folded - stale.length - decisions.length,
+    leftOut: rows.length - bumps - folded - stale.length - overflow.length - decisions.length,
     // The source rows of what is written, so a caller can judge those and not the ones left out.
     selected: [...keptRules, ...keptChoices.map((t) => sourceOf.get(t.orig!)!)],
   };
