@@ -135,7 +135,7 @@ describe('align check --advisory (PreToolUse hook mode)', () => {
     mockReadHookPayload.mockResolvedValue({
       hook_event_name: 'PreToolUse',
       tool_name: 'Write',
-      tool_input: { file_path: 'src/db.ts', content: '// switch to mongodb' },
+      tool_input: { file_path: 'src/db.ts', content: '// switch to mongodb database driver' },
     });
   });
 
@@ -144,7 +144,7 @@ describe('align check --advisory (PreToolUse hook mode)', () => {
     const { exitCode, stdout } = await runCheck(['--advisory']);
     expect(exitCode).toBe(0);
     // checked the proposed edit content, not a git diff
-    expect(mockCheckAlignment).toHaveBeenCalledWith('// switch to mongodb', 'src/db.ts', { depth: 'related', intent: 'src mongodb' });
+    expect(mockCheckAlignment).toHaveBeenCalledWith('// switch to mongodb database driver', 'src/db.ts', { depth: 'related', intent: 'src mongodb database driver' });
     const parsed = JSON.parse(stdout);
     expect(parsed.hookSpecificOutput.hookEventName).toBe('PreToolUse');
     expect(parsed.hookSpecificOutput.additionalContext).toContain('Use PostgreSQL');
@@ -157,11 +157,11 @@ describe('align check --advisory (PreToolUse hook mode)', () => {
     mockReadHookPayload.mockResolvedValue({
       hook_event_name: 'PreToolUse',
       tool_name: 'Edit',
-      tool_input: { file_path: 'a.ts', old_string: 'postgres', new_string: 'mongodb client' },
+      tool_input: { file_path: 'a.ts', old_string: 'postgres', new_string: 'mongodb client wrapper' },
     });
     mockCheckAlignment.mockResolvedValue({ status: 'retrieved', confidence: 0, relevant_decisions: [{ id: 'd-1', title: 'Use PostgreSQL', summary: 's', status: 'active', similarity: 0.7 }] });
     await runCheck(['--advisory']);
-    expect(mockCheckAlignment).toHaveBeenCalledWith('mongodb client', 'a.ts', { depth: 'related', intent: 'mongodb client' });
+    expect(mockCheckAlignment).toHaveBeenCalledWith('mongodb client wrapper', 'a.ts', { depth: 'related', intent: 'mongodb client wrapper' });
   });
 
   it('sends no intent line for a README edit, so the first query runs alone', async () => {

@@ -48,7 +48,7 @@ vi.mock('../lib/local-embeddings.js', () => ({
 import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
 import { createLocalDb } from '../lib/local-db.js';
 import { intentLine } from '../lib/edit-intent-line.js';
-import { EMBEDDING_MODEL_ID } from '../lib/local-embeddings.js';
+import { EMBEDDING_MODEL_ID, getEmbedding } from '../lib/local-embeddings.js';
 
 const CODE = 'pub async fn suggest_fix() { client.post("https://api.openai.com/v1/chat/completions") }';
 const PATH = 'crates/gate/src/llm_client.rs';
@@ -70,6 +70,7 @@ describe('the edit hook retrieves with a second query built from the edit', () =
   const retrieved = (r: Awaited<ReturnType<typeof hook>>) => r.relevant_decisions.map((d) => d.id);
 
   beforeEach(() => {
+    vi.mocked(getEmbedding).mockImplementation(async (t: string) => vectors.get(t) ?? new Float32Array(DIM));
     vectors.clear();
     dbPath = path.join(os.tmpdir(), `align-intent-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.db`);
     vectors.set(CODE, unit({ 0: 1 }));
@@ -135,4 +136,42 @@ describe('the edit hook retrieves with a second query built from the edit', () =
     expect(got).toContain(ids['unrelated']);
     expect(got).not.toContain(ids['adr-no-llm-in-gate']);
   });
+
+  it('takes the larger score per decision when each query favours a different decision', async () => {
+    // Code is axis 0, line is axis 1. 'a-code' is nearer the code (0.91 vs 0.41), 'b-line' nearer the line.
+    // Both are over the 0.30 floor on both queries, so a first-wins merge leaves b-line at 0.41.
+    const db = createLocalDb(dbPath);
+    const a = db.insertDecision({ title: 'a-code-two', summary: 's', sourceUrl: 'https://example.test/a2', platform: 'manual' });
+    const b = db.insertDecision({ title: 'b-line-two', summary: 's', sourceUrl: 'https://example.test/b2', platform: 'manual' });
+    db.setEmbedding(a, unit({ 0: 0.9, 1: 0.4 }), EMBEDDING_MODEL_ID);
+    db.setEmbedding(b, unit({ 0: 0.4, 1: 0.9 }), EMBEDDING_MODEL_ID);
+    db.close();
+    const r = await hook(PATH, CODE);
+    const sim = (id: string) => r.relevant_decisions.find((d) => d.id === id)!.similarity;
+    expect(sim(a)).toBeCloseTo(0.9 / Math.hypot(0.9, 0.4), 3);
+    expect(sim(b)).toBeCloseTo(0.9 / Math.hypot(0.4, 0.9), 3);
+  });
+
+  it('falls back to the first query when the second embedding throws', async () => {
+    const line = intentLine({ filePath: PATH, text: CODE });
+    vi.mocked(getEmbedding).mockImplementation(async (t: string) => {
+      if (t === line) throw new Error('embedder blew up');
+      return vectors.get(t) ?? new Float32Array(DIM);
+    });
+    const got = retrieved(await hook(PATH, CODE));
+    expect(got).toContain(ids['code-near']);
+    expect(got).not.toContain(ids['adr-no-llm-in-gate']);
+  });
+
+  it('falls back to the first query when the second embedding is slow, inside the 2500 ms cap', async () => {
+    const line = intentLine({ filePath: PATH, text: CODE });
+    vi.mocked(getEmbedding).mockImplementation(async (t: string) => {
+      if (t === line) await new Promise((r) => setTimeout(r, 6000));
+      return vectors.get(t) ?? new Float32Array(DIM);
+    });
+    const t0 = Date.now();
+    const got = retrieved(await hook(PATH, CODE));
+    expect(Date.now() - t0).toBeLessThan(2500);
+    expect(got).toContain(ids['code-near']);
+  }, 10000);
 });

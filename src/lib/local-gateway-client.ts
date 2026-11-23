@@ -43,6 +43,9 @@ import {
   RETRIEVAL_RELATES_THRESHOLD, SEARCH_THRESHOLD, SIMILARITY_THRESHOLD,
 } from './local-thresholds.js';
 
+// Total time from the start of a retrieval check by which the second (intent) query must have answered.
+const INTENT_DEADLINE_MS = 2000;
+
 export {
   DRIFT_THRESHOLD, RELATED_FLOOR, RELATED_TOP_K, RELATES_THRESHOLD, RERANK_POOL_FACTOR, RERANK_POOL_MIN,
   RETRIEVAL_RELATES_THRESHOLD, SEARCH_THRESHOLD, SIMILARITY_THRESHOLD,
@@ -897,6 +900,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       // adjudication pays a provider call per candidate and can move an exit code, so it keeps
       // the stricter bar. One constant could not serve both.
       const threshold = opts.depth === 'related' ? RETRIEVAL_RELATES_THRESHOLD : RELATES_THRESHOLD;
+      const startedAt = Date.now();
       const embedding = await getEmbedding(diff);
       const judge = await activeJudge();
       const hidden = judge ? notADecisionMarks(dbPath, judge) : new Map();
@@ -911,7 +915,21 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       const topK = opts.depth === 'related' ? Number.MAX_SAFE_INTEGER : 5 + hidden.size;
       let found = await findSimilar(embedding, topK, threshold, undefined, dbFilter);
       if (opts.depth === 'related' && opts.intent) {
-        found = maxScorePerDecision(found, await findSimilar(await getEmbedding(opts.intent), topK, threshold, undefined, dbFilter));
+        // The second question is a bonus. If it throws or is slow, the first question's rows still go out: the
+        // hook's whole answer is abandoned at its 2.5s retrieval cap, so this budget sits inside that.
+        const intent = opts.intent;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          const second = await Promise.race([
+            (async () => findSimilar(await getEmbedding(intent), topK, threshold, undefined, dbFilter))(),
+            new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), Math.max(0, INTENT_DEADLINE_MS - (Date.now() - startedAt))); }),
+          ]);
+          if (second) found = maxScorePerDecision(found, second);
+        } catch {
+          // keep the first query's results
+        } finally {
+          clearTimeout(timer);
+        }
       }
       const retrieved = splitRetrieved(opts.depth === 'related' ? fusedWithStoredKeywords(diff, found, hidden.size) : found, hidden, 5, (id) => db.getDecisionById(id)?.title);
       const similar = retrieved.kept;

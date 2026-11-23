@@ -37,7 +37,7 @@ describe('intentLine: tokens come only from the edit and its path', () => {
   });
 
   it('passes a second unknown package name through verbatim', () => {
-    const line = intentLine({ filePath: 'lib/b.py', text: 'import wibblesnort\nwibblesnort.go()' });
+    const line = intentLine({ filePath: 'lib/b.py', text: 'import wibblesnort\nwibblesnort.go()\nsettle invoice ledger' });
     expect(words(line)).toContain('wibblesnort');
   });
 
@@ -51,16 +51,17 @@ describe('intentLine: tokens come only from the edit and its path', () => {
   });
 
   it('adds no word that is in neither the edit nor the path', () => {
-    const text = 'const client = new ZorblaxClient();';
-    const allowed = new Set(['src', 'billing', 'invoice', 'client', 'zorblax']);
+    const text = 'const client = new ZorblaxClient(); ledger.audit()';
+    const allowed = new Set(['src', 'billing', 'invoice', 'client', 'zorblax', 'ledger', 'audit']);
     const out = words(intentLine({ filePath: 'src/billing/invoice.ts', text }));
     expect(out.length).toBeGreaterThan(0);
     for (const w of out) expect(allowed.has(w), w).toBe(true);
   });
 
   it('takes path words from the directory and the file name', () => {
-    const out = words(intentLine({ filePath: 'crates/harness-core/src/llm_client.rs', text: 'let x = 1;' }));
-    expect(out).toEqual(['crates', 'harness', 'core', 'src', 'llm', 'client']);
+    const out = words(intentLine({ filePath: 'crates/harness-core/src/llm_client.rs', text: 'settle invoice ledger' }));
+    // only the last three path segments count, so an absolute prefix never leaks in
+    expect(out).toEqual(['harness', 'core', 'src', 'llm', 'client', 'settle', 'invoice', 'ledger']);
   });
 });
 
@@ -89,7 +90,7 @@ describe('intentLine: splitting', () => {
 
 describe('intentLine: stop list', () => {
   it('drops keywords from Rust, TypeScript and Python', () => {
-    const text = 'pub async fn run() {} const x = await y; let z; var w; impl S {} struct T; mod m; class C {} def d(): return export function f() { if (a) {} else {} } new N true false null';
+    const text = 'pub async fn run() {} const x = await y; let z; var w; impl S {} struct T; mod m; class C {} def d(): return export function f() { if (a) {} else {} } new N true false null ledger invoice audit';
     const out = words(intentLine({ filePath: 'zzz/qqq.ts', text }));
     for (const k of ['const', 'let', 'var', 'fn', 'pub', 'use', 'mod', 'impl', 'struct', 'class', 'def', 'function', 'return', 'import', 'export', 'from', 'async', 'await', 'new', 'if', 'else', 'true', 'false', 'null']) {
       expect(out, k).not.toContain(k);
@@ -98,7 +99,7 @@ describe('intentLine: stop list', () => {
   });
 
   it('drops extension, scheme and www noise and tokens under 3 characters', () => {
-    const out = words(intentLine({ filePath: 'a/main.rs', text: 'x("https://www.example.com/ab/xyz.js", py, ts, http)' }));
+    const out = words(intentLine({ filePath: 'a/main.rs', text: 'x("https://www.example.com/ab/xyz.js", py, ts, http) ledger invoice' }));
     for (const k of ['rs', 'ts', 'js', 'py', 'com', 'www', 'http', 'https', 'ab']) expect(out, k).not.toContain(k);
     expect(out).toEqual(expect.arrayContaining(['example', 'xyz']));
   });
@@ -106,8 +107,8 @@ describe('intentLine: stop list', () => {
 
 describe('intentLine: order and cap', () => {
   it('puts path words first and keeps the first occurrence of a repeat', () => {
-    const out = words(intentLine({ filePath: 'billing/ledger.ts', text: 'ledger ledger audit billing audit' }));
-    expect(out).toEqual(['billing', 'ledger', 'audit']);
+    const out = words(intentLine({ filePath: 'billing/ledger.ts', text: 'ledger ledger audit billing audit settle invoice' }));
+    expect(out).toEqual(['billing', 'ledger', 'audit', 'settle', 'invoice']);
   });
 
   const tokens = (n: number) => Array.from({ length: n }, (_, i) => `tok${'abcdefghijklmnopqrstuvwxyz'[i % 26]}${'abcdefghijklmnopqrstuvwxyz'[Math.floor(i / 26)]}`);
@@ -157,3 +158,48 @@ describe('maxScorePerDecision', () => {
     expect(out.map((x) => x.decisionId)).toEqual(['B', 'b']);
   });
 });
+
+describe('privacy, garbage and thin lines', () => {
+  const ABS = '/home/thomas/projects/acme-billing/crates/core/src/pay.rs';
+  const BODY = 'pub fn settle_invoice(ledger: Ledger) { ledger.reconcile_balance() }';
+
+  it('keeps the username, workspace and repo name out of the line for an absolute path', () => {
+    const line = intentLine({ filePath: ABS, text: BODY });
+    for (const leak of ['thomas', 'home', 'projects', 'acme', 'billing']) expect(line.split(' ')).not.toContain(leak);
+    expect(line.split(' ')).toContain('pay');
+  });
+
+  it('gives a relative and an absolute path to the same file the same line', () => {
+    expect(intentLine({ filePath: ABS, text: BODY })).toBe(intentLine({ filePath: 'crates/core/src/pay.rs', text: BODY }));
+  });
+
+  it('drops git diff header words', () => {
+    const diff = 'diff --git a/x b/x\nindex 83db48f..bf2a3c1 100644\n+ settle invoice ledger reconcile balance';
+    const w = intentLine({ text: diff }).split(' ');
+    for (const h of ['diff', 'git', 'index']) expect(w).not.toContain(h);
+    expect(w).toContain('settle');
+  });
+
+  it('builds no line from a base64 blob', () => {
+    expect(intentLine({ filePath: 'src/a.ts', text: 'const k = "dGhpcyBpcyBhIGJhc2U2NCBibG9iIHdpdGggbm8gbWVhbmluZw9xQzVrTHZKd1l0" ' })).toBe('');
+  });
+
+  it('builds no line from a hex hash', () => {
+    expect(intentLine({ filePath: 'src/a.ts', text: 'sha 3f786850e387550fdab836ed7e6dc881de23001b' })).toBe('');
+  });
+
+  it('builds no line for empty text', () => {
+    expect(intentLine({ filePath: 'crates/core/src/pay.rs', text: '' })).toBe('');
+  });
+
+  it('builds no line when fewer than 3 real tokens remain, and builds one at 3', () => {
+    expect(intentLine({ filePath: 'src/a.ts', text: 'settle invoice' })).toBe('');
+    expect(intentLine({ filePath: 'src/a.ts', text: 'settle invoice ledger' })).not.toBe('');
+  });
+
+  it('drops consonant-only gibberish tokens', () => {
+    const w = intentLine({ text: 'settle invoice ledger xqzvbnmkw' }).split(' ');
+    expect(w).not.toContain('xqzvbnmkw');
+  });
+});
+
