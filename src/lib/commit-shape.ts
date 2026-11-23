@@ -41,7 +41,7 @@ export const STATED_WHY = /\b(?:because|so that|so we|so it|in order to|to keep|
 // entries per PR" and "Sync the cache across workers" stay decisions. README only with "sync": a bare "Update README" is docs prose.
 const CHANGELOG_NAME = String.raw`(?:[\w./-]*\/)?change[ _]?log(?:\.md)?`;
 const CHANGELOG_HOUSEKEEPING = new RegExp(
-  String.raw`^(?:sync|update|updated|refresh|regenerate)\s+(?:the\s+)?${CHANGELOG_NAME}(?:\s+(?:for|to|with)\s+v?\d[\w.+-]*)?[.]?$`,
+  String.raw`^(?:sync|update|updated|refresh|regenerate)\s+(?:the\s+)?${CHANGELOG_NAME}(?:\s+(?:for|to|with)\s+v?\d+\.\d+(?:\.\d+)?(?:[-+.][\w.-]+)?)?[.]?$`,
   'i',
 );
 const README_SYNC = /^sync\s+(?:[\w./-]*\/)?readme(?:\.md)?[.]?$/i;

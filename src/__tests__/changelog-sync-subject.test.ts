@@ -33,6 +33,11 @@ describe('changelog and readme sync subjects', () => {
     'Sync changelog generation into the release workflow',
     'Update README to say the CLI needs Node 22',
     'Sync CHANGELOG.md and README.md ownership to the docs team',
+    'Update changelog for 2FA',
+    'Update changelog for 1password',
+    'Update changelog to v2',
+    'Sync README.md and docs with the Redis removal',
+    'Sync README install steps',
   ])('is kept: %s', (subject) => {
     expect(isReleaseOrBumpSubject(subject)).toBe(false);
     expect(isHousekeepingTitle(subject)).toBe(false);
