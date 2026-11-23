@@ -10,6 +10,7 @@ import type { CoChangeRule } from '../co-change-rule.js';
 import {
   CHANGELOG_FILES, CONTRIBUTING_FILES, type DocKind, inferCoChangeRule, isRuleSection, isVersionedReleaseHeading, README_FILES, sectionBody,
 } from './docs-conventions.js';
+import { discoverAdrDirs } from './adr-dir-discovery.js';
 import { entryDate, findDecisionLogFiles, readLogFile, splitDecisionLog } from './docs-decision-log.js';
 
 /**
@@ -95,10 +96,13 @@ function slugify(heading: string): string {
     .replace(/\s+/g, '-');
 }
 
-async function readAdrFiles(repoRoot: string): Promise<Array<{ relPath: string; content: string }>> {
-  const out: Array<{ relPath: string; content: string }> = [];
-  const seen = new Set<string>(); // real paths already scanned: a symlinked dir must not import twice
-  for (const dir of ADR_DIR_CANDIDATES) {
+async function readAdrDirs(
+  repoRoot: string,
+  dirs: readonly string[],
+  seen: Set<string>,
+  out: Array<{ relPath: string; content: string }>,
+): Promise<void> {
+  for (const dir of dirs) {
     let entries;
     try {
       const real = await realpath(path.join(repoRoot, dir));
@@ -117,11 +121,22 @@ async function readAdrFiles(repoRoot: string): Promise<Array<{ relPath: string; 
       out.push({ relPath, content });
     }
   }
+}
+
+async function readAdrFiles(repoRoot: string): Promise<{ files: Array<{ relPath: string; content: string }>; discoveryNote?: string }> {
+  const out: Array<{ relPath: string; content: string }> = [];
+  const seen = new Set<string>(); // real paths already scanned: a symlinked dir must not import twice
+  await readAdrDirs(repoRoot, ADR_DIR_CANDIDATES, seen, out);
+  // Then any ADR-named directory elsewhere in the tree. `seen` keeps a dir from being read twice.
+  const { dirs, omitted } = await discoverAdrDirs(repoRoot, seen);
+  await readAdrDirs(repoRoot, dirs, seen, out);
   // readdir order is not guaranteed sorted or stable across platforms, and it decides which
   // ADRs survive `limit` when there are more than it allows - sort so that choice is the same
   // on every run rather than whatever the filesystem happened to hand back.
   out.sort((a, b) => (a.relPath < b.relPath ? -1 : a.relPath > b.relPath ? 1 : 0));
-  return out;
+  const discoveryNote = dirs.length === 0 ? undefined
+    : `ADRs from directories found by name: ${dirs.join(', ')}${omitted.length > 0 ? ` (${omitted.length} more not read, cap ${dirs.length}: ${omitted.join(', ')})` : ''}`;
+  return { files: out, ...(discoveryNote ? { discoveryNote } : {}) };
 }
 
 async function adrItem(repoRoot: string, useGit: boolean, relPath: string, content: string, remoteUrl: string | null, branch: string): Promise<PersonalImportItem> {
@@ -332,15 +347,19 @@ async function readDocsItems(opts: { limit: number; cwd?: string }): Promise<{
   droppedShort: number;
   /** README/CONTRIBUTING/changelog sections that state no rule. */
   droppedNonRule: number;
+  /** Which ADR directories were found by name outside the candidate list; absent when none. */
+  discoveryNote?: string;
 }> {
   const repoRoot = opts.cwd ?? process.cwd();
   const gitOpts = opts.cwd ? { cwd: opts.cwd } : undefined;
-  const [remoteUrl, branch, adrFiles] = await Promise.all([
+  const [remoteUrl, branch, adrRead] = await Promise.all([
     getRemoteUrl(gitOpts),
     getCurrentBranch(gitOpts).catch(() => 'main'),
     readAdrFiles(repoRoot),
   ]);
 
+  const adrFiles = adrRead.files;
+  const discovery = adrRead.discoveryNote ? { discoveryNote: adrRead.discoveryNote } : {};
   // Once per import: a shallow clone's history says nothing true about when an ADR was added.
   const useGit = !(await isShallowRepo(repoRoot));
   const adrItems = await mapLimit(adrFiles.slice(0, opts.limit), GIT_CONCURRENCY, ({ relPath, content }) =>
@@ -351,7 +370,7 @@ async function readDocsItems(opts: { limit: number; cwd?: string }): Promise<{
   const remaining = opts.limit - adrItems.length;
   // Capped even at exact equality: the agent-rules files were never opened BECAUSE the
   // limit was already full, so something may have been left out and nobody counted it.
-  if (remaining <= 0) return { items: adrItems, scanned: adrFiles.length, capped: true, droppedShort: 0, droppedNonRule: 0 };
+  if (remaining <= 0) return { items: adrItems, scanned: adrFiles.length, capped: true, droppedShort: 0, droppedNonRule: 0, ...discovery };
 
   const { items: agentRulesItems, droppedShort, droppedRelease } = await readAgentRulesItems(repoRoot, remoteUrl, branch);
   const conventions = await readConventionItems(repoRoot, remoteUrl, branch);
@@ -365,6 +384,7 @@ async function readDocsItems(opts: { limit: number; cwd?: string }): Promise<{
     capped: candidates > opts.limit,
     droppedShort: droppedShort + conventions.droppedShort,
     droppedNonRule: conventions.droppedNonRule + droppedRelease,
+    ...discovery,
   };
 }
 
@@ -379,12 +399,13 @@ async function readDocsItems(opts: { limit: number; cwd?: string }): Promise<{
  * ADRs alone fill the limit, so no count is invented for it.
  */
 export async function fetchDocsItems(opts: { limit: number; cwd?: string }): Promise<CaptureFetchResult> {
-  const { items, scanned, capped, droppedShort, droppedNonRule } = await readDocsItems(opts);
+  const { items, scanned, capped, droppedShort, droppedNonRule, discoveryNote } = await readDocsItems(opts);
   return {
     items,
     report: {
       scanned,
       ...(capped ? { requested: opts.limit } : {}),
+      ...(discoveryNote ? { scopeNote: discoveryNote } : {}),
       skips: [
         ...(droppedShort > 0
           ? [{ count: droppedShort, detail: `sections under ${MIN_CHUNK_CHARS} characters (a bare heading or a one-line pointer)` }]
