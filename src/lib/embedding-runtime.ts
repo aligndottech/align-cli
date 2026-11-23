@@ -243,5 +243,13 @@ export interface OrtApi {
 export function loadOrt(dir: string): OrtApi {
   const entry = join(dir, 'dist', 'index.js');
   if (!existsSync(entry)) throw new Error(`runtime bundle at ${dir} has no dist/index.js`);
+  // The official macOS and Linux builds of ONNX Runtime carry Microsoft's 1DS telemetry client,
+  // on by default: it writes a device id under the user's home and uploads to
+  // mobile.events.data.microsoft.com about ten seconds after it initialises, whatever
+  // `align telemetry off` says. A process that exits while an upload is in flight aborts with
+  // exit 134 after its work is done (microsoft/onnxruntime#33251). The runtime reads this
+  // variable once, while it initialises, so it is set before the require below and replaces any
+  // value already there: nothing of ours turns the runtime's telemetry on.
+  process.env['ORT_DISABLE_TELEMETRY'] = '1';
   return createRequire(join(dir, 'package.json'))(entry) as OrtApi;
 }

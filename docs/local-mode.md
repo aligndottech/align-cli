@@ -24,6 +24,12 @@ start local and move to cloud later.
 Worth knowing before you point it at work content.
 
 - The embedding model downloads once from huggingface.co (~23MB), and the native runtime for your OS (npm install only, about 20MB to download and up to about 46MB unpacked) once from a GitHub release, on the first import. Both are checked against SHA-256 values built into the CLI before they are kept, and cached under `$XDG_CACHE_HOME/align-cli` (`~/.cache/align-cli`, or `%LOCALAPPDATA%\align-cli` on Windows), never inside the install.
+- **The native runtime's own telemetry is turned off.** The official ONNX Runtime builds for
+  macOS and Linux carry a Microsoft telemetry client that is on by default. The CLI sets
+  `ORT_DISABLE_TELEMETRY=1` before it loads the runtime, so the runtime opens no connection and
+  writes no device identifier. Versions from 0.58.0 until this was fixed did not set it: if you
+  ran one on macOS, the runtime left a device identifier in
+  `~/Library/Application Support/Microsoft/DeveloperTools/.onnxruntime`, which is safe to delete.
 - **The first run in a repo whose origin is on github.com reads that repo's recent merged pull
   requests** from api.github.com. It does not ask first. It needs no token: without one it reads
   up to 300 PRs. If your `gh` login is found and GitHub confirms its token cannot write, Align
