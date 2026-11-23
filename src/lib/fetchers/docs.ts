@@ -10,7 +10,7 @@ import type { CoChangeRule } from '../co-change-rule.js';
 import {
   CHANGELOG_FILES, CONTRIBUTING_FILES, type DocKind, inferCoChangeRule, isRuleSection, isVersionedReleaseHeading, README_FILES, sectionBody,
 } from './docs-conventions.js';
-import { discoverAdrDirs } from './adr-dir-discovery.js';
+import { discoverAdrDirs, loadRootIgnore } from './adr-dir-discovery.js';
 import { entryDate, findDecisionLogFiles, readLogFile, splitDecisionLog } from './docs-decision-log.js';
 
 /**
@@ -105,6 +105,7 @@ async function readAdrDirs(
   out: AdrFile[],
   unreadable: Set<string>,
   discovered = false,
+  isIgnored: (rel: string, name: string) => boolean = () => false,
 ): Promise<void> {
   for (const dir of dirs) {
     let entries;
@@ -120,6 +121,7 @@ async function readAdrDirs(
     for (const entry of entries) {
       if (!entry.isFile() || !/\.(mdx?|adoc|asciidoc)$/i.test(entry.name)) continue;
       const relPath = `${dir}/${entry.name}`;
+      if (discovered && isIgnored(relPath, entry.name)) continue; // root .gitignore applies to discovered dirs only
       try {
         const content = await readFile(path.join(repoRoot, dir, entry.name), 'utf8');
         // `--out docs/decisions/x.md` lands here: Align's own output is not an ADR.
@@ -150,7 +152,7 @@ async function readAdrFiles(repoRoot: string): Promise<AdrRead> {
   await readAdrDirs(repoRoot, ADR_DIR_CANDIDATES, seen, candidates, unreadable);
   // Then any ADR-named directory elsewhere in the tree. `seen` keeps a dir from being read twice.
   const disc = await discoverAdrDirs(repoRoot, seen, unreadable);
-  await readAdrDirs(repoRoot, disc.dirs, seen, found, unreadable, true);
+  await readAdrDirs(repoRoot, disc.dirs, seen, found, unreadable, true, await loadRootIgnore(repoRoot));
   // readdir order is not guaranteed sorted or stable across platforms, and it decides which
   // ADRs survive `limit` when there are more than it allows - sort so that choice is the same
   // on every run. Candidates keep their own order and always come before discovered files, so

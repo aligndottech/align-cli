@@ -266,5 +266,42 @@ describe('fetchDocsItems - ADR directories found by name anywhere', () => {
       pair('a/gen/adr');
       expect((await none()).items).toEqual([]);
     });
+
+    it('B10 prose that merely starts with a label word does not make a record', async () => {
+      fresh();
+      for (const n of ['0001-a.md', '0002-b.md']) {
+        mkdirSync(join(repo, 'notes/adr'), { recursive: true });
+        writeFileSync(join(repo, 'notes/adr', n), 'Decision fatigue affected the discussion.\n\nDate selection remains open.\n');
+      }
+      expect((await none()).items).toEqual([]);
+    });
+
+    it('B11 labelled forms still qualify: heading, Label:, **Label:**, bullet label', async () => {
+      fresh();
+      const forms = ['## Decision\nUse X.\n\n## Status\nAccepted\n', 'Decision: Use X.\nStatus: Accepted\n', '**Decision:** Use X.\n**Status:** Accepted\n', '- Decision: Use X.\n- Date: 2024-01-02\n'];
+      forms.forEach((body, i) => {
+        mkdirSync(join(repo, `d${i}/adr`), { recursive: true });
+        for (const n of ['0001-a.md', '0002-b.md']) writeFileSync(join(repo, `d${i}/adr`, n), body);
+      });
+      expect((await none()).report.scopeNote).toMatch(/d0\/adr/);
+    });
+
+    it('B12 AsciiDoc section headings (== Status) qualify a directory', async () => {
+      fresh();
+      mkdirSync(join(repo, 'knowledge/adr'), { recursive: true });
+      for (const n of ['0001-a.adoc', '0002-b.adoc']) writeFileSync(join(repo, 'knowledge/adr', n), '= ADR\n\n== Status\nAccepted\n\n== Decision\nUse X.\n');
+      expect((await none()).items.length).toBe(2);
+    });
+
+    it('B13 a gitignored FILE inside a discovered dir is not imported', async () => {
+      fresh();
+      writeFileSync(join(repo, '.gitignore'), 'knowledge/adr/0003-private.md\n');
+      put('knowledge/adr/0001-a.md');
+      put('knowledge/adr/0002-b.md');
+      put('knowledge/adr/0003-private.md');
+      const { items } = await none();
+      expect(items.map((i) => i.source_url)).toHaveLength(2);
+      expect(items.some((i) => /private/.test(i.source_url ?? ''))).toBe(false);
+    });
   });
 });

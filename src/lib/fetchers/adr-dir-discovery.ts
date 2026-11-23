@@ -37,10 +37,20 @@ const SKIP_DIRS = new Set([
  *  .svelte-kit, .turbo, .output, .angular, .terraform, .cache ...) is generated or foreign. */
 const DOT_DIRS_ALLOWED = new Set(['.specs', '.agents']);
 const HEAD_LINES = 40;
-const LABEL = /^\s*(?:#{1,6}\s*|[*_]{1,2}|[-*+]\s+)?(decision|status|context|consequences|date)\b/i;
+const LABEL_WORDS = '(decision|status|context|consequences|date)';
+/** A record label is explicit: a heading (`## Decision`, `== Status`), a `Label:` / `**Label:**` line, or the word alone on its line.
+ *  A bare prose sentence that merely starts with the word ("Decision fatigue affected the talk.") is not one. */
+const LABEL_HEADING = new RegExp(`^\\s*(?:#{1,6}|={2,6})\\s*[*_]{0,2}${LABEL_WORDS}\\b`, 'i');
+const LABEL_DELIMITED = new RegExp(`^\\s*(?:[-*+]\\s+)?[*_]{0,2}${LABEL_WORDS}[*_]{0,2}\\s*(?::|$)`, 'i');
 const DOC_FILE = /\.(mdx?|adoc|asciidoc)$/i;
 const RECORD_NAME = /^(?:adr[-_ ]?)?\d{1,5}[-_.]|^\d{4}-\d{2}-\d{2}/i;
 const NOT_RECORD = /^(?:readme|template|index)\b|[-_]template\b/i;
+
+/** The simple patterns of the ROOT .gitignore as one predicate over (repo-relative path, base name). */
+export async function loadRootIgnore(repoRoot: string): Promise<(rel: string, name: string) => boolean> {
+  const ms = gitignoreMatchers(await readFile(path.join(repoRoot, '.gitignore'), 'utf8').catch(() => ''));
+  return (rel, name) => ms.some((m) => m(rel, name));
+}
 
 /** `x/y` is anchored to the root, `x` matches a directory of that name anywhere; `*` matches within one segment. */
 function gitignoreMatchers(content: string): Array<(rel: string, name: string) => boolean> {
@@ -72,7 +82,7 @@ export function isRecordName(name: string): boolean {
 export function hasRecordContent(content: string): boolean {
   const found = new Set<string>();
   for (const line of content.split('\n').slice(0, HEAD_LINES)) {
-    const m = LABEL.exec(line);
+    const m = LABEL_HEADING.exec(line) ?? LABEL_DELIMITED.exec(line);
     if (m) found.add(m[1].toLowerCase());
   }
   return found.has('decision') && found.size >= 2;
@@ -100,7 +110,7 @@ export async function discoverAdrDirs(
   seenReal: ReadonlySet<string>,
   unreadable: Set<string> = new Set(),
 ): Promise<DiscoveredAdrDirs> {
-  const ignore = gitignoreMatchers(await readFile(path.join(repoRoot, '.gitignore'), 'utf8').catch(() => ''));
+  const isIgnored = await loadRootIgnore(repoRoot);
   const found: string[] = [];
   const foundReal = new Set<string>();
   let visited = 0;
@@ -117,7 +127,7 @@ export async function discoverAdrDirs(
     }
     entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
     if (rel && ADR_DIR_NAMES.has(path.posix.basename(rel).toLowerCase())) {
-      const names = entries.filter((e) => e.isFile() && isRecordName(e.name)).map((e) => e.name);
+      const names = entries.filter((e) => e.isFile() && isRecordName(e.name) && !isIgnored(`${rel}/${e.name}`, e.name)).map((e) => e.name);
       let records = 0;
       for (const name of names) {
         if (records >= MIN_RECORDS) break;
@@ -142,7 +152,7 @@ export async function discoverAdrDirs(
       const lower = e.name.toLowerCase();
       if (SKIP_DIRS.has(lower) || (lower.startsWith('.') && !DOT_DIRS_ALLOWED.has(lower))) continue;
       const childRel = rel ? `${rel}/${e.name}` : e.name;
-      if (ignore.some((m) => m(childRel, e.name))) continue;
+      if (isIgnored(childRel, e.name)) continue;
       if (depth >= MAX_DEPTH) {
         depthLimited = true;
         continue;
