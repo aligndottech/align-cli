@@ -21,6 +21,9 @@
  * 8. real fixture (opencode): "Decide the retry count..." yields one candidate
  * 9. real fixture (claude-code): a bug-report question yields no candidate (Pass A's job)
  * 10. real fixture (pi): a bash-command turn yields no candidate
+ * 11. a human-role turn too long to have been typed yields no candidate, whatever phrase it contains
+ * 12. a long typed message under that bound still yields its candidate
+ * 13. "let's" followed by any verb yields a candidate, not only the six verbs first listed
  */
 import { describe, expect, it } from 'vitest';
 import { findFreeTextCandidates } from '../../lib/sessions/extract-freetext.js';
@@ -106,6 +109,53 @@ describe('findFreeTextCandidates: heuristic phrase matching', () => {
     const candidates = findFreeTextCandidates(session);
     expect(candidates).toHaveLength(2);
     expect(candidates.map(c => c.messageId)).toEqual(['turn-0', 'turn-2']);
+  });
+});
+
+describe('findFreeTextCandidates: "let\'s" with any verb', () => {
+  // The shapes typed redirects actually took in the measured sessions. None of these verbs was
+  // in the original list (go with, use, do, switch to, just use, just go with).
+  it.each([
+    'Let\'s keep it in one file for now.',
+    'hmm, lets not add a settings page for this, a flag is enough',
+    'ok. let\'s give the build box 100gb and move on',
+    'Let\'s remove the retry budget from the worker AND the scheduler.',
+  ])('yields a candidate for %j', (text) => {
+    const session: CanonicalSession = { agent: 'pi', sessionId: 's1', cwd: null, turns: [userTurn(text)] };
+    expect(findFreeTextCandidates(session).map(c => c.humanText)).toEqual([text]);
+  });
+
+  it('does not fire on a word that merely contains "lets"', () => {
+    const session: CanonicalSession = { agent: 'pi', sessionId: 's1', cwd: null, turns: [userTurn('The outlets and bullets render fine now.')] };
+    expect(findFreeTextCandidates(session)).toEqual([]);
+  });
+});
+
+describe('findFreeTextCandidates: a turn too long to have been typed', () => {
+  // The shape a harness puts in the human role: a compaction summary, a skill file, a prompt
+  // another program wrote. Any text this long contains a decision phrase somewhere.
+  const block = (chars: number): string =>
+    `${'The earlier turns of this conversation are summarised below. '.repeat(Math.ceil(chars / 61)).slice(0, chars - 60)} We decided to use Postgres instead of SQLite.`;
+
+  it('yields no candidate for a 20,000-character block, even though it contains "decided" and "instead of"', () => {
+    const session: CanonicalSession = { agent: 'claude-code', sessionId: 's1', cwd: null, turns: [userTurn(block(20_000))] };
+    expect(findFreeTextCandidates(session)).toEqual([]);
+  });
+
+  it('still yields the candidate for a long typed message under the bound', () => {
+    // The longest typed redirect in the measured sessions was about 7,000 characters: a pasted
+    // note with the instruction after it.
+    const text = block(7_000);
+    const session: CanonicalSession = { agent: 'claude-code', sessionId: 's1', cwd: null, turns: [userTurn(text)] };
+    expect(findFreeTextCandidates(session).map(c => c.humanText)).toEqual([text]);
+  });
+
+  it('skips only the long turn: a typed redirect later in the same session is still found', () => {
+    const session: CanonicalSession = {
+      agent: 'claude-code', sessionId: 's1', cwd: null,
+      turns: [userTurn(block(20_000)), assistantTurn('Understood.'), userTurn('Go with the queue instead of polling.')],
+    };
+    expect(findFreeTextCandidates(session).map(c => c.messageId)).toEqual(['turn-2']);
   });
 });
 
