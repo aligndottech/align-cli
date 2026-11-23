@@ -11,6 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { absoluteXdg } from '../xdg.js';
 import { filesFromDiff } from './mark.js';
+import { SECRET_PRECHECK_ID } from '../secret-precheck.js';
 
 export interface LastCheck {
   checked_at: string;
@@ -77,6 +78,8 @@ export function lastCheckFor(
   head: string | null = null,
 ): LastCheck {
   const ids = new Set([...(result.relevant_decisions ?? []).map((d) => d.id), ...(result.conflicts ?? []).map((c) => c.decision_id)]);
+  // The secret pre-check's finding is not a decision: nothing downstream can mark or resolve it.
+  ids.delete(SECRET_PRECHECK_ID);
   return { checked_at: now.toISOString(), cwd, head, files: result.checked_files ?? filesFromDiff(diff), decision_ids: [...ids] };
 }
 

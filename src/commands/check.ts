@@ -33,6 +33,7 @@ import { quote } from '../lib/curation/text.js';
 import { detectDeterministicHits, ratifiedDeterministicRules, ruleDenyReason } from '../lib/inline-rules.js';
 import { dependencyIntentQuery } from '../lib/agent/dependency-intent.js';
 import { redactSecrets } from '../lib/share/secret-scan.js';
+import { addedLinesDiff, judgeWithSecretCheck, SECRET_PRECHECK_ID, secretDenyReason, secretHitsInDiff } from '../lib/secret-precheck.js';
 import { decisionLinkFor } from '../lib/decision-links.js';
 import { isoDay, isoInstant } from '../lib/decision-render.js';
 import type { ChangeSource } from '../lib/co-change-check.js';
@@ -323,13 +324,15 @@ export function registerCheckCommand(program: Command): void {
           }
         }
       }
-      const judge = async (): Promise<AlignmentResult> => {
+      const judgeDecisions = async (): Promise<AlignmentResult> => {
         if (fileDecisions) {
           return (await import('../lib/decisions-file-check.js')).judgeAgainstDecisionsFile(diff, fileDecisions, { title: opts.title, file: opts.decisionsFile! });
         }
         const call = () => client.checkAlignment(diff, branch, checkOpts);
         return violations.length === 0 ? call() : (await import('../lib/co-change-check.js')).judgeWithCoChange(call, violations);
       };
+      // A secret shape in the added lines is a finding whatever retrieval surfaced, so it wraps every judge.
+      const judge = (): Promise<AlignmentResult> => judgeWithSecretCheck(judgeDecisions, diff);
 
       if (opts.ci) {
         try {
@@ -395,7 +398,9 @@ export function registerCheckCommand(program: Command): void {
             if (link) console.log(chalk.dim(`           ${link}`));
             console.log('');
           }
-          if (opts.resolve) {
+          if (opts.resolve && opts.resolve.startsWith(SECRET_PRECHECK_ID)) {
+            console.log(chalk.dim('  (A secret finding is not a decision, so there is nothing to resolve. Remove the secret, or add an align:allow-secret marker if it is deliberate.)'));
+          } else if (opts.resolve) {
             const colonIdx = opts.resolve.indexOf(':');
             const decisionId = colonIdx > 0 ? opts.resolve.slice(0, colonIdx) : opts.resolve;
             const resolutionType = colonIdx > 0 ? opts.resolve.slice(colonIdx + 1) : 'honored';
@@ -531,6 +536,27 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
         process.stdout.write(`${format === 'text' ? output : JSON.stringify(output)}\n`);
       }
     };
+
+    // A known secret shape in the proposed text stops the FIRST attempt: computed from the text alone, so it needs
+    // no network, no model, no ratified rule and works in local mode. Kind and file only, never the value. PRE only
+    // (a landed edit cannot be refused). The deny is computed inside try, and acted on outside it: a failure of the
+    // scan itself must never block an edit. ALIGN_RULES_ACK=1 is the same break glass as the rule deny below, and
+    // `align:allow-secret` on the line marks a deliberate fixture.
+    // NOTE: inline-rules.ts keeps its own SECRET_FORMATS list for the ratified-rule path. The two lists overlap and can
+    // drift; they are left separate because that one is gated on a ratified rule and this one is not.
+    if (pre && process.env.ALIGN_RULES_ACK !== '1') {
+      let secretDenial: unknown | null = null;
+      try {
+        const found = secretHitsInDiff(addedLinesDiff(context || 'edit', text));
+        if (found.length) secretDenial = renderForHost(secretDenyReason(found), renderOpts, true);
+      } catch {
+        // Fail open.
+      }
+      if (secretDenial !== null) {
+        emit(secretDenial);
+        process.exit(0);
+      }
+    }
 
     // A RATIFIED deterministic rule stops the FIRST attempt, inline. The pure
     // matcher runs first and costs nothing; the tenant's rules are fetched only when it hits,
