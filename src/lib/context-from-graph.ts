@@ -129,12 +129,23 @@ function wholeTitle(title: string, summary: string | undefined): string {
   return `${atBoundary ? cut : cut.replace(/\s*\S*$/, '')}...`.replace(/[\s,;:]+\.\.\.$/, '...');
 }
 
+/**
+ * A docs row that is one rule of a list (fetchers/docs-rule-list.ts) has the rule as its title, and the graph keeps 80
+ * characters of that. Its summary starts with the whole rule, so the file prints the rule and not a stump.
+ */
+const RULE_TITLE_CAP = 300;
+function wholeRuleTitle(r: ListedDecision): string {
+  if (r.title.length < TITLE_CUT_AT) return r.title;
+  const first = (r.summary ?? '').split('\n')[0]!.trim();
+  return first.startsWith(r.title) && first.length <= RULE_TITLE_CAP ? first : r.title;
+}
+
 /** Hidden from the file only (never from capture): a subject that names a package with strong evidence. */
 const isFileBump = (r: ListedDecision): boolean => CODE_PLATFORMS.has(r.platform ?? '') && isDependencyBumpSubject(r.title.replace(FEAT_PREFIX, ''));
 
 export function selectForFile(rows: ListedDecision[], limit: number): { decisions: ContextDecision[]; leftOut: number; selected: ListedDecision[] } {
   const rules = rows.filter((r) => r.platform === 'docs');
-  const keptRules = rules.slice(0, limit);
+  const keptRules = rules.slice(0, limit).map((r) => ({ ...r, title: wholeRuleTitle(r) }));
   // Merge repeats and hide reversals BEFORE the cap and the counts, so the cap keeps the newest decisions
   // (not the first N in graph order) and every number describes what the file shows.
   const sourceOf = new Map<ContextDecision, ListedDecision>();

@@ -12,6 +12,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { selectForFile } from '../lib/context-from-graph.js';
+import { renderDecisionsFile } from '../lib/decisions-context.js';
 
 const row = (title: string, platform = 'git', summary = '') => ({ title, platform, summary, source_url: `https://github.com/o/r/commit/${title.length}` });
 
@@ -55,5 +56,24 @@ describe('selectForFile', () => {
   it('a feat: prefix does not hide a fix: "feat: fix retry policy" is left out, "feat: use Postgres instead of MySQL" is kept', () => {
     const { decisions } = selectForFile([row('feat: fix retry policy instead of failing'), row('feat: use Postgres instead of MySQL')], 30);
     expect(decisions.map((d) => d.title)).toEqual(['use Postgres instead of MySQL']);
+  });
+});
+
+describe('selectForFile - one docs row per rule', () => {
+  const RULE = 'Never force-push to main or run `git reset --hard` without asking first, because other agents build on that branch';
+  const cut = RULE.slice(0, 80); // the graph keeps 80 characters of a title
+
+  it('prints the whole rule, recovered from the summary, when the stored title was cut', () => {
+    const { decisions } = selectForFile(
+      [{ title: cut, platform: 'docs', summary: `${RULE}.\n\nFrom the "Core principles" section.`, source_url: 'https://github.com/o/r/blob/main/AGENTS.md#core-principles--never-force-push' }],
+      50,
+    );
+    expect(decisions[0]!.title).toBe(`${RULE}.`);
+    expect(renderDecisionsFile(decisions)).toContain(`${RULE}.`);
+  });
+
+  it('leaves a short docs title alone', () => {
+    const { decisions } = selectForFile([{ title: 'Testing', platform: 'docs', summary: 'Testing\n\nRun the tests.', source_url: 'https://github.com/o/r/blob/main/AGENTS.md#testing' }], 50);
+    expect(decisions[0]!.title).toBe('Testing');
   });
 });

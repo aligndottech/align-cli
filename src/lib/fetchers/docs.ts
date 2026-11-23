@@ -10,6 +10,7 @@ import type { CoChangeRule } from '../co-change-rule.js';
 import {
   CHANGELOG_FILES, CONTRIBUTING_FILES, type DocKind, inferCoChangeRule, isRuleSection, isVersionedReleaseHeading, README_FILES, sectionBody,
 } from './docs-conventions.js';
+import { splitRuleList } from './docs-rule-list.js';
 import { entryDate, findDecisionLogFiles, readLogFile, splitDecisionLog } from './docs-decision-log.js';
 
 /**
@@ -225,6 +226,26 @@ async function readAgentRulesItems(
         const seen = seenSlugs.get(slug) ?? 0;
         seenSlugs.set(slug, seen + 1);
         anchor = `#${slug}${seen > 0 ? `-${seen + 1}` : ''}`;
+      }
+      const rules = section.heading ? splitRuleList(withoutComments(section.body)) : null;
+      if (rules) {
+        // One decision per rule. The title is the rule as written (the privacy check for --out needs it verbatim in
+        // the committed file); the section travels in the text as context. The url is the section
+        // anchor plus the rule's own words, so a re-import of unchanged text lands on the same row.
+        const seenRules = new Map<string, number>();
+        for (const rule of rules) {
+          const ruleSlug = slugify(rule.text).slice(0, 60).replace(/-+$/, '');
+          const n = seenRules.get(ruleSlug) ?? 0;
+          seenRules.set(ruleSlug, n + 1);
+          const prefix = rule.group ? `${section.heading}, ${rule.group}` : section.heading!;
+          items.push({
+            source_url: `${buildBlobUrl(remoteUrl, branch, file)}${anchor}--${ruleSlug}${n > 0 ? `-${n + 1}` : ''}`,
+            platform: 'docs',
+            raw_text: `${rule.full}\n\nFrom the "${prefix}" section.`,
+            title: rule.text,
+          });
+        }
+        continue;
       }
       items.push({
         source_url: `${buildBlobUrl(remoteUrl, branch, file)}${anchor}`,
