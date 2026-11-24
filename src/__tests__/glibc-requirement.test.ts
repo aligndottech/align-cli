@@ -17,20 +17,20 @@ const LOADER = 'Error loading shared library ld-linux-x86-64.so.2: No such file 
 describe('isMuslLinux', () => {
   it('is true on linux when the process report names no glibc (Alpine)', async () => {
     const { isMuslLinux } = await import('../lib/libc.js');
-    expect(isMuslLinux('linux', { header: {} })).toBe(true);
+    expect(isMuslLinux('linux', () => ({ header: {} }))).toBe(true);
   });
   it('is false on linux when the report names a glibc version (Debian)', async () => {
     const { isMuslLinux } = await import('../lib/libc.js');
-    expect(isMuslLinux('linux', { header: { glibcVersionRuntime: '2.36' } })).toBe(false);
+    expect(isMuslLinux('linux', () => ({ header: { glibcVersionRuntime: '2.36' } }))).toBe(false);
   });
   it('is false off linux, whatever the report says', async () => {
     const { isMuslLinux } = await import('../lib/libc.js');
-    expect(isMuslLinux('darwin', { header: {} })).toBe(false);
-    expect(isMuslLinux('win32', { header: {} })).toBe(false);
+    expect(isMuslLinux('darwin', () => ({ header: {} }))).toBe(false);
+    expect(isMuslLinux('win32', () => ({ header: {} }))).toBe(false);
   });
   it('is false when no report can be read, because a guess would block a working machine', async () => {
     const { isMuslLinux } = await import('../lib/libc.js');
-    expect(isMuslLinux('linux', undefined)).toBe(false);
+    expect(isMuslLinux('linux', () => undefined)).toBe(false);
   });
 });
 
@@ -74,5 +74,66 @@ describe('local mode on a system without glibc', () => {
     native.create.mockRejectedValue(new Error('could not reach github.com: getaddrinfo ENOTFOUND'));
     const { getEmbedding } = await import('../lib/local-embeddings.js');
     await expect(getEmbedding('hello')).rejects.toThrow(/internet connection/);
+  });
+});
+
+
+// Review of #720: the loader test must not fire on other platforms, and an old glibc is a different problem from musl.
+const DYLD = 'dlopen(/c/ort/bin/napi-v6/darwin/arm64/onnxruntime_binding.node, 0x0001): Symbol not found: __ZN3Ort3Env8InstanceEv';
+const OLD_GLIBC = "/lib/x86_64-linux-gnu/libm.so.6: version `GLIBC_2.28' not found (required by /c/ort/bin/napi-v6/linux/x64/libonnxruntime.so.1)";
+
+describe('isLoaderFailure: Linux loader errors only', () => {
+  it('does not take a macOS dyld error for one, on any platform', async () => {
+    const { isLoaderFailure } = await import('../lib/libc.js');
+    expect(isLoaderFailure(DYLD, 'linux')).toBe(false);
+    expect(isLoaderFailure(DYLD, 'darwin')).toBe(false);
+  });
+  it.each(['darwin', 'win32'])('is false on %s even for a Linux-looking error', async (platform) => {
+    const { isLoaderFailure } = await import('../lib/libc.js');
+    expect(isLoaderFailure(LOADER, platform)).toBe(false);
+  });
+  it('still recognises the musl loader and a relocation error on linux', async () => {
+    const { isLoaderFailure } = await import('../lib/libc.js');
+    expect(isLoaderFailure('Error loading shared library ld-musl-x86_64.so.1: No such file', 'linux')).toBe(true);
+    expect(isLoaderFailure('Error relocating /c/libonnxruntime.so.1: __memcpy_chk: symbol not found', 'linux')).toBe(true);
+  });
+});
+
+describe('a glibc that is too old', () => {
+  it('is recognised on linux, and not elsewhere', async () => {
+    const { isOldGlibc } = await import('../lib/libc.js');
+    expect(isOldGlibc(OLD_GLIBC, 'linux')).toBe(true);
+    expect(isOldGlibc("libc.so.6: version `GLIBC_2.31' not found", 'linux')).toBe(true);
+    expect(isOldGlibc(OLD_GLIBC, 'darwin')).toBe(false);
+    expect(isOldGlibc(LOADER, 'linux')).toBe(false);
+  });
+  it('gets a message that names the required glibc and does not say musl', async () => {
+    const { glibcTooOldMessage } = await import('../lib/libc.js');
+    const m = glibcTooOldMessage(OLD_GLIBC);
+    expect(m).toContain('glibc 2.28');
+    expect(m).toContain('node:22-bookworm-slim');
+    expect(m).not.toMatch(/musl/);
+  });
+  it('is what local mode reports when the runtime fails that way', async () => {
+    native.create.mockRejectedValue(new Error(OLD_GLIBC));
+    const { getEmbedding } = await import('../lib/local-embeddings.js');
+    const err = (await getEmbedding('x').catch((e: Error) => e)) as Error;
+    expect(err.message).toMatch(/glibc 2\.28/);
+    expect(err.message).not.toMatch(/musl|internet connection/);
+  });
+});
+
+describe('the process report is read lazily', () => {
+  it.each(['darwin', 'win32'])('never reads it on %s', async (platform) => {
+    const { isMuslLinux } = await import('../lib/libc.js');
+    const reader = vi.fn(() => ({ header: {} }));
+    expect(isMuslLinux(platform, reader)).toBe(false);
+    expect(reader).not.toHaveBeenCalled();
+  });
+  it('reads it once on linux', async () => {
+    const { isMuslLinux } = await import('../lib/libc.js');
+    const reader = vi.fn(() => ({ header: { glibcVersionRuntime: '2.36' } }));
+    isMuslLinux('linux', reader);
+    expect(reader).toHaveBeenCalledTimes(1);
   });
 });

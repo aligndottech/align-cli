@@ -17,18 +17,34 @@ function readReport(): ProcessReport | undefined {
 
 /**
  * True on Linux when Node itself runs on musl. Node's process report carries `glibcVersionRuntime` only when it is
- * linked against glibc. An unreadable report is NOT taken as musl: a wrong guess would block a machine that works.
+ * linked against glibc. The platform is checked first and the report (which walks native state) is read only on Linux.
+ * An unreadable report is NOT taken as musl: a wrong guess would block a machine that works.
  */
-export function isMuslLinux(platform: string = process.platform, report: ProcessReport | undefined = readReport()): boolean {
-  if (platform !== 'linux' || !report?.header) return false;
-  return report.header.glibcVersionRuntime === undefined;
+export function isMuslLinux(platform: string = process.platform, report: () => ProcessReport | undefined = readReport): boolean {
+  if (platform !== 'linux') return false;
+  const r = report();
+  if (!r?.header) return false;
+  return r.header.glibcVersionRuntime === undefined;
 }
 
-/** The dynamic loader's own wording for a native library that needs glibc, as it appears in a dlopen error. */
-const LOADER_FAILURE = /ld-linux|Error loading shared library|Error relocating|symbol not found/i;
+/** The Linux dynamic loader's own wording. Case-sensitive and Linux-only: a macOS dyld "Symbol not found" is not one. */
+const LOADER_FAILURE = /ld-linux-|ld-musl|Error loading shared library|Error relocating/;
+const OLD_GLIBC = /version `GLIBC_(\d+(?:\.\d+)*)' not found/;
 
-export function isLoaderFailure(message: string): boolean {
-  return LOADER_FAILURE.test(message);
+export function isLoaderFailure(message: string, platform: string = process.platform): boolean {
+  return platform === 'linux' && LOADER_FAILURE.test(message);
+}
+
+/** The runtime was built against a newer glibc than this system has. */
+export function isOldGlibc(message: string, platform: string = process.platform): boolean {
+  return platform === 'linux' && OLD_GLIBC.test(message);
+}
+
+export function glibcTooOldMessage(detail: string): string {
+  const need = OLD_GLIBC.exec(detail)?.[1];
+  return `Local mode needs glibc ${need ?? 'a newer version'} or newer: this system's C library is too old for its on-device embedding runtime (ONNX Runtime). `
+    + 'Run it on a newer image instead, for example node:22-bookworm-slim (Debian), or use cloud mode (`align login`). '
+    + `(${detail})`;
 }
 
 /** One message for both ways of finding out (checked up front, or the loader failed), so the advice cannot drift. */
