@@ -58,7 +58,7 @@ export function v1MaxTokens(candidateCount: number): number {
  * commit messages left most of their share unused. Nothing changes when every summary fits or every one is longer than
  * its share: the share is then the same equal split as before.
  */
-function allowedChars(lengths: readonly number[], share: number): number[] {
+export function allowedChars(lengths: readonly number[], share: number): number[] {
   const caps = lengths.map(() => share);
   let pool = 0;
   const open = new Set<number>();

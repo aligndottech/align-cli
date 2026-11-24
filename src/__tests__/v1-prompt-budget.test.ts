@@ -11,7 +11,7 @@
  * 5. v1PromptCuts says what was left out: nothing at a wide window, the change and the decisions at a narrow one
  */
 import { describe, expect, it } from 'vitest';
-import { buildV1SystemPrompt, buildV1UserPrompt, v1MaxTokens, v1PromptCuts } from '../detector/relationship-prompt.js';
+import { allowedChars, buildV1SystemPrompt, buildV1UserPrompt, v1MaxTokens, v1PromptCuts } from '../detector/relationship-prompt.js';
 import { estimateTokens } from '../lib/token-estimate.js';
 
 const filler = (n: number, tag: string): string => Array.from({ length: Math.ceil(n / 12) }, (_, i) => `${tag}${i} word.`).join(' ').slice(0, n);
@@ -66,5 +66,16 @@ describe('v1PromptCuts', () => {
     expect(cuts.candidates[1]!.total).toBe(adr.summary.length);
     expect(cuts.candidates[1]!.kept).toBeGreaterThan(0);
     expect(cuts.candidates[1]!.kept).toBeLessThan(adr.summary.length);
+  });
+});
+
+describe('allowedChars: a summary exactly as long as its share', () => {
+  it('is kept whole and neither borrows from nor gives to the others', () => {
+    expect(allowedChars([5, 10, 10], 5)).toEqual([5, 5, 5]);
+    expect(allowedChars([5, 5], 5)).toEqual([5, 5]);
+  });
+  it('one char over its share is cut, and one char under gives the spare char back', () => {
+    expect(allowedChars([6, 6], 5)).toEqual([5, 5]);
+    expect(allowedChars([4, 20], 5)).toEqual([4, 6]);
   });
 });
