@@ -14,6 +14,7 @@ import { createConfigStore } from './config.js';
  * `supersedes` always means the new side replaces the recorded one. v1 always puts the
  * new/proposed side as the NEW DECISION.
  */
+import type { PromptCuts } from '../detector/relationship-prompt.js';
 import { type DetectorVersion, resolveDetectorVersion } from '../detector/detector-version.js';
 import { defaultDetectorForLocalModel } from '../detector/local-model-default.js';
 import { hasConfiguredProvider, probeOllama } from './local-llm.js';
@@ -40,6 +41,8 @@ async function chooseDetectorVersion(): Promise<DetectorVersion> {
 export interface CandidateClassification {
   version: DetectorVersion;
   outcomes: ClassificationOutcome[];
+  /** v1 only: what its prompt left out for lack of window (#719). */
+  cuts?: PromptCuts;
 }
 
 export async function classifyCandidates(
@@ -58,6 +61,7 @@ export async function classifyCandidates(
     }
     return {
       version,
+      ...(result.cuts ? { cuts: result.cuts } : {}),
       outcomes: result.verdicts.map((v) => ({
         ok: true,
         relationship: { type: (v.relation ?? 'relates') as RelationshipType, confidence: v.confidence, ...(v.reason ? { reason: v.reason } : {}) },

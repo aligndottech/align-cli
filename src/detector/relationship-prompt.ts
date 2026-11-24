@@ -51,7 +51,43 @@ export function v1MaxTokens(candidateCount: number): number {
   return Math.min(Math.max(candidateCount * 512, 2048), 8192);
 }
 
-export function buildV1UserPrompt(subject: V1Subject, candidates: readonly V1Candidate[], windowTokens: number, outputTokens: number): string {
+/**
+ * How many characters of each summary the window leaves room for. The summaries share what is left of the window, and
+ * a summary shorter than its share gives the unused part back to the longer ones, which are cut instead. An equal split
+ * starved a long ADR (its decision sentence is often past the first 2,000 characters) while a three-line diff and short
+ * commit messages left most of their share unused. Nothing changes when every summary fits or every one is longer than
+ * its share: the share is then the same equal split as before.
+ */
+function allowedChars(lengths: readonly number[], share: number): number[] {
+  const caps = lengths.map(() => share);
+  let pool = 0;
+  const open = new Set<number>();
+  lengths.forEach((len, i) => {
+    if (len < share) { caps[i] = len; pool += share - len; } else open.add(i);
+  });
+  // Each pass hands the pool to the summaries still cut; one that then fits returns its unused part for the next pass.
+  while (pool > 0 && open.size > 0) {
+    const each = Math.floor(pool / open.size);
+    if (each === 0) break;
+    pool = 0;
+    for (const i of [...open]) {
+      const want = lengths[i]! - caps[i]!;
+      if (want <= each) { caps[i] = lengths[i]!; pool += each - want; open.delete(i); } else caps[i]! += each;
+    }
+  }
+  return caps;
+}
+
+export interface PromptCuts {
+  /** The window the prompt was built for, in tokens. */
+  windowTokens: number;
+  /** The proposed change, when it was cut: characters kept of characters written. */
+  subject: { kept: number; total: number } | null;
+  /** One entry per candidate, null when that summary went in whole. */
+  candidates: Array<{ kept: number; total: number } | null>;
+}
+
+function plan(subject: V1Subject, candidates: readonly V1Candidate[], windowTokens: number, outputTokens: number) {
   const subjectDay = day(subject.decidedAt);
   const head = `Analyze this decision for relationships.\n\nNEW DECISION:\nTitle: ${subject.title}\nSummary: `;
   const headTail = `\nPlatform: ${(subject.platform ?? 'cli').toLowerCase()}\n${subjectDay ? `Decided: ${subjectDay}\n` : ''}`
@@ -65,10 +101,22 @@ export function buildV1UserPrompt(subject: V1Subject, candidates: readonly V1Can
     const facts = bits.length ? ` [${bits.join(' | ')}]` : '';
     return `${i + 1}. ${c.title} (similarity: ${c.similarity.toFixed(2)}) [Platform: ${(c.platform ?? 'unknown').toLowerCase()}]${facts}\n   `;
   });
-  // Titles and labels are never cut; the summaries share what is left of the window equally.
+  // Titles and labels are never cut; the summaries share what is left of the window.
   const fixed = estimateTokens(buildV1SystemPrompt()) + outputTokens + estimateTokens(head + headTail + lines.join('\n\n'));
-  const perSummary = charsForTokens(Math.floor(Math.max(0, windowTokens - fixed) / (candidates.length + 1)));
-  const cut = (s: string): string => (s.length > perSummary ? s.slice(0, perSummary) : s);
-  const body = candidates.map((c, i) => `${lines[i]}${cut(c.summary)}\n`).join('\n');
-  return `${head}${cut(subject.summary)}${headTail}${body}`;
+  const share = charsForTokens(Math.floor(Math.max(0, windowTokens - fixed) / (candidates.length + 1)));
+  const caps = allowedChars([subject.summary.length, ...candidates.map((c) => c.summary.length)], share);
+  return { head, headTail, lines, caps };
+}
+
+export function buildV1UserPrompt(subject: V1Subject, candidates: readonly V1Candidate[], windowTokens: number, outputTokens: number): string {
+  const { head, headTail, lines, caps } = plan(subject, candidates, windowTokens, outputTokens);
+  const body = candidates.map((c, i) => `${lines[i]}${c.summary.slice(0, caps[i + 1])}\n`).join('\n');
+  return `${head}${subject.summary.slice(0, caps[0])}${headTail}${body}`;
+}
+
+/** What buildV1UserPrompt left out of each summary at this window, for the caller to say so. */
+export function v1PromptCuts(subject: V1Subject, candidates: readonly V1Candidate[], windowTokens: number, outputTokens: number): PromptCuts {
+  const { caps } = plan(subject, candidates, windowTokens, outputTokens);
+  const cut = (total: number, i: number) => (total > caps[i]! ? { kept: caps[i]!, total } : null);
+  return { windowTokens, subject: cut(subject.summary.length, 0), candidates: candidates.map((c, i) => cut(c.summary.length, i + 1)) };
 }
