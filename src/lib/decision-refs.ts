@@ -33,7 +33,8 @@ const URL_PATTERN = /https?:\/\/[^\s<>"']+/g;
 /** Trailing prose punctuation is not part of a URL someone pasted mid-sentence. */
 const TRAILING_PUNCTUATION = /[.,;:!?\]]+$/;
 
-const TICKET_KEY = /\b[A-Z][A-Z0-9]+-\d+\b/g;
+// Not the tail of a longer id: DEC-ADDA-013 and ENH-ADDA-024 are a project's own ids, not tracker tickets.
+const TICKET_KEY = /(?<![A-Za-z0-9]-)\b[A-Z][A-Z0-9]+-\d+\b/g;
 /**
  * KEY-N shapes that are technical vocabulary, not tracker tickets (review finding,
  * 2026-09-01): UTF-8, SHA-256, ISO-8601, RFC-8446, TLS-1.3, X86-64, AES-256, MD-5
@@ -77,7 +78,12 @@ function classifyUrl(url: string): DecisionRef['platform'] | null {
   return null;
 }
 
-export function extractRefs(text: string): DecisionRef[] {
+/**
+ * `source` is the platform of the decision the text belongs to. In a docs file (an ADR, a README) a bare
+ * KEY-N is mostly the project's own id scheme (ADR-0012), so it counts only on a line that says Jira.
+ * URLs are unaffected, and any other source keeps every bare key.
+ */
+export function extractRefs(text: string, source?: string): DecisionRef[] {
   const found = new Map<string, DecisionRef>();
   const add = (ref: string, platform: DecisionRef['platform']) => {
     if (!found.has(ref)) found.set(ref, { ref, platform });
@@ -100,7 +106,8 @@ export function extractRefs(text: string): DecisionRef[] {
     remaining = remaining.replace(raw, ' ');
   }
 
-  for (const key of remaining.match(TICKET_KEY) ?? []) {
+  const keyScope = source === 'docs' ? remaining.split('\n').filter((line) => /\bjira\b/i.test(line)).join('\n') : remaining;
+  for (const key of keyScope.match(TICKET_KEY) ?? []) {
     if (VOCABULARY_PREFIXES.has(key.slice(0, key.indexOf('-')))) continue;
     add(key, 'tracker');
   }

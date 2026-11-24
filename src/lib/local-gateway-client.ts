@@ -487,7 +487,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     // branch skips extraction outright rather than filtering (review finding,
     // 2026-09-01). Batch ingest still filters the decision's own source_url so a
     // raw_text that quotes its own address is not a self-reference.
-    const refs = capturedAsUrl ? [] : extractRefs(input).filter(r => r.ref !== sourceUrl);
+    const refs = capturedAsUrl ? [] : extractRefs(input, platform).filter(r => r.ref !== sourceUrl);
 
     // Which repo this decision belongs to. A hosted code URL (any platform, not
     // just 'git' - a GitHub PR captured by hand is still code) names its own repo directly.
