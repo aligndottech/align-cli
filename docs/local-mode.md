@@ -280,8 +280,9 @@ Local-only mode uses an on-device embedding model. The npm package is small (abo
 native ONNX Runtime for your platform (macOS arm64, glibc Linux x64/arm64, Windows x64/arm64) is
 downloaded the first time local mode needs it, not installed by npm. Cloud mode never needs it.
 
-On Alpine/musl, Intel Macs or other architectures there is no runtime to download. The install still
-succeeds, cloud mode works, and local-only mode tells you so rather than failing silently.
+On Intel Macs or other architectures there is no runtime to download. On Alpine/musl a runtime exists but does not
+load, because it needs glibc: use a glibc image such as `node:22-bookworm-slim`. Alpine is not supported for local mode.
+In both cases the install still succeeds, cloud mode works, and local-only mode tells you so rather than failing silently.
 `align doctor` reports whether the runtime and model are present and fetches them if not.
 
 The first import downloads the model from huggingface.co (~23MB) and the runtime from github.com once,
