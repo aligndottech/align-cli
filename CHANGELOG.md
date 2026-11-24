@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.93.1](https://github.com/aligndottech/align-cli/compare/cli-v0.93.0...cli-v0.93.1) (2026-11-24)
+
+
+### Bug Fixes
+
+* **local:** ADR partial supersessions by number, comment headers, doc ids, cut titles ([#722](https://github.com/aligndottech/align-cli/issues/722)) ([38e0c72](https://github.com/aligndottech/align-cli/commit/38e0c72d0099af1765de201b8b5ff6d8ef5d8196))
+* **local:** headings are not rules, name the glibc need, judge reads long ADRs ([#723](https://github.com/aligndottech/align-cli/issues/723)) ([8aa8fe4](https://github.com/aligndottech/align-cli/commit/8aa8fe4826d5fad1f55fae0f13d29b4d6ccf1585))
+
 ## [0.93.0](https://github.com/aligndottech/align-cli/compare/cli-v0.92.0...cli-v0.93.0) (2026-11-23)
 
 
