@@ -44,3 +44,31 @@ describe('3. controls', () => {
     expect(titleOf(rule)).toBe('Never use any in new code, always add a type.');
   });
 });
+
+describe('4. headings past the 160-character display cap', () => {
+  const words = (n: number) => Array.from({ length: n }, (_, i) => `word${String(i).padStart(2, '0')}`).join(' ');
+  const wholeWords = (t: string, full: string) => t.endsWith('...') && full.startsWith(t.slice(0, -3)) && /[\s,;:]/.test(full[t.length - 3] ?? ' ');
+  it('a heading of exactly 160 characters is listed whole', () => {
+    const h = `0040 — ${words(40)}`.slice(0, 160);
+    expect(h).toHaveLength(160);
+    expect(titleOf(adr(h))).toBe(h);
+  });
+  it('a heading of 161+ characters is cut to at most 160 at a word boundary with an ellipsis', () => {
+    const h = `0041 — ${words(40)}`;
+    expect(h.length).toBeGreaterThan(161);
+    const t = titleOf(adr(h));
+    expect(t.length).toBeLessThanOrEqual(160);
+    expect(wholeWords(t, h)).toBe(true);
+  });
+  it('a heading whose 160th character is a space is cut before the space, not after a half word', () => {
+    // 0042 + padding so index 159 is the space between two words
+    const head = `0042 — ${'a'.repeat(100)} ${'b'.repeat(50)}`; // 7 + 100 + 1 + 50 = 158 chars
+    const h = `${head}xx yyyyyyyy tail`; // the space lands at index 160
+    expect(h[160]).toBe(' ');
+    const t = titleOf(adr(h));
+    expect(t.endsWith('...')).toBe(true);
+    expect(t.length).toBeLessThanOrEqual(160);
+    expect(wholeWords(t, h)).toBe(true);
+  });
+});
+
