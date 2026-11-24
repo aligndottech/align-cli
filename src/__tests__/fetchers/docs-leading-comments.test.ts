@@ -40,6 +40,11 @@ describe('fetchDocsItems: an ADR with a comment header', () => {
   let repo = '';
   afterEach(() => { vi.clearAllMocks(); if (repo) rmSync(repo, { recursive: true, force: true }); });
   const put = (rel: string, text: string) => { mkdirSync(join(repo, dirname(rel)), { recursive: true }); writeFileSync(join(repo, rel), text); };
+  const runWith = async (files: Record<string, string>) => {
+    await run();
+    for (const [rel, text] of Object.entries(files)) put(rel, text);
+    return (await fetchDocsItems({ limit: 100, cwd: repo })).items;
+  };
   const run = async () => {
     repo = mkdtempSync(join(tmpdir(), 'align-lead-'));
     vi.mocked(execa).mockImplementation(async (_c, args) => {
@@ -57,5 +62,31 @@ describe('fetchDocsItems: an ADR with a comment header', () => {
     const by = (n: string) => items.find((i) => i.source_url.includes(n))!;
     expect(by('0012').raw_text.startsWith('# 0012 — Instruction files')).toBe(true);
     expect(by('0013').raw_text.startsWith('# 0013 — The map keeps keys')).toBe(true);
+  });
+
+  it('CRLF header: raw_text starts at the heading', async () => {
+    const items = await runWith({ 'adda/DECISIONS/0020-a.md': `${HEADER.replace(/\n/g, '\r\n')}# 0020 — Crlf\r\n\r\nStatus: accepted\r\n\r\n## Decision\r\nDone.`, 'adda/DECISIONS/0021-b.md': '# 0021 — Other\n\nStatus: accepted\n\n## Decision\nDone.' });
+    const a = items.find((i) => i.source_url.includes('0020'))!;
+    expect(a.raw_text.startsWith('# 0020 — Crlf')).toBe(true);
+    expect(a.title).toBe('0020 — Crlf');
+  });
+  it('BOM then header: raw_text starts at the heading', async () => {
+    const items = await runWith({ 'adda/DECISIONS/0022-a.md': `\uFEFF${HEADER}# 0022 — Bom\n\nStatus: accepted\n\n## Decision\nDone.`, 'adda/DECISIONS/0023-b.md': '# 0023 — Other\n\nStatus: accepted\n\n## Decision\nDone.' });
+    const a = items.find((i) => i.source_url.includes('0022'))!;
+    expect(a.raw_text.startsWith('# 0022 — Bom')).toBe(true);
+    expect(a.title).toBe('0022 — Bom');
+  });
+  it('a leading comment that holds "# Heading" text: the title is the real heading after it', async () => {
+    const items = await runWith({ 'adda/DECISIONS/0024-a.md': '<!--\n# Template heading\nfill me\n-->\n# 0024 — Real title\n\nStatus: accepted\n\n## Decision\nDone.', 'adda/DECISIONS/0025-b.md': '# 0025 — Other\n\nStatus: accepted\n\n## Decision\nDone.' });
+    const a = items.find((i) => i.source_url.includes('0024'))!;
+    expect(a.title).toBe('0024 — Real title');
+    expect(a.raw_text.startsWith('# 0024 — Real title')).toBe(true);
+  });
+  it('an agent-rules section that starts with a comment is unchanged (the comment can be the instruction)', async () => {
+    const body = '<!-- Always ask before deleting files in this repo. -->\n- Use pnpm, never npm, for every install in this repo.\n- Keep functions short and well named everywhere.';
+    const items = await runWith({ 'CLAUDE.md': `# Project\n\n## Rules\n${body}\n` });
+    const sec = items.filter((i) => i.source_url.includes('CLAUDE.md'));
+    expect(sec.length).toBeGreaterThan(0);
+    expect(sec.some((i) => i.raw_text.includes('<!-- Always ask before deleting files'))).toBe(true);
   });
 });
