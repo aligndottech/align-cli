@@ -34,7 +34,7 @@ npm install -g @aligndottech/cli
 align
 ```
 
-Needs Node 22.19 or newer. On an older Node, npm installs an old release of this package that lacks `align up`, so check `node -v` first.
+Needs Node 22.19 or newer. On an older Node, npm installs an old release of this package that lacks `align up`, so check `node -v` first. For npm installs on Linux, local embeddings need glibc, so on Docker use `node:22-bookworm-slim`, not an Alpine image.
 
 No Node? `curl -fsSL https://align.tech/install.sh | sh` installs a standalone binary instead.
 Windows and the details are in [Installing](docs/installation.md).

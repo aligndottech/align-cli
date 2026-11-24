@@ -163,6 +163,57 @@ function displayRuleTitle(r: ListedDecision): string {
   return first.length > RULE_TITLE_CAP ? `${first.slice(0, RULE_TITLE_CAP).trimEnd()}...` : first;
 }
 
+/**
+ * A docs row that is a whole `##` section (its url ends in the section anchor) has the HEADING as its title. A heading is
+ * not a rule: "Commands" and "Testing" told an agent nothing, and the file listed them under "Rules written in this repo"
+ * (#721). The file now prints the heading only with the first line of prose under it ("Testing: Run `npm test` before
+ * every push."), and leaves out a section with no prose (a code fence, a list of commands, a table), which stays in the
+ * graph for `align ask`. A heading that states a rule ("Never commit secrets") is printed as written. A row without a
+ * section anchor (an ADR, a whole file) is not a heading row and is never touched.
+ */
+// Only a heading that OPENS with an imperative states a rule: "Must-haves" and "Where things should live" do not.
+const RULE_HEADING = /^(?:never|always|do not|don't|must not|must|only)(?=\s|$)/i;
+const HEADING_ROW_CAP = 200;
+const isHeadingRow = (r: ListedDecision): boolean => r.platform === 'docs' && !isRuleRow(r) && /#[^#/~]+$/.test(r.source_url ?? '');
+function firstProseLine(title: string, summary: string): string | null {
+  let fence: { ch: string; len: number } | null = null;
+  let commented = false;
+  let first = true;
+  for (const raw of summary.replace(/\r\n?/g, '\n').split('\n')) {
+    // A fence closes only with the same character at least as long as the one that opened it.
+    const f = /^\s*(`{3,}|~{3,})(.*)$/.exec(raw);
+    if (fence) {
+      if (f && f[1]![0] === fence.ch && f[1]!.length >= fence.len && f[2]!.trim() === '') fence = null;
+      continue;
+    }
+    if (f) { fence = { ch: f[1]![0]!, len: f[1]!.length }; continue; }
+    // A comment that opens on one line and closes on a later one hides everything between.
+    if (commented) { if (raw.includes('-->')) commented = false; continue; }
+    if (/^\s*<!--/.test(raw)) { if (!raw.includes('-->')) commented = true; continue; }
+    // The summary opens with the whole heading, which the stored title may hold only 80 characters of.
+    // Only a line that IS the heading is skipped (a body-only summary may open with prose that starts with the same word);
+    // a title cut at the graph's 80 characters is a prefix of the whole heading.
+    if (first && raw.trim()) {
+      first = false;
+      const opening = raw.trim().replace(/^(?:#{1,6}|=)\s+/, '');
+      if (opening === title || (title.length >= TITLE_CUT_AT && opening.startsWith(title))) continue;
+    }
+    const text = raw.trim().replace(/^(?:>\s*)+/, '').replace(/^(?:[-*+]|\d{1,3}[.)])\s+/, '').replace(/\*\*|__/g, '').trim();
+    // Code, commands, tables, headings, tags and bare links are not text; anything else with a letter or digit is.
+    if (!text || text === title || /^[`$#|<[\]!]/.test(text) || /^\s{4}/.test(raw) || !/[\p{L}\p{N}]/u.test(text)) continue;
+    return text.length > HEADING_ROW_CAP ? `${text.slice(0, HEADING_ROW_CAP).trimEnd()}...` : text;
+  }
+  return null;
+}
+/** The title the file prints for a heading row, or null when the section holds no text. */
+function headingRowTitle(r: ListedDecision): { title: string; proof?: string } | null {
+  // The same recovery as any docs title (displayDocTitle): comment header, `#` or AsciiDoc `=`, whole word on a cut.
+  const heading = displayDocTitle(r);
+  const line = firstProseLine(r.title, stripLeadingHtmlComments(r.summary ?? ''));
+  if (line) return { title: `${heading}: ${line}`, proof: line };
+  return RULE_HEADING.test(heading) ? { title: heading } : null;
+}
+
 /** Rule rows may take this share of the file, so commits, PRs and ADRs keep room in a repo with one long rule list. */
 const RULE_SHARE_OF_CAP = 2 / 3;
 
@@ -179,7 +230,8 @@ export function selectForFile(rows: ListedDecision[], limit: number): { decision
   // "Core" is not the parent of "Core - x" rules, which a prefix match would have said.
   const parents = new Set(docs.filter(isRuleRow).map((r) => r.source_url ?? '').filter((u) => u.includes('~')).map((u) => u.slice(0, u.lastIndexOf('~'))));
   const stale = docs.filter((r) => !isRuleRow(r) && r.source_url && parents.has(r.source_url));
-  const rules = docs.filter((r) => !stale.includes(r));
+  const headingTitle = new Map<ListedDecision, { title: string; proof?: string } | null>(docs.filter(isHeadingRow).map((r) => [r, headingRowTitle(r)]));
+  const rules = docs.filter((r) => !stale.includes(r) && headingTitle.get(r) !== null);
   // Merge repeats and hide reversals BEFORE the cap and the counts, so the cap keeps the newest decisions
   // (not the first N in graph order) and every number describes what the file shows.
   const sourceOf = new Map<ContextDecision, ListedDecision>();
@@ -202,7 +254,7 @@ export function selectForFile(rows: ListedDecision[], limit: number): { decision
   const keptChoices = tidied.slice(0, Math.max(0, limit - keptRules.length));
   const decisions = [
     // `selected` keeps the stored rows: the committed-file check reads their titles as the importer wrote them.
-    ...keptRules.map((r) => ({ ...contextDecisionOf({ ...r, title: displayRuleTitle(r) }), kind: 'rule' as const })),
+    ...keptRules.map((r) => ({ ...contextDecisionOf({ ...r, title: headingTitle.get(r)?.title ?? displayRuleTitle(r) }), kind: 'rule' as const })),
     ...keptChoices.map(({ orig: _orig, ...d }) => d),
   ];
   // What is not in the file because it is not an item at all (a dependency bump) or is folded into a listed one is not "left out".
@@ -212,6 +264,8 @@ export function selectForFile(rows: ListedDecision[], limit: number): { decision
     decisions,
     leftOut: rows.length - bumps - folded - stale.length - overflow.length - decisions.length,
     // The source rows of what is written, so a caller can judge those and not the ones left out.
-    selected: [...keptRules, ...keptChoices.map((t) => sourceOf.get(t.orig!)!)],
+    // A heading row printed with prose is also listed with that prose as its title, so the committed-file check judges
+    // the text the file prints and not only the heading it was stored under.
+    selected: [...keptRules.flatMap((r) => { const proof = headingTitle.get(r)?.proof; return proof ? [r, { ...r, title: proof }] : [r]; }), ...keptChoices.map((t) => sourceOf.get(t.orig!)!)],
   };
 }

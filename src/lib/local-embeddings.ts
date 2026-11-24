@@ -1,4 +1,5 @@
 import { alignDistribution } from './distribution.js';
+import { glibcRequiredMessage, glibcTooOldMessage, isLoaderFailure, isMuslLinux, isOldGlibc } from './libc.js';
 import { embeddingLengthMismatch } from './similarity/embedding-matrix.js';
 
 /**
@@ -92,6 +93,8 @@ async function setupPipeline(): Promise<EmbeddingPipeline> {
     // Dynamic: the tokenizer and runtime loader stay off the launch path of every command that
     // never embeds (and `align --version`, the hook's stdin parse, ...).
     const { EmbeddingAssetsMissing } = await import('./embedding-runtime.js');
+    // Before the ~46MB download: the runtime cannot load here, so fetching it only delays the same failure.
+    if (isMuslLinux()) throw new Error(glibcRequiredMessage());
     try {
       const { createNativeEmbeddingPipeline } = await import('./local-embeddings-native.js');
       // The npm package no longer depends on @huggingface/transformers. The native
@@ -106,6 +109,9 @@ async function setupPipeline(): Promise<EmbeddingPipeline> {
             : err.message,
         );
       }
+      // The loader's own error is not a connection problem (#720): name the glibc requirement and keep its text.
+      if (isOldGlibc((err as Error).message)) throw new Error(glibcTooOldMessage((err as Error).message));
+      if (isLoaderFailure((err as Error).message)) throw new Error(glibcRequiredMessage((err as Error).message));
       // Wrapped, because an unwrapped failure here reaches the user as a raw fetch or dlopen
       // error. The common cause is the one-time download, so say that and where it came from.
       throw new Error(

@@ -141,3 +141,16 @@ describe('a section over 30 rules', () => {
     expect(committableFromRepo(picked.selected.map((r) => ({ platform: r.platform ?? '', title: r.title, source_url: r.source_url })), repo)).toBe(true);
   }, 30_000);
 });
+
+describe('a heading row printed with prose (#723)', () => {
+  beforeEach(() => { git('remote', 'add', 'origin', 'https://github.com/acme/api.git'); });
+  const url = 'https://github.com/acme/api/blob/main/CLAUDE.md#testing';
+
+  it('is committable only when the printed prose is in the committed file too', () => {
+    put('CLAUDE.md', '# R\n\n## Testing\n\nRun **all** tests.\n'); git('add', '.'); commit();
+    const rows = (prose: string) => [{ platform: 'docs', title: 'Testing', source_url: url }, { platform: 'docs', title: prose, source_url: url }];
+    expect(committableFromRepo(rows('Run **all** tests.'), repo)).toBe(true);
+    expect(committableFromRepo(rows('Run all tests.'), repo)).toBe(true);
+    expect(committableFromRepo(rows('Private prose that was never committed.'), repo)).toBe(false);
+  });
+});

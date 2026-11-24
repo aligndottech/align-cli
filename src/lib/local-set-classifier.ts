@@ -15,7 +15,7 @@
  */
 import { DETERMINISTIC_TEMPERATURE } from '@aligndottech/connector-core';
 import { parseRelationshipItem } from '../detector/relationship-contract.js';
-import { buildV1SystemPrompt, buildV1UserPrompt, v1MaxTokens } from '../detector/relationship-prompt.js';
+import { buildV1SystemPrompt, buildV1UserPrompt, type PromptCuts, v1MaxTokens, v1PromptCuts } from '../detector/relationship-prompt.js';
 import { NEW_DECISION_REF, resolveSimilarItem } from '../detector/similar-item.js';
 import { callChatDetailed, type LlmFailure } from './local-llm.js';
 import { type ClassifierFailureReason, failureReason } from './local-relationship-classifier.js';
@@ -46,7 +46,8 @@ export interface SetVerdict {
 }
 
 export type SetOutcome =
-  | { ok: true; verdicts: SetVerdict[] }
+  /** `cuts`: what the prompt left out of the change and of each candidate at the window the call was built for. */
+  | { ok: true; verdicts: SetVerdict[]; cuts?: PromptCuts }
   | { ok: false; reason: ClassifierFailureReason; failure?: LlmFailure };
 
 type Call = typeof callChatDetailed;
@@ -78,9 +79,14 @@ export function ordinal(value: unknown, count: number): number | null {
 export async function classifyCandidateSet(subject: SetSubject, candidates: readonly SetCandidate[], call: Call = callChatDetailed): Promise<SetOutcome> {
   if (!candidates.length) return { ok: true, verdicts: [] };
   const maxTokens = v1MaxTokens(candidates.length);
+  // The last prompt built is the one the answering model read (a fallback model may build its own).
+  let cuts: PromptCuts | undefined;
   const result = await call(
     buildV1SystemPrompt(),
-    (windowTokens: number) => buildV1UserPrompt(subject, candidates, windowTokens, maxTokens),
+    (windowTokens: number) => {
+      cuts = v1PromptCuts(subject, candidates, windowTokens, maxTokens);
+      return buildV1UserPrompt(subject, candidates, windowTokens, maxTokens);
+    },
     { temperature: DETERMINISTIC_TEMPERATURE, maxTokens },
   );
   if (!result.ok) return { ok: false, reason: failureReason(result.failure), failure: result.failure };
@@ -105,5 +111,5 @@ export async function classifyCandidateSet(subject: SetSubject, candidates: read
     if (resolved === null) continue;
     verdicts[ref - 1] = { relation: resolved.type, confidence: resolved.confidence, ...(resolved.reason ? { reason: resolved.reason } : {}) };
   }
-  return { ok: true, verdicts };
+  return { ok: true, verdicts, ...(cuts ? { cuts } : {}) };
 }

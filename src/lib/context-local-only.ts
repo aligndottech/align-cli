@@ -146,7 +146,8 @@ function titleIsInCommittedFile(repoRoot: string, relPath: string, title: string
   if (title === humanizeFilename(relPath)) return true;
   try {
     const committed = execFileSync('git', ['-C', repoRoot, 'show', `HEAD:${relPath}`], { stdio: 'pipe' }).toString();
-    return squash(committed).includes(squash(title));
+    // The printed prose has its emphasis marks stripped, the committed file keeps them.
+    return squash(committed).includes(squash(title)) || squash(committed.replace(/\*\*|__/g, '')).includes(squash(title));
   } catch { return false; }
 }
 

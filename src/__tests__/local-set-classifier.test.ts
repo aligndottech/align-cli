@@ -166,3 +166,23 @@ describe('classifyCandidateSet: failures', () => {
     expect(await classifyCandidateSet(subject, cands(1), call)).toMatchObject({ ok: false, reason: 'unvetted_local_model' });
   });
 });
+
+// #719: the caller can say what the prompt left out, because the classifier reports it.
+describe('classifyCandidateSet: what the prompt cut', () => {
+  const callAt = (windowTokens: number) => vi.fn(async (_s: string, u: string | ((w: number) => string), _o?: unknown): Promise<ChatResult> => {
+    if (typeof u === 'function') u(windowTokens);
+    return { ok: true, text: JSON.stringify({ relationships: { similar: [] } }) };
+  });
+
+  it('reports the window and the summaries that did not fit a narrow window', async () => {
+    const r = await classifyCandidateSet({ ...subject, summary: 'x'.repeat(900) }, cands(2), callAt(4_096));
+    expect(r.ok && r.cuts?.windowTokens).toBe(4_096);
+    expect(r.ok && r.cuts?.subject).toEqual({ kept: 0, total: 900 });
+    expect(r.ok && r.cuts?.candidates.map((c) => c?.total)).toEqual([10, 10]);
+  });
+
+  it('reports nothing cut at a wide window', async () => {
+    const r = await classifyCandidateSet(subject, cands(2), callAt(200_000));
+    expect(r.ok && r.cuts).toEqual({ windowTokens: 200_000, subject: null, candidates: [null, null] });
+  });
+});

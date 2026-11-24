@@ -7,6 +7,7 @@ import { createConfigStore } from './config.js';
 import { restrictFrom, type ScopeRestrict, scopeUnitOf, unitVisible } from './scope-unit.js';
 import { cosineSimilarity, EMBEDDING_MODEL_ID, getEmbedding } from './local-embeddings.js';
 import { classifyCandidates } from './local-candidate-classify.js';
+import { promptCutNote } from './prompt-cut-note.js';
 import { noProviderHintInline, RECOMMENDED_OLLAMA_PULL } from './local-llm.js';
 import { repositoryOf } from './decision-links.js';
 import { localCitationFor } from './commit-cite.js';
@@ -1024,7 +1025,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       // same fact, at a number unrelated to any window. Send the diff uncut.
       const subject = { title: opts.title ?? 'Proposed change', summary: diff, decidedAt: null, platform: 'cli' };
       // ALIGN_DETECTOR (local-candidate-classify.ts): v0 types each candidate in turn, v1 types the set in one call.
-      const { outcomes } = await classifyCandidates(subject, candidates.map(c => ({
+      const { outcomes, cuts } = await classifyCandidates(subject, candidates.map(c => ({
         id: c.id, title: c.title, summary: c.summary, similarity: c.score, platform: c.platform, decidedAt: c.decidedAt,
         status: db.isSuperseded(c.id) ? 'superseded' : null,
       })), 'candidate-first'); // the classifier asks how B relates to A: recorded decision A, proposed change B
@@ -1083,7 +1084,8 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       const reviewed = judge ? reviewConflicts(dbPath, judge, rawConflicts, contextKeyFor(files), files) : { conflicts: rawConflicts, notes: [] as string[], agentApplied: [] as string[] };
       const conflicts = reviewed.conflicts;
       // LM: say what a mark changed - a decision left out, a decision a person declared replaced.
-      const allNotes = checkNotes(dbPath, judge, retrieved, relevant_decisions, reviewed, files);
+      const cutNote = promptCutNote(cuts, candidates.map(c => c.title));
+      const allNotes = [...checkNotes(dbPath, judge, retrieved, relevant_decisions, reviewed, files), ...(cutNote ? [cutNote] : [])];
       const notes = allNotes.length ? { notes: allNotes } : {};
 
       // A candidate we retrieved but could not classify is exactly the case
