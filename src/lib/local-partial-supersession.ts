@@ -55,14 +55,19 @@ const PASSIVE_PART = new RegExp(String.raw`${ADR_REF}(?:'s|\u2019s)\s+([^\n]{1,1
 const LIMITER = /\b(?:not|never|no\s+longer|doesn'?t|don'?t|isn'?t|wasn'?t|unless|except|only\s+(?:if|when)|apart\s+from|other\s+than)\b/i;
 // "superseded BY ADR-0015": the sentence names a different superseder, so this ADR is not the one.
 const OTHER_SUPERSEDER = /\bby\s+(?!(?:this|here|below)\b)\S/i;
+/** Up to the end of the first sentence; quoted words and dotted names (Node.js) do not end it. */
+const sentenceOf = (t: string): string => { const q = t.replace(QUOTED, (x) => 'x'.repeat(x.length)); const end = /[.!?](?=\s|$)/.exec(q); return end ? t.slice(0, end.index + 1) : t; };
 const QUOTED = /"[^"\n]*"|\u201c[^\u201d\n]*\u201d/g;
 
 /** The ADR number a docs row is, from its file name ("0012-x.md", "ADR-12-x.md"), or null. */
 // Directories whose files are decision records (fetchers/adr-dir-discovery.ts ADR_DIR_NAMES, plus the RFC folders the docs fetcher reads).
 const ADR_DIRS = new Set([...ADR_DIR_NAMES, 'rfc', 'rfcs']);
 export function adrNumberOf(sourceUrl: string): number | null {
-  const parts = sourceUrl.split(/[#?]/)[0]!.split('/');
-  const base = parts.pop() ?? '';
+  const all = sourceUrl.split(/[#?]/)[0]!.split('/');
+  const base = all.pop() ?? '';
+  // Only the directories INSIDE the repository: the host, owner and repo name before `blob/<branch>/` are not part of the path.
+  const at = all.indexOf('blob');
+  const parts = at === -1 ? [] : all.slice(at + 2);
   const named = /^adr[-_ ]?\d/i.test(base);
   // docs/12-factor.md is not ADR 12: the number counts in an ADR directory or after an "adr" prefix. A date prefix is not a number.
   if (!named && !parts.some((d) => ADR_DIRS.has(d.toLowerCase()))) return null;
@@ -76,11 +81,13 @@ function adrPartNotes(prose: string): SupersedeNote[] {
   const out: SupersedeNote[] = [];
   const words = (w: string) => w.split(/[^A-Za-z0-9]+/).map((x) => x.toLowerCase()).filter((x) => x.length >= 4 && !FILLER.has(x));
   for (const m of prose.matchAll(ACTIVE_PART)) {
-    if (!LIMITER.test(m[0].replace(QUOTED, ' '))) out.push({ file: '', words: words(m[1]!), adr: Number(m[2]) });
+    if (!LIMITER.test(sentenceOf(m[0]).replace(QUOTED, ' '))) out.push({ file: '', words: words(m[1]!), adr: Number(m[2]) });
   }
   for (const m of prose.matchAll(PASSIVE_PART)) {
-    const clause = m[0].replace(QUOTED, ' ');
-    if (!LIMITER.test(clause) && !OTHER_SUPERSEDER.test(m[3]!)) out.push({ file: '', words: words(m[2]!), adr: Number(m[1]) });
+    // The clause is the sentence the match sits in: what is said before it on the line ("Only if ...") counts, later sentences do not.
+    const before = prose.slice(0, m.index).split('\n').pop()!.split(/[.!?]\s+/).pop()!;
+    const clause = `${before} ${sentenceOf(m[0])}`.replace(QUOTED, ' ');
+    if (!LIMITER.test(clause) && !OTHER_SUPERSEDER.test(sentenceOf(m[3]!))) out.push({ file: '', words: words(m[2]!), adr: Number(m[1]) });
   }
   return out;
 }

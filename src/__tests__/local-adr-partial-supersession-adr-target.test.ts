@@ -121,6 +121,28 @@ describe('4. a limiter or negation inside the clause means no link (conservative
   });
 });
 
+describe('4b. only the supersession sentence is read for limiters, and what comes before it counts too', () => {
+  const T = () => item('0012', 'a', ADR_0012);
+  it.each([
+    ['active, a later sentence says "not"', `Supersedes: the "no configuration" bullet of ADR-0012. This does not change retries.\n`],
+    ['passive, a later sentence says "not"', `- ADR-0012's "no configuration" bullet is superseded for generated files. That is not a general rule.\n`],
+  ])('%s still links', async (_n, line) => {
+    const [t, s] = await ingest(client(), T(), item('0013', 'b', `# 0013 — B\n\n${line}`));
+    expect(links()).toEqual([{ source: s, target: t }]);
+  });
+  it.each([
+    'Only if ADR-0012\'s "no configuration" bullet is superseded should we remove the check.\n',
+    'Unless ADR-0012\'s "no configuration" bullet is superseded, keep the check.\n',
+  ])('a limiter BEFORE the passive subject means no link: %s', async (line) => {
+    await ingest(client(), T(), item('0013', 'b', `# 0013 — B\n\n${line}`));
+    expect(links()).toEqual([]);
+  });
+  it('a limiter in an EARLIER sentence of the line does not block a later unconditional one', async () => {
+    const [t, s] = await ingest(client(), T(), item('0013', 'b', `# 0013 — B\n\nWe do not delete rules lightly. ADR-0012's "no configuration" bullet is superseded for generated files.\n`));
+    expect(links()).toEqual([{ source: s, target: t }]);
+  });
+});
+
 describe('3b. a sentence that names ANOTHER superseder does not link this ADR', () => {
   it('"superseded by ADR-0015" inside ADR-0020 links nothing', async () => {
     const [t] = await ingest(client(), item('0012', 'a', ADR_0012), item('0020', 'c', `# 0020 — C\n\n- ADR-0012's "no configuration" bullet is superseded by ADR-0015.\n`));
@@ -146,6 +168,12 @@ describe('5. only an ADR file is an ADR number', () => {
   it('an ADR with the same number in ANOTHER repo is not the target', async () => {
     const other = { source_url: 'https://github.com/someone/else/blob/main/adr/0012-x.md', title: 'other', raw_text: ADR_0012 };
     await ingest(client(), other, item('0018', 'b', ADR_0018));
+    expect(links()).toEqual([]);
+  });
+  it('a repository NAMED decisions does not make its ordinary docs an ADR directory', async () => {
+    const repoDoc = { source_url: 'https://github.com/acme/decisions/blob/main/docs/12-factor.md', title: '12 factor', raw_text: '# 12 factor\n\nConfig in the environment, everywhere.\n' };
+    const note = { source_url: 'https://github.com/acme/decisions/blob/main/adr/0018-b.md', title: 'b', raw_text: ADR_0018 };
+    await ingest(client(), repoDoc, note);
     expect(links()).toEqual([]);
   });
   it('control: an adr/ directory and an adr-prefixed name both count', async () => {

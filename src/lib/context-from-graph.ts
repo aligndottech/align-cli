@@ -148,7 +148,7 @@ export const isRuleRow = (r: ListedDecision): boolean => r.platform === 'docs' &
  */
 function displayDocTitle(r: ListedDecision): string {
   if (r.title.length < TITLE_CUT_AT) return r.title;
-  const heading = stripLeadingHtmlComments(r.summary ?? '').split('\n')[0]!.replace(/^\s*#{1,6}\s+/, '').trim();
+  const heading = stripLeadingHtmlComments(r.summary ?? '').split('\n')[0]!.replace(/^\s*(?:#{1,6}|=)\s+/, '').trim();
   if (heading.startsWith(r.title) && heading.length <= DOC_TITLE_CAP) return heading;
   const base = heading.startsWith(r.title) ? heading.slice(0, DOC_TITLE_CAP - 3) : r.title;
   // A cut that lands exactly on a word end is whole already.

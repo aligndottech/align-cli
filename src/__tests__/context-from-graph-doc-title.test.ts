@@ -72,3 +72,14 @@ describe('4. headings past the 160-character display cap', () => {
   });
 });
 
+describe('5. an AsciiDoc ADR (= Heading) is restored like a Markdown one', () => {
+  it.each([FULL_1, FULL_2])('%s', (full) => {
+    const r: ListedDecision = { title: full.slice(0, 80), summary: `= ${full}\n\nStatus: accepted\n`, platform: 'docs', source_url: 'https://github.com/o/r/blob/main/adr/0001-x.adoc' };
+    expect(titleOf(r)).toBe(full);
+  });
+  it('a == section marker is not a title marker', () => {
+    const r: ListedDecision = { title: FULL_1.slice(0, 80), summary: `== ${FULL_1}\n`, platform: 'docs', source_url: 'https://github.com/o/r/blob/main/adr/0001-x.adoc' };
+    expect(titleOf(r).endsWith('...')).toBe(true);
+  });
+});
+

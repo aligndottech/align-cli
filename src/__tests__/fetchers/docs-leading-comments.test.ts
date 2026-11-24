@@ -31,6 +31,13 @@ describe('stripLeadingHtmlComments', () => {
   it('leaves text with no leading comment alone', () => {
     expect(stripLeadingHtmlComments('# 0004 — A\n\nBody.\n')).toBe('# 0004 — A\n\nBody.\n');
   });
+  it('stops at the first closing delimiter: text after it on the same line stays, and so does a later comment', () => {
+    expect(stripLeadingHtmlComments('<!-- owner -->Keep this decision.\n\n<!-- later note -->\n\nRemaining text.\n'))
+      .toBe('Keep this decision.\n\n<!-- later note -->\n\nRemaining text.\n');
+  });
+  it('a second comment right after the first, on the same line, also goes', () => {
+    expect(stripLeadingHtmlComments('<!-- a --><!-- b -->\n# T\n\nBody.\n')).toBe('# T\n\nBody.\n');
+  });
   it('does not empty a text that is only a comment', () => {
     expect(stripLeadingHtmlComments('<!-- only -->\n')).toBe('<!-- only -->\n');
   });

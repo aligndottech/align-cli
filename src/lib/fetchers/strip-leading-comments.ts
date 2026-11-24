@@ -7,9 +7,10 @@
 export function stripLeadingHtmlComments(text: string): string {
   let rest = text;
   for (;;) {
-    const m = /^\s*<!--[\s\S]*?-->[ \t]*(?:\r?\n|$)/.exec(rest);
+    // The FIRST closing delimiter ends the comment, whatever follows it: text on the same line is the author's.
+    const m = /^\s*<!--[\s\S]*?-->/.exec(rest);
     if (!m) break;
-    rest = rest.slice(m[0].length);
+    rest = rest.slice(m[0].length).replace(/^[ \t]*\r?\n?/, '');
   }
   const stripped = rest.replace(/^\s*\n/, '');
   return stripped.trim() === '' ? text : stripped;
