@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.93.0](https://github.com/aligndottech/align-cli/compare/cli-v0.92.0...cli-v0.93.0) (2026-11-23)
+
+
+### Features
+
+* **telemetry:** count agent-only installs once a day without waiting for the notice ([#715](https://github.com/aligndottech/align-cli/issues/715)) ([8c51de4](https://github.com/aligndottech/align-cli/commit/8c51de42046e478c50fb61fc17b19e6cb06bf4c4))
+
 ## [0.92.0](https://github.com/aligndottech/align-cli/compare/cli-v0.91.0...cli-v0.92.0) (2026-11-23)
 
 
