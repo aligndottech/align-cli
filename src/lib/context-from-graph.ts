@@ -171,30 +171,35 @@ function displayRuleTitle(r: ListedDecision): string {
  * graph for `align ask`. A heading that states a rule ("Never commit secrets") is printed as written. A row without a
  * section anchor (an ADR, a whole file) is not a heading row and is never touched.
  */
-const RULE_HEADING = /\b(?:never|always|must|do not|don't|dont|should|avoid|prefer|only|require[ds]?)\b/i;
+// Only a heading that OPENS with an imperative states a rule: "Must-haves" and "Where things should live" do not.
+const RULE_HEADING = /^(?:never|always|do not|don't|must not|must|only)(?=\s|$)/i;
 const HEADING_ROW_CAP = 200;
 const isHeadingRow = (r: ListedDecision): boolean => r.platform === 'docs' && !isRuleRow(r) && /#[^#/~]+$/.test(r.source_url ?? '');
 function firstProseLine(title: string, summary: string): string | null {
   let fenced = false;
+  let commented = false;
   let first = true;
   for (const raw of summary.replace(/\r\n?/g, '\n').split('\n')) {
     if (/^\s*(```|~~~)/.test(raw)) { fenced = !fenced; continue; }
     if (fenced) continue;
+    // A comment that opens on one line and closes on a later one hides everything between.
+    if (commented) { if (raw.includes('-->')) commented = false; continue; }
+    if (/^\s*<!--/.test(raw)) { if (!raw.includes('-->')) commented = true; continue; }
     // The summary opens with the whole heading, which the stored title may hold only 80 characters of.
     if (first && raw.trim()) { first = false; if (raw.trim().startsWith(title)) continue; }
-    const text = raw.trim().replace(/^(?:[-*+]|\d{1,3}[.)])\s+/, '').replace(/\*\*|__/g, '').trim();
-    // Code, commands, tables, headings, comments and bare links are not a rule line.
-    if (!text || text === title || /^[`$#|<>[\]!]/.test(text) || /^\s{4}/.test(raw)) continue;
-    if (!/[A-Za-z]{2,}(?:\s+\S+){2,}/.test(text)) continue;
+    const text = raw.trim().replace(/^(?:>\s*)+/, '').replace(/^(?:[-*+]|\d{1,3}[.)])\s+/, '').replace(/\*\*|__/g, '').trim();
+    // Code, commands, tables, headings, tags and bare links are not text; anything else with a letter or digit is.
+    if (!text || text === title || /^[`$#|<[\]!]/.test(text) || /^\s{4}/.test(raw) || !/[\p{L}\p{N}]/u.test(text)) continue;
     return text.length > HEADING_ROW_CAP ? `${text.slice(0, HEADING_ROW_CAP).trimEnd()}...` : text;
   }
   return null;
 }
-/** The title the file prints for a heading row, or null when the section holds no rule line. */
+/** The title the file prints for a heading row, or null when the section holds no text. */
 function headingRowTitle(r: ListedDecision): string | null {
-  if (RULE_HEADING.test(r.title)) return r.title;
+  const heading = wholeTitle(r.title, r.summary);
   const line = firstProseLine(r.title, r.summary ?? '');
-  return line ? `${wholeTitle(r.title, r.summary)}: ${line}` : null;
+  if (line) return `${heading}: ${line}`;
+  return RULE_HEADING.test(heading) ? heading : null;
 }
 
 /** Rule rows may take this share of the file, so commits, PRs and ADRs keep room in a repo with one long rule list. */

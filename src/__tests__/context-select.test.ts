@@ -218,3 +218,41 @@ describe('selectForFile - a heading is not a rule (#721)', () => {
     expect(file).toContain('- Testing: Run `npm test` before every push.');
   });
 });
+
+// Review of #721. A short rule is still a rule; a comment is not text; only a heading that opens with an imperative is a rule.
+describe('selectForFile - heading rows, review fixes (#721)', () => {
+  const U = 'https://github.com/o/r/blob/main/CLAUDE.md';
+  const section = (title: string, body: string) => ({ title, platform: 'docs', summary: body ? `${title}\n\n${body}` : title, source_url: `${U}#${title.toLowerCase().replace(/\W+/g, '-')}` });
+  const titles = (rows: ReturnType<typeof section>[]) => selectForFile(rows, 30).decisions.map((d) => d.title);
+
+  it('keeps a two-word rule, a blockquote rule and a short list item', () => {
+    expect(titles([
+      section('Git', 'Use rebase.'),
+      section('Branches', '> Never rebase **shared** branches.'),
+      section('Linting', '- Run eslint'),
+    ])).toEqual(['Git: Use rebase.', 'Branches: Never rebase shared branches.', 'Linting: Run eslint']);
+  });
+
+  it('still leaves out a section that has only code, a table and a comment', () => {
+    expect(titles([section('Commands', '```sh\nnpm test\n```\n\n| a | b |\n|---|---|\n\n<!-- note -->')])).toEqual([]);
+  });
+
+  it('skips the inside of a multi-line HTML comment', () => {
+    expect(titles([section('Style', '<!--\nTODO fill this in\nlater\n-->\n\nPrefer small PRs.')])).toEqual(['Style: Prefer small PRs.']);
+    expect(titles([section('Empty', '<!--\nTODO fill this in\n-->')])).toEqual([]);
+  });
+
+  it.each(['Must-haves', 'Always-on mode', 'Where things should live', 'Do not panic: FAQ'])('prints "%s" with its prose line, not as a rule', (h) => {
+    expect(titles([section(h, 'Read the docs first.')])).toEqual([`${h}: Read the docs first.`]);
+  });
+
+  it('keeps a heading that opens with an imperative as the rule when there is no prose', () => {
+    expect(titles([section('Never commit secrets', ''), section('Do not force-push', '```\ngit push\n```')])).toEqual(['Never commit secrets', 'Do not force-push']);
+  });
+
+  it('prints the whole imperative heading, not the 80 characters the graph keeps', () => {
+    const full = 'Never commit generated files to the repository because reviewers cannot read them and diffs get noisy';
+    const row = { ...section(full.slice(0, 80), ''), summary: full };
+    expect(titles([row])).toEqual([full]);
+  });
+});
