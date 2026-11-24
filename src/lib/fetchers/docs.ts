@@ -1,3 +1,4 @@
+import { stripLeadingHtmlComments } from './strip-leading-comments.js';
 import { readdir, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { buildBlobUrl, getCurrentBranch, getRemoteUrl } from '../git.js';
@@ -194,7 +195,7 @@ async function adrItem(repoRoot: string, useGit: boolean, relPath: string, conte
   return {
     source_url: buildBlobUrl(remoteUrl, branch, relPath),
     platform: 'docs',
-    raw_text: content,
+    raw_text: stripLeadingHtmlComments(content),
     title: firstHeading(content) ?? humanizeFilename(relPath),
     ...(decided ? { created_at: decided.date } : {}),
     // Only a git date is marked: it may be the day the ADRs were moved, not the day anyone decided.
@@ -334,7 +335,7 @@ async function readAgentRulesItems(
       items.push({
         source_url: `${buildBlobUrl(remoteUrl, branch, file)}${anchor}`,
         platform: 'docs',
-        raw_text: section.body,
+        raw_text: stripLeadingHtmlComments(section.body),
         title,
       });
     }
