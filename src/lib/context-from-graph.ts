@@ -17,6 +17,7 @@ import { localCitationFor } from './commit-cite.js';
 import { navigableSourceUrl } from './decision-links.js';
 import { type ContextDecision, renderDecisionsFile } from './decisions-context.js';
 import { createLocalGatewayClient } from './local-gateway-client.js';
+import { stripLeadingHtmlComments } from './fetchers/strip-leading-comments.js';
 import { isDependencyBumpSubject, isRenovateBump, TITLE_CUT_AT } from './commit-shape.js';
 import { decidedTime, tidyDecisions } from './decisions-tidy.js';
 import { extractReason } from './reason-extract.js';
@@ -140,8 +141,23 @@ const OVERFLOW_MARKER = /\n\nFrom the ".+" section\. \(further rules, graph only
 /** The one row that holds a section's rules past the per-section cap (fetchers/docs.ts). Graph only, never in the file. */
 const isOverflowRow = (r: ListedDecision): boolean => r.platform === 'docs' && OVERFLOW_MARKER.test(r.summary ?? '');
 export const isRuleRow = (r: ListedDecision): boolean => r.platform === 'docs' && RULE_MARKER.test(r.summary ?? '');
+/**
+ * An ADR or heading row: the graph kept 80 characters of its heading, which can end mid-word ("OKF is not mar"). The
+ * summary starts with the whole heading (after any comment header an older import stored), so it is read back from there.
+ * With no whole heading to read, the title is cut back to the last whole word and marked, never left in a half word.
+ */
+function displayDocTitle(r: ListedDecision): string {
+  if (r.title.length < TITLE_CUT_AT) return r.title;
+  const heading = stripLeadingHtmlComments(r.summary ?? '').split('\n')[0]!.replace(/^\s*#{1,6}\s+/, '').trim();
+  if (heading.startsWith(r.title) && heading.length <= DOC_TITLE_CAP) return heading;
+  const base = heading.startsWith(r.title) ? heading.slice(0, DOC_TITLE_CAP - 3) : r.title;
+  // A cut that lands exactly on a word end is whole already.
+  const wholeAtCut = heading.startsWith(r.title) && /\s/.test(heading[base.length] ?? '');
+  return `${(wholeAtCut ? base : base.replace(/\s*\S*$/, '')).replace(/[\s,;:]+$/, '')}...`;
+}
+const DOC_TITLE_CAP = 160;
 function displayRuleTitle(r: ListedDecision): string {
-  if (!isRuleRow(r)) return r.title;
+  if (!isRuleRow(r)) return displayDocTitle(r);
   // Emphasis markers are for the source file; the generated file is read as plain text.
   const first = (r.summary ?? '').split('\n')[0]!.replace(/\*\*|__/g, '').trim();
   return first.length > RULE_TITLE_CAP ? `${first.slice(0, RULE_TITLE_CAP).trimEnd()}...` : first;
