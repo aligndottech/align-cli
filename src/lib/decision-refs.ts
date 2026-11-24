@@ -33,14 +33,15 @@ const URL_PATTERN = /https?:\/\/[^\s<>"']+/g;
 /** Trailing prose punctuation is not part of a URL someone pasted mid-sentence. */
 const TRAILING_PUNCTUATION = /[.,;:!?\]]+$/;
 
-const TICKET_KEY = /\b[A-Z][A-Z0-9]+-\d+\b/g;
+// Not the tail of a longer id: DEC-ADDA-013 and ENH-ADDA-024 are a project's own ids, not tracker tickets.
+const TICKET_KEY = /(?<![A-Z][A-Z0-9]*-)\b[A-Z][A-Z0-9]+-\d+\b/g;
 /**
  * KEY-N shapes that are technical vocabulary, not tracker tickets (review finding,
  * 2026-09-01): UTF-8, SHA-256, ISO-8601, RFC-8446, TLS-1.3, X86-64, AES-256, MD-5
  * are routine in commit bodies, and CVE-2024-N names an advisory no connector can
  * fill. Matched on the letter prefix, so SHA-256 and SHA-512 both stay out.
  */
-const VOCABULARY_PREFIXES = new Set(['UTF', 'SHA', 'ISO', 'RFC', 'TLS', 'X86', 'AES', 'MD', 'CVE']);
+const VOCABULARY_PREFIXES = new Set(['UTF', 'SHA', 'ISO', 'RFC', 'TLS', 'X86', 'AES', 'MD', 'CVE', 'ADR']);
 /** `#N` only when it starts a word (after whitespace, "(", or start of line) and is
  *  immediately followed by digits - "# 45" is a markdown heading, not an issue. */
 const ISSUE_NUMBER = /(?:^|[\s(])(#\d+)\b/gm;

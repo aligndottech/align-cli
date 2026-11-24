@@ -1,3 +1,4 @@
+import { stripLeadingHtmlComments } from './strip-leading-comments.js';
 import { readdir, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { buildBlobUrl, getCurrentBranch, getRemoteUrl } from '../git.js';
@@ -191,11 +192,13 @@ function adrScopeNote(read: AdrRead, kept: readonly AdrFile[]): string | undefin
 
 async function adrItem(repoRoot: string, useGit: boolean, relPath: string, content: string, remoteUrl: string | null, branch: string): Promise<PersonalImportItem> {
   const decided = await adrDecisionDate(repoRoot, relPath, content, useGit);
+  // ADR rows only: in an agent-rules file a leading comment can be the instruction, so section rows keep theirs.
+  const text = stripLeadingHtmlComments(content);
   return {
     source_url: buildBlobUrl(remoteUrl, branch, relPath),
     platform: 'docs',
-    raw_text: content,
-    title: firstHeading(content) ?? humanizeFilename(relPath),
+    raw_text: text,
+    title: firstHeading(text) ?? humanizeFilename(relPath),
     ...(decided ? { created_at: decided.date } : {}),
     // Only a git date is marked: it may be the day the ADRs were moved, not the day anyone decided.
     ...(decided?.source === 'first-commit' ? { date_source: 'first-commit' as const } : {}),

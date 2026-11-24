@@ -15,6 +15,7 @@
  * CLI never reads it, and every reader joins `decisions` so a row it leaves behind links nothing.
  */
 import type { DatabaseSync } from 'node:sqlite';
+import { ADR_DIR_NAMES } from './fetchers/adr-dir-discovery.js';
 
 export function hasPartialSupersessionTable(db: DatabaseSync): boolean {
   return db.prepare(`SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = 'decision_partial_supersessions'`).get() !== undefined;
@@ -42,21 +43,68 @@ const NEGATION = /\b(?:not|never|no\s+longer|doesn'?t|don'?t|isn'?t|wasn'?t)\b/i
 const FILLER = new Set(['that', 'this', 'with', 'from', 'only', 'rule', 'rules', 'section', 'sections', 'convention', 'policy', 'guideline', 'decision', 'using', 'when', 'them', 'they', 'have', 'been', 'more']);
 const DOC_FILE = /\.(?:md|mdx|rst|txt)$/i;
 
-export interface SupersedeNote { file: string; words: string[] }
+/** What is replaced is a rule in a FILE, or one bullet of another ADR named by its number. */
+export interface SupersedeNote { file: string; words: string[]; adr?: number }
+
+// One part of an ADR: "the "no retries" bullet of ADR-0004" (active) or `ADR-0004's "no retries" bullet is superseded` (passive).
+const PART = String.raw`(?:bullet|item|line|point|paragraph|clause|step|sentence|rule|section|note)`;
+const ADR_REF = String.raw`ADR[- ]?0*(\d+)`;
+const ACTIVE_PART = new RegExp(String.raw`(?:^|(?<=[.!?]\s))[ \t]*(?:[-*+][ \t]+)?[*_]*(?:(?:this\s+(?:adr|decision)|we)\s+)?supersedes[*_]*:?[*_]*\s+(?:the\s+)?([^\n]{1,160}?)\s+${PART}\s+(?:of|in|from)\s+${ADR_REF}\b([^\n]*)`, 'gim');
+const PASSIVE_PART = new RegExp(String.raw`${ADR_REF}(?:'s|\u2019s)\s+([^\n]{1,160}?)\s+${PART}\s+(?:is|are|was|has\s+been|have\s+been|stands?)\s+superseded\b([^\n]*)`, 'gi');
+// Anything that limits the sentence: left unlinked rather than guessed at (a missing link is cheap, a wrong one hides a rule).
+const LIMITER = /\b(?:not|never|no\s+longer|doesn'?t|don'?t|isn'?t|wasn'?t|unless|except|only\s+(?:if|when)|apart\s+from|other\s+than)\b/i;
+// "superseded BY ADR-0015": the sentence names a different superseder, so this ADR is not the one.
+const OTHER_SUPERSEDER = /\bby\s+(?!(?:this|here|below)\b)\S/i;
+/** Up to the end of the first sentence; quoted words and dotted names (Node.js) do not end it. */
+const sentenceOf = (t: string): string => { const q = t.replace(QUOTED, (x) => 'x'.repeat(x.length)); const end = /[.!?](?=\s|$)/.exec(q); return end ? t.slice(0, end.index + 1) : t; };
+const QUOTED = /"[^"\n]*"|\u201c[^\u201d\n]*\u201d/g;
+
+/** The ADR number a docs row is, from its file name ("0012-x.md", "ADR-12-x.md"), or null. */
+// Directories whose files are decision records (fetchers/adr-dir-discovery.ts ADR_DIR_NAMES, plus the RFC folders the docs fetcher reads).
+const ADR_DIRS = new Set([...ADR_DIR_NAMES, 'rfc', 'rfcs']);
+export function adrNumberOf(sourceUrl: string): number | null {
+  const all = sourceUrl.split(/[#?]/)[0]!.split('/');
+  const base = all.pop() ?? '';
+  // Only the directories INSIDE the repository: the host, owner and repo name before `blob/<branch>/` are not part of the path.
+  const at = all.indexOf('blob');
+  const parts = at === -1 ? [] : all.slice(at + 2);
+  const named = /^adr[-_ ]?\d/i.test(base);
+  // docs/12-factor.md is not ADR 12: the number counts in an ADR directory or after an "adr" prefix. A date prefix is not a number.
+  if (!named && !parts.some((d) => ADR_DIRS.has(d.toLowerCase()))) return null;
+  if (/^\d{4}-\d{2}-\d{2}/.test(base)) return null;
+  const m = /^(?:adr[-_ ]?)?0*(\d+)(?:[-_. ]|$)/i.exec(base);
+  return m ? Number(m[1]) : null;
+}
+
+/** The parts of other ADRs this text says it replaces. Negation is read outside the quoted words, which are the bullet's own text. */
+function adrPartNotes(prose: string): SupersedeNote[] {
+  const out: SupersedeNote[] = [];
+  const words = (w: string) => w.split(/[^A-Za-z0-9]+/).map((x) => x.toLowerCase()).filter((x) => x.length >= 4 && !FILLER.has(x));
+  for (const m of prose.matchAll(ACTIVE_PART)) {
+    if (!LIMITER.test(sentenceOf(m[0]).replace(QUOTED, ' '))) out.push({ file: '', words: words(m[1]!), adr: Number(m[2]) });
+  }
+  for (const m of prose.matchAll(PASSIVE_PART)) {
+    // The clause is the sentence the match sits in: what is said before it on the line ("Only if ...") counts, later sentences do not.
+    const before = prose.slice(0, m.index).split('\n').pop()!.split(/[.!?]\s+/).pop()!;
+    const clause = `${before} ${sentenceOf(m[0])}`.replace(QUOTED, ' ');
+    if (!LIMITER.test(clause) && !OTHER_SUPERSEDER.test(sentenceOf(m[3]!))) out.push({ file: '', words: words(m[2]!), adr: Number(m[1]) });
+  }
+  return out;
+}
 
 /** What a reader would call the ADR's own statement: no code fences, quotations or quoted lines. */
-function ownProse(text: string): string {
+function ownProse(text: string, keepQuotes = false): string {
   let fenced = false;
   return text.split(/\r?\n/).filter((line) => {
     if (/^\s*(?:```|~~~)/.test(line)) { fenced = !fenced; return false; }
     return !fenced && !/^\s*>/.test(line);
-  }).join('\n').replace(/"[^"\n]*"|“[^”\n]*”/g, ' ');
+  }).join('\n').replace(keepQuotes ? /(?!)/g : /"[^"\n]*"|“[^”\n]*”/g, ' ');
 }
 
 /** When unsure, nothing: a clause with any negation, or text after the items that is not another item, yields no note. */
 export function supersedeNotes(text: string): SupersedeNote[] {
   const prose = ownProse(text);
-  const out: SupersedeNote[] = [];
+  const out: SupersedeNote[] = adrPartNotes(ownProse(text, true));
   for (const m of prose.matchAll(CLAUSE)) {
     const rest = prose.slice(m.index + m[0].length);
     const body = rest.slice(0, (/\.(?=\s|$)|\n/.exec(rest)?.index ?? rest.length) + 1);
@@ -77,6 +125,8 @@ const DOCS = `SELECT id, source_url AS sourceUrl, repo, title || char(10) || sum
 
 /** A whole path segment, any case ("claude.md" names CLAUDE.md): "docs/OLD-CLAUDE.md" is not "CLAUDE.md". */
 const inFile = (r: DocRow, file: string): boolean => r.sourceUrl.split(/[#?]/)[0]!.toLowerCase().endsWith(`/${file.toLowerCase()}`);
+/** Does the note name this row: its file, or its ADR number. */
+const names = (r: { sourceUrl: string }, note: SupersedeNote): boolean => note.adr !== undefined ? adrNumberOf(r.sourceUrl) === note.adr : inFile(r as DocRow, note.file);
 /** The same repository, or both unattributed. One side naming none is NOT a match: a local file says nothing about a repository's. */
 const sameRepo = (a: string | null, b: string | null): boolean => a === b;
 
@@ -85,7 +135,9 @@ const sameRepo = (a: string | null, b: string | null): boolean => a === b;
  * only row. A vendored vendor/CLAUDE.md in the same repo is a candidate on the same terms.
  */
 function targetsOf(note: SupersedeNote, docs: DocRow[], source: DocRow): string[] {
-  const rows = docs.filter((r) => r.id !== source.id && inFile(r, note.file) && sameRepo(r.repo, source.repo));
+  const rows = docs.filter((r) => r.id !== source.id && names(r, note) && sameRepo(r.repo, source.repo));
+  // An ADR number picks one file or nothing: two files numbered alike are two ADRs, and guessing marks the wrong one.
+  if (note.adr !== undefined) return rows.length === 1 ? [rows[0]!.id] : [];
   const score = (r: DocRow) => new Set(note.words.filter((w) => new RegExp(`\\b${w}\\b`, 'i').test(r.text))).size;
   const scored = rows.map((r) => ({ r, n: score(r) }));
   const best = Math.max(0, ...scored.map((x) => x.n));
@@ -112,7 +164,7 @@ export function linkPartialSupersessions(db: DatabaseSync, id: string): void {
   if (!self || self.platform !== 'docs' || self.sourceUrl === null) return;
   // LIKE is case-insensitive for ASCII, which is the prefilter the check below repeats exactly.
   const namers = (db.prepare(`SELECT id, source_url AS sourceUrl, repo, title || char(10) || summary AS text FROM decisions WHERE platform = 'docs' AND id != ? AND (title LIKE '%supersede%' OR summary LIKE '%supersede%')`).all(id) as unknown as DocRow[])
-    .filter((o) => supersedeNotes(o.text).some((n) => inFile(self, n.file)));
+    .filter((o) => supersedeNotes(o.text).some((n) => names(self, n)));
   const selfNames = /supersede/i.test(self.text) && supersedeNotes(self.text).length > 0;
   if (!selfNames && namers.length === 0) return;
   const docs = db.prepare(DOCS).all() as unknown as DocRow[];
@@ -135,7 +187,7 @@ export function partialSupersessorsOf(db: DatabaseSync, targetId: string): strin
 export function relinkNamersOfFile(db: DatabaseSync, url: string | null): void {
   if (url === null || !hasPartialSupersessionTable(db)) return;
   const namers = (db.prepare(`SELECT id, source_url AS sourceUrl, repo, title || char(10) || summary AS text FROM decisions WHERE platform = 'docs' AND (title LIKE '%supersede%' OR summary LIKE '%supersede%')`).all() as unknown as DocRow[])
-    .filter((o) => supersedeNotes(o.text).some((n) => inFile({ sourceUrl: url } as DocRow, n.file)));
+    .filter((o) => supersedeNotes(o.text).some((n) => names({ sourceUrl: url }, n)));
   if (namers.length === 0) return;
   const docs = db.prepare(DOCS).all() as unknown as DocRow[];
   for (const o of namers) relink(db, o, docs);
