@@ -186,7 +186,7 @@ function firstProseLine(title: string, summary: string): string | null {
     if (commented) { if (raw.includes('-->')) commented = false; continue; }
     if (/^\s*<!--/.test(raw)) { if (!raw.includes('-->')) commented = true; continue; }
     // The summary opens with the whole heading, which the stored title may hold only 80 characters of.
-    if (first && raw.trim()) { first = false; if (raw.trim().startsWith(title)) continue; }
+    if (first && raw.trim()) { first = false; if (raw.trim().replace(/^(?:#{1,6}|=)\s+/, '').startsWith(title)) continue; }
     const text = raw.trim().replace(/^(?:>\s*)+/, '').replace(/^(?:[-*+]|\d{1,3}[.)])\s+/, '').replace(/\*\*|__/g, '').trim();
     // Code, commands, tables, headings, tags and bare links are not text; anything else with a letter or digit is.
     if (!text || text === title || /^[`$#|<[\]!]/.test(text) || /^\s{4}/.test(raw) || !/[\p{L}\p{N}]/u.test(text)) continue;
@@ -196,8 +196,9 @@ function firstProseLine(title: string, summary: string): string | null {
 }
 /** The title the file prints for a heading row, or null when the section holds no text. */
 function headingRowTitle(r: ListedDecision): string | null {
-  const heading = wholeTitle(r.title, r.summary);
-  const line = firstProseLine(r.title, r.summary ?? '');
+  // The same recovery as any docs title (displayDocTitle): comment header, `#` or AsciiDoc `=`, whole word on a cut.
+  const heading = displayDocTitle(r);
+  const line = firstProseLine(r.title, stripLeadingHtmlComments(r.summary ?? ''));
   if (line) return `${heading}: ${line}`;
   return RULE_HEADING.test(heading) ? heading : null;
 }

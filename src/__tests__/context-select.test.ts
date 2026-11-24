@@ -256,3 +256,28 @@ describe('selectForFile - heading rows, review fixes (#721)', () => {
     expect(titles([row])).toEqual([full]);
   });
 });
+
+// #722's cut-title recovery and comment stripping must also apply to a heading row printed with its prose line (#721).
+describe('selectForFile - heading rows use the whole-title logic of #722', () => {
+  const U = 'https://github.com/o/r/blob/main/CLAUDE.md';
+  const heading = 'A very long section heading that runs well past the eighty characters the graph keeps of a title';
+  const row = (summary: string, title = heading.slice(0, 80)) => ({ title, platform: 'docs', summary, source_url: `${U}#long` });
+  const first = (r: ReturnType<typeof row>) => selectForFile([r], 30).decisions[0]!.title;
+
+  it('recovers a cut title when the summary opens with an HTML comment', () => {
+    expect(first(row(`<!-- generated -->\n${heading}\n\nBody text goes here.`))).toBe(`${heading}: Body text goes here.`);
+  });
+
+  it('recovers a cut AsciiDoc heading', () => {
+    expect(first(row(`= ${heading}\n\nBody text goes here.`))).toBe(`${heading}: Body text goes here.`);
+  });
+
+  it('cuts back to a whole word and marks it when the summary does not hold the heading', () => {
+    const t = first(row('Body text goes here.'));
+    expect(t).toBe(`${heading.slice(0, 80).replace(/\s*\S*$/, '')}...: Body text goes here.`);
+  });
+
+  it('does not print the comment as the prose line for a short heading', () => {
+    expect(first(row('<!-- generated -->\nTesting\n\nRun the tests.', 'Testing'))).toBe('Testing: Run the tests.');
+  });
+});
