@@ -163,6 +163,40 @@ function displayRuleTitle(r: ListedDecision): string {
   return first.length > RULE_TITLE_CAP ? `${first.slice(0, RULE_TITLE_CAP).trimEnd()}...` : first;
 }
 
+/**
+ * A docs row that is a whole `##` section (its url ends in the section anchor) has the HEADING as its title. A heading is
+ * not a rule: "Commands" and "Testing" told an agent nothing, and the file listed them under "Rules written in this repo"
+ * (#721). The file now prints the heading only with the first line of prose under it ("Testing: Run `npm test` before
+ * every push."), and leaves out a section with no prose (a code fence, a list of commands, a table), which stays in the
+ * graph for `align ask`. A heading that states a rule ("Never commit secrets") is printed as written. A row without a
+ * section anchor (an ADR, a whole file) is not a heading row and is never touched.
+ */
+const RULE_HEADING = /\b(?:never|always|must|do not|don't|dont|should|avoid|prefer|only|require[ds]?)\b/i;
+const HEADING_ROW_CAP = 200;
+const isHeadingRow = (r: ListedDecision): boolean => r.platform === 'docs' && !isRuleRow(r) && /#[^#/~]+$/.test(r.source_url ?? '');
+function firstProseLine(title: string, summary: string): string | null {
+  let fenced = false;
+  let first = true;
+  for (const raw of summary.replace(/\r\n?/g, '\n').split('\n')) {
+    if (/^\s*(```|~~~)/.test(raw)) { fenced = !fenced; continue; }
+    if (fenced) continue;
+    // The summary opens with the whole heading, which the stored title may hold only 80 characters of.
+    if (first && raw.trim()) { first = false; if (raw.trim().startsWith(title)) continue; }
+    const text = raw.trim().replace(/^(?:[-*+]|\d{1,3}[.)])\s+/, '').replace(/\*\*|__/g, '').trim();
+    // Code, commands, tables, headings, comments and bare links are not a rule line.
+    if (!text || text === title || /^[`$#|<>[\]!]/.test(text) || /^\s{4}/.test(raw)) continue;
+    if (!/[A-Za-z]{2,}(?:\s+\S+){2,}/.test(text)) continue;
+    return text.length > HEADING_ROW_CAP ? `${text.slice(0, HEADING_ROW_CAP).trimEnd()}...` : text;
+  }
+  return null;
+}
+/** The title the file prints for a heading row, or null when the section holds no rule line. */
+function headingRowTitle(r: ListedDecision): string | null {
+  if (RULE_HEADING.test(r.title)) return r.title;
+  const line = firstProseLine(r.title, r.summary ?? '');
+  return line ? `${wholeTitle(r.title, r.summary)}: ${line}` : null;
+}
+
 /** Rule rows may take this share of the file, so commits, PRs and ADRs keep room in a repo with one long rule list. */
 const RULE_SHARE_OF_CAP = 2 / 3;
 
@@ -179,7 +213,8 @@ export function selectForFile(rows: ListedDecision[], limit: number): { decision
   // "Core" is not the parent of "Core - x" rules, which a prefix match would have said.
   const parents = new Set(docs.filter(isRuleRow).map((r) => r.source_url ?? '').filter((u) => u.includes('~')).map((u) => u.slice(0, u.lastIndexOf('~'))));
   const stale = docs.filter((r) => !isRuleRow(r) && r.source_url && parents.has(r.source_url));
-  const rules = docs.filter((r) => !stale.includes(r));
+  const headingTitle = new Map<ListedDecision, string | null>(docs.filter(isHeadingRow).map((r) => [r, headingRowTitle(r)]));
+  const rules = docs.filter((r) => !stale.includes(r) && headingTitle.get(r) !== null);
   // Merge repeats and hide reversals BEFORE the cap and the counts, so the cap keeps the newest decisions
   // (not the first N in graph order) and every number describes what the file shows.
   const sourceOf = new Map<ContextDecision, ListedDecision>();
@@ -202,7 +237,7 @@ export function selectForFile(rows: ListedDecision[], limit: number): { decision
   const keptChoices = tidied.slice(0, Math.max(0, limit - keptRules.length));
   const decisions = [
     // `selected` keeps the stored rows: the committed-file check reads their titles as the importer wrote them.
-    ...keptRules.map((r) => ({ ...contextDecisionOf({ ...r, title: displayRuleTitle(r) }), kind: 'rule' as const })),
+    ...keptRules.map((r) => ({ ...contextDecisionOf({ ...r, title: headingTitle.get(r) ?? displayRuleTitle(r) }), kind: 'rule' as const })),
     ...keptChoices.map(({ orig: _orig, ...d }) => d),
   ];
   // What is not in the file because it is not an item at all (a dependency bump) or is folded into a listed one is not "left out".

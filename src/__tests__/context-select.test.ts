@@ -74,7 +74,8 @@ describe('selectForFile - one docs row per rule', () => {
 
   it('leaves a short docs title alone', () => {
     const { decisions } = selectForFile([{ title: 'Testing', platform: 'docs', summary: 'Testing\n\nRun the tests.', source_url: 'https://github.com/o/r/blob/main/AGENTS.md#testing' }], 50);
-    expect(decisions[0]!.title).toBe('Testing');
+    // #721: a heading is printed with the prose line under it, never alone.
+    expect(decisions[0]!.title).toBe('Testing: Run the tests.');
   });
 });
 
@@ -100,7 +101,7 @@ describe('selectForFile - rule rows and the file cap', () => {
 
   it('keeps a whole-section row whose section has no rule rows', () => {
     const lone = { title: 'Testing', platform: 'docs', summary: 'Testing\n\nRun the tests.', source_url: `${U}#testing` };
-    expect(selectForFile([lone, ruleRow(1)], 30).decisions.map((d) => d.title)).toContain('Testing');
+    expect(selectForFile([lone, ruleRow(1)], 30).decisions.map((d) => d.title)).toContain('Testing: Run the tests.');
   });
 
   it('shows the first 300 characters of a long rule, ending in ..., with no ** markers', () => {
@@ -115,8 +116,9 @@ describe('selectForFile - rule rows and the file cap', () => {
 
   it('lists a long ordinary docs heading whole when its summary holds it (was: left cut at 80, mid-word)', () => {
     const heading = 'A very long section heading that runs well past the eighty characters the graph keeps of a title';
-    const row = { title: heading.slice(0, 80), platform: 'docs', summary: `${heading}\n\nBody text.`, source_url: `${U}#long` };
-    expect(selectForFile([row], 30).decisions[0]!.title).toBe(heading);
+    const row = { title: heading.slice(0, 80), platform: 'docs', summary: `${heading}\n\nBody text goes here.`, source_url: `${U}#long` };
+    // The whole heading is recovered from the summary, then the prose line under it (#721).
+    expect(selectForFile([row], 30).decisions[0]!.title).toBe(`${heading}: Body text goes here.`);
   });
 
   it('keeps the stored rule title in `selected`, so the committed-file check still finds it', () => {
@@ -144,7 +146,7 @@ describe('selectForFile - rule rows and the file cap', () => {
   it('a prose section stays visible beside the rule rows of a section whose heading starts with its name', () => {
     const prose = { title: 'Core', platform: 'docs', summary: 'Core\n\nSome prose about the core.', source_url: `${U}#core` };
     const rule = { title: 'Never a.', platform: 'docs', summary: 'Never a.\n\nFrom the "Core - x" section.', source_url: `${U}#core---x~never-a-1234abcd` };
-    expect(selectForFile([prose, rule], 30).decisions.map((d) => d.title)).toContain('Core');
+    expect(selectForFile([prose, rule], 30).decisions.map((d) => d.title)).toContain('Core: Some prose about the core.');
   });
 
   it('still hides the genuine whole-section row of the section that was split', () => {
@@ -171,5 +173,48 @@ describe('selectForFile - rule rows and the file cap', () => {
     expect(r.decisions.map((d) => d.title)).toEqual(['Never touch file number 1.', 'Never touch file number 2.']);
     expect(r.selected.map((x) => x.title)).not.toContain('Further rules from the Core principles section');
     expect(r.leftOut).toBe(0);
+  });
+});
+
+// #721: `align up` listed bare section headings ("Commands", "Testing") under "Rules written in this repo".
+// Test List: 1 a section whose body holds no prose is not listed (two shapes: a code fence, a list of commands);
+// 2 a section with a rule line under it is listed as "Heading: the rule line" (two shapes: a bullet, a sentence);
+// 3 a heading that states a rule is listed as written (two: "Never ...", "Always ..."); 4 the file never prints a bare heading.
+describe('selectForFile - a heading is not a rule (#721)', () => {
+  const U = 'https://github.com/o/r/blob/main/CLAUDE.md';
+  const section = (title: string, body: string) => ({ title, platform: 'docs', summary: `${title}\n\n${body}`, source_url: `${U}#${title.toLowerCase().replace(/\W+/g, '-')}` });
+
+  it('does not list a section whose body is a code fence', () => {
+    const { decisions, leftOut } = selectForFile([section('Commands', '```bash\nnpm test\nnpm run build\n```')], 30);
+    expect(decisions).toEqual([]);
+    expect(leftOut).toBe(1);
+  });
+
+  it('does not list a section whose body is a list of commands', () => {
+    const { decisions } = selectForFile([section('Project structure', '- `src/` - the CLI\n- `docs/` - the docs\n\n| a | b |\n|---|---|')], 30);
+    expect(decisions).toEqual([]);
+  });
+
+  it('lists a section with a rule bullet as "Heading: the rule"', () => {
+    const { decisions } = selectForFile([section('Testing', '- Run `npm test` before every push.\n- Keep tests next to the code.')], 30);
+    expect(decisions.map((d) => d.title)).toEqual(['Testing: Run `npm test` before every push.']);
+  });
+
+  it('lists a section with a rule sentence after a code fence as "Heading: the sentence"', () => {
+    const { decisions } = selectForFile([section('Code style', '```ts\nconst x = 1;\n```\n\nPrefer **named exports** over default exports.')], 30);
+    expect(decisions.map((d) => d.title)).toEqual(['Code style: Prefer named exports over default exports.']);
+  });
+
+  it('keeps a heading that states a rule exactly as written', () => {
+    const { decisions } = selectForFile([section('Never commit secrets', '```\n.env\n```'), section('Always run the linter', '`npm run lint`')], 30);
+    expect(decisions.map((d) => d.title)).toEqual(['Never commit secrets', 'Always run the linter']);
+  });
+
+  it('the rendered file has no bare heading line', () => {
+    const { decisions } = selectForFile([section('Commands', '```\nnpm test\n```'), section('Testing', '- Run `npm test` before every push.')], 30);
+    const file = renderDecisionsFile(decisions);
+    expect(file).not.toMatch(/^- Commands/m);
+    expect(file).not.toMatch(/^- Testing( -|$)/m);
+    expect(file).toContain('- Testing: Run `npm test` before every push.');
   });
 });

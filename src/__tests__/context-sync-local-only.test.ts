@@ -116,7 +116,7 @@ describe('align context sync, local graph built only from the repo', () => {
 
   it('a doc that is not committed (untracked or ignored) keeps the file out of git', async () => {
     fs.writeFileSync(path.join(repo, 'NOTES.md'), '# private\n');
-    mockListDecisions.mockResolvedValue([...REPO_ONLY, { id: '6', title: 'Private notes', summary: '', platform: 'docs', status: 'active', source_url: 'https://github.com/acme/api/blob/main/NOTES.md#private' }]);
+    mockListDecisions.mockResolvedValue([...REPO_ONLY, { id: '6', title: 'Private notes', summary: 'Private notes\n\nKeep these notes inside the team.', platform: 'docs', status: 'active', source_url: 'https://github.com/acme/api/blob/main/NOTES.md#private' }]);
     await run();
     expect(gitignore()).toContain('.align/decisions.md');
     expect(logs.join('\n')).toMatch(/Kept out of git/);
