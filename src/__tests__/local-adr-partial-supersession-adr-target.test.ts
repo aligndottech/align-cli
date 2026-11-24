@@ -94,14 +94,70 @@ describe('3. nothing links when the text does not say one part is replaced', () 
   it('a whole-ADR "Supersedes: ADR-0012" stays a person\'s act', async () => {
     expect(await only(item('0012', 'a', ADR_0012), item('0013', 'b', `# 0013 — B\n\nSupersedes: ADR-0012\n\nBody text here.\n`))).toEqual([]);
   });
-  it('a negated clause', async () => {
-    expect(await only(item('0012', 'a', ADR_0012), item('0013', 'b', `# 0013 — B\n\n- ADR-0012's "no configuration" bullet is not superseded by this.\n`))).toEqual([]);
-  });
   it('an ADR number the graph does not hold', async () => {
     expect(await only(item('0018', 'b', ADR_0018))).toEqual([]);
   });
   it('a number held by two files in one repo is ambiguous', async () => {
     expect(await only(item('0012', 'a', ADR_0012), item('0012', 'other', ADR_0012.replace('# 0012', '# 0012b')), item('0018', 'b', ADR_0018))).toEqual([]);
+  });
+});
+
+describe('4. a limiter or negation inside the clause means no link (conservative), and the plain sentence still links', () => {
+  const T0012 = () => item('0012', 'a', ADR_0012);
+  it.each([
+    ['passive tail "but not for admin"', `- ADR-0012's "no configuration" bullet is superseded, but not for admin files.\n`],
+    ['passive tail "unless"', `- ADR-0012's "no configuration" bullet is superseded unless a file is generated.\n`],
+    ['active "(not the retry cap)"', `Supersedes: the "no configuration" bullet of ADR-12 (not the retry cap)\n`],
+    ['active "except"', `Supersedes: the "no configuration" bullet of ADR-12, except for tests\n`],
+  ])('%s yields no link', async (_n, line) => {
+    expect(await (async () => { await ingest(client(), T0012(), item('0013', 'b', `# 0013 — B\n\n${line}`)); return links(); })()).toEqual([]);
+  });
+  it.each([
+    ['passive "for project-specific files"', `- ADR-0012's "no configuration" bullet is superseded for project-specific files.\n`],
+    ['active, nothing after', `Supersedes: the "no configuration" bullet of ADR-12\n`],
+  ])('control: %s links', async (_n, line) => {
+    const [t, s] = await ingest(client(), T0012(), item('0013', 'b', `# 0013 — B\n\n${line}`));
+    expect(links()).toEqual([{ source: s, target: t }]);
+  });
+});
+
+describe('3b. a sentence that names ANOTHER superseder does not link this ADR', () => {
+  it('"superseded by ADR-0015" inside ADR-0020 links nothing', async () => {
+    const [t] = await ingest(client(), item('0012', 'a', ADR_0012), item('0020', 'c', `# 0020 — C\n\n- ADR-0012's "no configuration" bullet is superseded by ADR-0015.\n`));
+    expect(links().filter((l) => l.target === t)).toEqual([]);
+  });
+  it.each(['by this ADR', 'by this decision'])('"superseded %s" still links', async (by) => {
+    const [t, s] = await ingest(client(), item('0012', 'a', ADR_0012), item('0020', 'c', `# 0020 — C\n\n- ADR-0012's "no configuration" bullet is superseded ${by}.\n`));
+    expect(links()).toEqual([{ source: s, target: t }]);
+  });
+});
+
+describe('5. only an ADR file is an ADR number', () => {
+  const FACTOR = 'https://github.com/vyasdx/adda-cli/blob/main/docs/12-factor.md';
+  it('docs/12-factor.md is not ADR 12', async () => {
+    await ingest(client(), { source_url: FACTOR, title: '12 factor', raw_text: '# 12 factor\n\nConfig in the environment, everywhere.\n' }, item('0018', 'b', ADR_0018));
+    expect(links()).toEqual([]);
+  });
+  it('a date-prefixed file in an ADR directory is not ADR 2024', async () => {
+    const dated = { source_url: ADR('2024-01-02', 'x'), title: 'dated', raw_text: '# Dated decision\n\nStatus: accepted\n' };
+    await ingest(client(), dated, item('0030', 'z', `# 0030 — Z\n\nSupersedes: the "x" bullet of ADR-2024\n`));
+    expect(links()).toEqual([]);
+  });
+  it('an ADR with the same number in ANOTHER repo is not the target', async () => {
+    const other = { source_url: 'https://github.com/someone/else/blob/main/adr/0012-x.md', title: 'other', raw_text: ADR_0012 };
+    await ingest(client(), other, item('0018', 'b', ADR_0018));
+    expect(links()).toEqual([]);
+  });
+  it('control: an adr/ directory and an adr-prefixed name both count', async () => {
+    const a = { source_url: 'https://github.com/vyasdx/adda-cli/blob/main/docs/adr/0012-x.md', title: 'a', raw_text: ADR_0012 };
+    const [t, s] = await ingest(client(), a, item('0018', 'b', ADR_0018));
+    expect(links()).toEqual([{ source: s, target: t }]);
+    const c2 = createLocalGatewayClient(path.join(dir, 'g2.db'), { cwd: dir }); opened.push(c2);
+    const b = { source_url: 'https://github.com/vyasdx/adda-cli/blob/main/docs/ADR-0012-x.md', title: 'b', raw_text: ADR_0012 };
+    const { snapshots } = await c2.ingestBatch([b, item('0018', 'b', ADR_0018)].map((i) => ({ ...i, platform: 'docs', created_at: undefined })));
+    const raw = new DatabaseSync(path.join(dir, 'g2.db'), { readOnly: true });
+    expect((raw.prepare('SELECT source_id AS s, target_id AS t FROM decision_partial_supersessions').all() as Array<{ s: string; t: string }>)).toEqual([{ s: snapshots[1]!.id, t: snapshots[0]!.id }]);
+    raw.close();
   });
 });
 

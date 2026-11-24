@@ -15,6 +15,7 @@
  * CLI never reads it, and every reader joins `decisions` so a row it leaves behind links nothing.
  */
 import type { DatabaseSync } from 'node:sqlite';
+import { ADR_DIR_NAMES } from './fetchers/adr-dir-discovery.js';
 
 export function hasPartialSupersessionTable(db: DatabaseSync): boolean {
   return db.prepare(`SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = 'decision_partial_supersessions'`).get() !== undefined;
@@ -48,13 +49,24 @@ export interface SupersedeNote { file: string; words: string[]; adr?: number }
 // One part of an ADR: "the "no retries" bullet of ADR-0004" (active) or `ADR-0004's "no retries" bullet is superseded` (passive).
 const PART = String.raw`(?:bullet|item|line|point|paragraph|clause|step|sentence|rule|section|note)`;
 const ADR_REF = String.raw`ADR[- ]?0*(\d+)`;
-const ACTIVE_PART = new RegExp(String.raw`(?:^|(?<=[.!?]\s))[ \t]*(?:[-*+][ \t]+)?[*_]*(?:(?:this\s+(?:adr|decision)|we)\s+)?supersedes[*_]*:?[*_]*\s+(?:the\s+)?([^\n]{1,160}?)\s+${PART}\s+(?:of|in|from)\s+${ADR_REF}\b`, 'gim');
+const ACTIVE_PART = new RegExp(String.raw`(?:^|(?<=[.!?]\s))[ \t]*(?:[-*+][ \t]+)?[*_]*(?:(?:this\s+(?:adr|decision)|we)\s+)?supersedes[*_]*:?[*_]*\s+(?:the\s+)?([^\n]{1,160}?)\s+${PART}\s+(?:of|in|from)\s+${ADR_REF}\b([^\n]*)`, 'gim');
 const PASSIVE_PART = new RegExp(String.raw`${ADR_REF}(?:'s|\u2019s)\s+([^\n]{1,160}?)\s+${PART}\s+(?:is|are|was|has\s+been|have\s+been|stands?)\s+superseded\b([^\n]*)`, 'gi');
+// Anything that limits the sentence: left unlinked rather than guessed at (a missing link is cheap, a wrong one hides a rule).
+const LIMITER = /\b(?:not|never|no\s+longer|doesn'?t|don'?t|isn'?t|wasn'?t|unless|except|only\s+(?:if|when)|apart\s+from|other\s+than)\b/i;
+// "superseded BY ADR-0015": the sentence names a different superseder, so this ADR is not the one.
+const OTHER_SUPERSEDER = /\bby\s+(?!(?:this|here|below)\b)\S/i;
 const QUOTED = /"[^"\n]*"|\u201c[^\u201d\n]*\u201d/g;
 
 /** The ADR number a docs row is, from its file name ("0012-x.md", "ADR-12-x.md"), or null. */
+// Directories whose files are decision records (fetchers/adr-dir-discovery.ts ADR_DIR_NAMES, plus the RFC folders the docs fetcher reads).
+const ADR_DIRS = new Set([...ADR_DIR_NAMES, 'rfc', 'rfcs']);
 export function adrNumberOf(sourceUrl: string): number | null {
-  const base = sourceUrl.split(/[#?]/)[0]!.split('/').pop() ?? '';
+  const parts = sourceUrl.split(/[#?]/)[0]!.split('/');
+  const base = parts.pop() ?? '';
+  const named = /^adr[-_ ]?\d/i.test(base);
+  // docs/12-factor.md is not ADR 12: the number counts in an ADR directory or after an "adr" prefix. A date prefix is not a number.
+  if (!named && !parts.some((d) => ADR_DIRS.has(d.toLowerCase()))) return null;
+  if (/^\d{4}-\d{2}-\d{2}/.test(base)) return null;
   const m = /^(?:adr[-_ ]?)?0*(\d+)(?:[-_. ]|$)/i.exec(base);
   return m ? Number(m[1]) : null;
 }
@@ -64,10 +76,11 @@ function adrPartNotes(prose: string): SupersedeNote[] {
   const out: SupersedeNote[] = [];
   const words = (w: string) => w.split(/[^A-Za-z0-9]+/).map((x) => x.toLowerCase()).filter((x) => x.length >= 4 && !FILLER.has(x));
   for (const m of prose.matchAll(ACTIVE_PART)) {
-    if (!NEGATION.test(m[0].replace(QUOTED, ' '))) out.push({ file: '', words: words(m[1]!), adr: Number(m[2]) });
+    if (!LIMITER.test(m[0].replace(QUOTED, ' '))) out.push({ file: '', words: words(m[1]!), adr: Number(m[2]) });
   }
   for (const m of prose.matchAll(PASSIVE_PART)) {
-    if (!NEGATION.test(m[0].replace(QUOTED, ' '))) out.push({ file: '', words: words(m[2]!), adr: Number(m[1]) });
+    const clause = m[0].replace(QUOTED, ' ');
+    if (!LIMITER.test(clause) && !OTHER_SUPERSEDER.test(m[3]!)) out.push({ file: '', words: words(m[2]!), adr: Number(m[1]) });
   }
   return out;
 }
