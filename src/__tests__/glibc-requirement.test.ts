@@ -14,6 +14,13 @@ vi.mock('../lib/local-embeddings-native.js', () => ({ createNativeEmbeddingPipel
 
 const LOADER = 'Error loading shared library ld-linux-x86-64.so.2: No such file or directory (needed by /c/ort/bin/napi-v6/linux/x64//libonnxruntime.so.1)';
 
+
+/** Pretend to be a glibc Linux host, whatever the host is, so the Linux error paths run on macOS and Windows too. */
+const asGlibcLinux = () => vi.doMock('../lib/libc.js', async (orig) => {
+  const real = await orig<typeof LibcModule>();
+  return { ...real, isMuslLinux: () => false, isLoaderFailure: (m: string) => real.isLoaderFailure(m, 'linux'), isOldGlibc: (m: string) => real.isOldGlibc(m, 'linux') };
+});
+
 describe('isMuslLinux', () => {
   it('is true on linux when the process report names no glibc (Alpine)', async () => {
     const { isMuslLinux } = await import('../lib/libc.js');
@@ -37,13 +44,13 @@ describe('isMuslLinux', () => {
 describe('isLoaderFailure', () => {
   it('recognises a missing glibc loader and a missing glibc symbol', async () => {
     const { isLoaderFailure } = await import('../lib/libc.js');
-    expect(isLoaderFailure(LOADER)).toBe(true);
-    expect(isLoaderFailure('Error relocating /c/libonnxruntime.so.1: __memcpy_chk: symbol not found')).toBe(true);
+    expect(isLoaderFailure(LOADER, 'linux')).toBe(true);
+    expect(isLoaderFailure('Error relocating /c/libonnxruntime.so.1: __memcpy_chk: symbol not found', 'linux')).toBe(true);
   });
   it('does not take a network error for one', async () => {
     const { isLoaderFailure } = await import('../lib/libc.js');
-    expect(isLoaderFailure('could not reach github.com: getaddrinfo ENOTFOUND')).toBe(false);
-    expect(isLoaderFailure('fetch failed')).toBe(false);
+    expect(isLoaderFailure('could not reach github.com: getaddrinfo ENOTFOUND', 'linux')).toBe(false);
+    expect(isLoaderFailure('fetch failed', 'linux')).toBe(false);
   });
 });
 
@@ -62,6 +69,7 @@ describe('local mode on a system without glibc', () => {
   });
 
   it('reports a loader failure from the runtime as the glibc requirement, not as an internet problem', async () => {
+    asGlibcLinux();
     native.create.mockRejectedValue(new Error(LOADER));
     const { getEmbedding } = await import('../lib/local-embeddings.js');
     const err = await getEmbedding('hello').catch((e: Error) => e);
@@ -71,6 +79,7 @@ describe('local mode on a system without glibc', () => {
   });
 
   it('still reports a network error as a connection problem', async () => {
+    asGlibcLinux();
     native.create.mockRejectedValue(new Error('could not reach github.com: getaddrinfo ENOTFOUND'));
     const { getEmbedding } = await import('../lib/local-embeddings.js');
     await expect(getEmbedding('hello')).rejects.toThrow(/internet connection/);
@@ -100,6 +109,12 @@ describe('isLoaderFailure: Linux loader errors only', () => {
 });
 
 describe('a glibc that is too old', () => {
+  afterEach(() => {
+    vi.resetModules();
+    vi.doUnmock('../lib/libc.js');
+    native.create.mockReset();
+  });
+
   it('is recognised on linux, and not elsewhere', async () => {
     const { isOldGlibc } = await import('../lib/libc.js');
     expect(isOldGlibc(OLD_GLIBC, 'linux')).toBe(true);
@@ -115,6 +130,7 @@ describe('a glibc that is too old', () => {
     expect(m).not.toMatch(/musl/);
   });
   it('is what local mode reports when the runtime fails that way', async () => {
+    asGlibcLinux();
     native.create.mockRejectedValue(new Error(OLD_GLIBC));
     const { getEmbedding } = await import('../lib/local-embeddings.js');
     const err = (await getEmbedding('x').catch((e: Error) => e)) as Error;

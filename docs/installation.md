@@ -38,7 +38,7 @@ SQLite file held through `node:sqlite`, which needs 22.16, where that module is 
 `DatabaseSync.isTransaction` exists. npm warns rather than stops on an older runtime, but `align`
 itself checks first: on an older Node it prints the version it found and the floor, and exits 1.
 
-**Local mode on the npm package needs a glibc-based Linux.** Its on-device embedding runtime (ONNX Runtime) does not load
+**On Linux, local mode on the npm package needs glibc.** Its on-device embedding runtime (ONNX Runtime) does not load
 on musl, so it does not work on Alpine (`node:22-alpine`). Use a glibc image such as `node:22-bookworm-slim`. On Alpine
 local mode stops with a message naming that cause, before it downloads anything, and cloud mode (`align login`) is
 unaffected. Alpine is not supported for local mode.

@@ -79,3 +79,14 @@ describe('allowedChars: a summary exactly as long as its share', () => {
     expect(allowedChars([4, 20], 5)).toEqual([4, 6]);
   });
 });
+
+describe('the trailing newline after the last candidate is budgeted', () => {
+  it('stays inside every window from 6,000 to 9,000 tokens', () => {
+    const over: number[] = [];
+    for (let w = 6_000; w <= 9_000; w++) {
+      const u = buildV1UserPrompt(subject, five, w, OUT);
+      if (estimateTokens(buildV1SystemPrompt()) + OUT + estimateTokens(u) > w) over.push(w);
+    }
+    expect(over).toEqual([]);
+  });
+});

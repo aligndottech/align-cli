@@ -102,7 +102,7 @@ function plan(subject: V1Subject, candidates: readonly V1Candidate[], windowToke
     return `${i + 1}. ${c.title} (similarity: ${c.similarity.toFixed(2)}) [Platform: ${(c.platform ?? 'unknown').toLowerCase()}]${facts}\n   `;
   });
   // Titles and labels are never cut; the summaries share what is left of the window.
-  const fixed = estimateTokens(buildV1SystemPrompt()) + outputTokens + estimateTokens(head + headTail + lines.join('\n\n'));
+  const fixed = estimateTokens(buildV1SystemPrompt()) + outputTokens + estimateTokens(`${head}${headTail}${lines.join('\n\n')}\n`);
   const share = charsForTokens(Math.floor(Math.max(0, windowTokens - fixed) / (candidates.length + 1)));
   const caps = allowedChars([subject.summary.length, ...candidates.map((c) => c.summary.length)], share);
   return { head, headTail, lines, caps };

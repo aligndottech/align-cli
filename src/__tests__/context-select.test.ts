@@ -281,3 +281,28 @@ describe('selectForFile - heading rows use the whole-title logic of #722', () =>
     expect(first(row('<!-- generated -->\nTesting\n\nRun the tests.', 'Testing'))).toBe('Testing: Run the tests.');
   });
 });
+
+// CodeRabbit on #723.
+describe('selectForFile - heading rows, CodeRabbit round (#723)', () => {
+  const U = 'https://github.com/o/r/blob/main/CLAUDE.md';
+  const row = (title: string, summary: string) => ({ title, platform: 'docs', summary, source_url: `${U}#${title.toLowerCase().replace(/\W+/g, '-')}` });
+  const titles = (rows: ReturnType<typeof row>[]) => selectForFile(rows, 30).decisions.map((d) => d.title);
+
+  it('keeps a body-only summary whose text starts with the heading word', () => {
+    expect(titles([row('Testing', 'Testing must pass before every merge.')])).toEqual(['Testing: Testing must pass before every merge.']);
+    expect(titles([row('Lint', 'Linting runs in CI.')])).toEqual(['Lint: Linting runs in CI.']);
+  });
+
+  it('closes a fence only with a fence of the same character and at least the same length', () => {
+    expect(titles([row('Docs', '````md\n```sh\nnpm test\n```\nUse this.\n````')])).toEqual([]);
+    expect(titles([row('Docs2', '~~~\n```\nPrefer x.\n~~~')])).toEqual([]);
+    expect(titles([row('Docs3', '```sh\nnpm test\n```\n\nPrefer small PRs.')])).toEqual(['Docs3: Prefer small PRs.']);
+  });
+
+  it('puts the printed prose in `selected` beside the stored heading row, so the committed-file check judges the prose too', () => {
+    const r = row('Testing', 'Testing\n\nRun **all** tests.');
+    const { selected } = selectForFile([r], 30);
+    expect(selected.map((s) => s.title)).toEqual(['Testing', 'Run all tests.']);
+    expect(selected.every((s) => s.source_url === r.source_url)).toBe(true);
+  });
+});
