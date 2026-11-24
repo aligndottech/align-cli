@@ -34,14 +34,14 @@ const URL_PATTERN = /https?:\/\/[^\s<>"']+/g;
 const TRAILING_PUNCTUATION = /[.,;:!?\]]+$/;
 
 // Not the tail of a longer id: DEC-ADDA-013 and ENH-ADDA-024 are a project's own ids, not tracker tickets.
-const TICKET_KEY = /(?<![A-Za-z0-9]-)\b[A-Z][A-Z0-9]+-\d+\b/g;
+const TICKET_KEY = /(?<![A-Z][A-Z0-9]*-)\b[A-Z][A-Z0-9]+-\d+\b/g;
 /**
  * KEY-N shapes that are technical vocabulary, not tracker tickets (review finding,
  * 2026-09-01): UTF-8, SHA-256, ISO-8601, RFC-8446, TLS-1.3, X86-64, AES-256, MD-5
  * are routine in commit bodies, and CVE-2024-N names an advisory no connector can
  * fill. Matched on the letter prefix, so SHA-256 and SHA-512 both stay out.
  */
-const VOCABULARY_PREFIXES = new Set(['UTF', 'SHA', 'ISO', 'RFC', 'TLS', 'X86', 'AES', 'MD', 'CVE']);
+const VOCABULARY_PREFIXES = new Set(['UTF', 'SHA', 'ISO', 'RFC', 'TLS', 'X86', 'AES', 'MD', 'CVE', 'ADR']);
 /** `#N` only when it starts a word (after whitespace, "(", or start of line) and is
  *  immediately followed by digits - "# 45" is a markdown heading, not an issue. */
 const ISSUE_NUMBER = /(?:^|[\s(])(#\d+)\b/gm;
@@ -78,12 +78,7 @@ function classifyUrl(url: string): DecisionRef['platform'] | null {
   return null;
 }
 
-/**
- * `source` is the platform of the decision the text belongs to. In a docs file (an ADR, a README) a bare
- * KEY-N is mostly the project's own id scheme (ADR-0012), so it counts only on a line that says Jira.
- * URLs are unaffected, and any other source keeps every bare key.
- */
-export function extractRefs(text: string, source?: string): DecisionRef[] {
+export function extractRefs(text: string): DecisionRef[] {
   const found = new Map<string, DecisionRef>();
   const add = (ref: string, platform: DecisionRef['platform']) => {
     if (!found.has(ref)) found.set(ref, { ref, platform });
@@ -106,8 +101,7 @@ export function extractRefs(text: string, source?: string): DecisionRef[] {
     remaining = remaining.replace(raw, ' ');
   }
 
-  const keyScope = source === 'docs' ? remaining.split('\n').filter((line) => /\bjira\b/i.test(line)).join('\n') : remaining;
-  for (const key of keyScope.match(TICKET_KEY) ?? []) {
+  for (const key of remaining.match(TICKET_KEY) ?? []) {
     if (VOCABULARY_PREFIXES.has(key.slice(0, key.indexOf('-')))) continue;
     add(key, 'tracker');
   }

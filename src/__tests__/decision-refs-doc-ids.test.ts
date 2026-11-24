@@ -3,40 +3,40 @@ import { extractRefs } from '../lib/decision-refs.js';
 
 /*
  * TEST LIST (a user's ADRs carry ids like DEC-ADDA-013 and ADR-0012; those are ids in a markdown file, not Jira keys)
- * 1. A key that is the tail of a longer hyphenated id is not a ticket key, in any source:
- *    DEC-ADDA-013, ENH-ADDA-024. Control: ADDA-13 alone, and PROJ-123, still are.
- * 2. In a docs file a bare KEY-N needs Jira evidence on its own line (the word Jira). Without it: no ref.
- *    ADR-0012 / PLAT-77 alone: no ref. "Jira ticket PLAT-77" and "Tracked in Jira: OPS-5": ref.
- * 3. A Jira URL in a docs file still counts. A commit body (non-docs) keeps bare keys.
+ * 1. A key that is the tail of an UPPERCASE hyphenated id is not a ticket key: DEC-ADDA-013, ENH-ADDA-024.
+ *    Controls: a branch-style prefix (hotfix-ABC-12, bugfix-PROJ-123, re-ABC-12) still yields the key; PROJ-123-PROJ-124 yields both.
+ * 2. ADR joins the vocabulary prefixes: ADR-0012 / "Per ADR-0009" are not tickets, in any source.
+ *    Controls: a key in a docs file keeps working (Ticket: PLAT-77, Closes PLAT-77, a table row), and ADR-0009 beside PLAT-7 leaves only PLAT-7.
  */
-describe('1. an id with more than one hyphen segment is not a ticket key', () => {
-  it.each(['Issue: DEC-ADDA-013', 'Gates BUG-ADDA-018, BUG-ADDA-019'])('%s yields no ref (commit body)', (t) => {
-    expect(extractRefs(t, 'git')).toEqual([]);
+const keys = (t: string) => extractRefs(t).map((r) => r.ref);
+
+describe('1. an id with an uppercase segment before it is not a ticket key', () => {
+  it.each(['Issue: DEC-ADDA-013', 'Gates BUG-ADDA-018, BUG-ADDA-019', 'Issue: ENH-ADDA-024'])('%s yields no ref', (t) => {
+    expect(keys(t)).toEqual([]);
   });
-  it.each(['Refs PROJ-123', 'See ADDA-13 for this'])('control: %s still yields a tracker ref', (t) => {
-    expect(extractRefs(t, 'git').map((r) => r.platform)).toEqual(['tracker']);
+  it.each([
+    ['Merge pull request #5 from org/hotfix-ABC-12', 'ABC-12'],
+    ['branch bugfix-PROJ-123 merged', 'PROJ-123'],
+    ['re-ABC-12', 'ABC-12'],
+  ])('control: %s still yields %s', (t, k) => {
+    expect(keys(t)).toContain(k);
+  });
+  it('pins PROJ-123-PROJ-124: both are keys (the first segment is a key, not an id prefix)', () => {
+    expect(keys('PROJ-123-PROJ-124')).toEqual(['PROJ-123', 'PROJ-124']);
   });
 });
 
-describe('2. in a docs file a bare key needs Jira evidence on its line', () => {
-  it.each(['Extends: ADR-0012', 'Amends: ADR-0013 and PLAT-77'])('%s yields no ref', (t) => {
-    expect(extractRefs(t, 'docs')).toEqual([]);
+describe('2. ADR-N is the ADR numbering, not a ticket', () => {
+  it.each(['Per ADR-0009, we keep it.', 'Extends: ADR-0012', 'Amends: ADR-0013'])('%s yields no ref', (t) => {
+    expect(keys(t)).toEqual([]);
   });
-  it.each(['Jira ticket PLAT-77 asked for this.', 'Tracked in Jira: OPS-5'])('control: %s still yields a ref', (t) => {
-    expect(extractRefs(t, 'docs').map((r) => r.platform)).toEqual(['tracker']);
+  it('ADR-0009 beside a real key leaves only the key', () => {
+    expect(keys('ADR-0009 in Jira ticket PLAT-7')).toEqual(['PLAT-7']);
   });
-  it('a bare key on a line without Jira is dropped even when another line mentions Jira', () => {
-    expect(extractRefs('We use Jira.\nSee PLAT-77.', 'docs')).toEqual([]);
+  it.each(['Ticket: PLAT-77', 'Closes PLAT-77', '| Issue | PLAT-77 |'])('control: docs text "%s" still yields the key', (t) => {
+    expect(keys(t)).toEqual(['PLAT-77']);
   });
-});
-
-describe('3. URLs and non-docs sources are unchanged', () => {
-  it('a Jira browse URL in a docs file is still a jira ref', () => {
-    expect(extractRefs('see https://acme.atlassian.net/browse/PLAT-77', 'docs')).toEqual([
-      { ref: 'https://acme.atlassian.net/browse/PLAT-77', platform: 'jira' },
-    ]);
-  });
-  it('with no source given, bare keys behave as before', () => {
-    expect(extractRefs('Refs APP-123')).toEqual([{ ref: 'APP-123', platform: 'tracker' }]);
+  it('a Jira browse URL is still a jira ref', () => {
+    expect(extractRefs('see https://acme.atlassian.net/browse/PLAT-77')).toEqual([{ ref: 'https://acme.atlassian.net/browse/PLAT-77', platform: 'jira' }]);
   });
 });
