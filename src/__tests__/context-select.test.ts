@@ -113,10 +113,10 @@ describe('selectForFile - rule rows and the file cap', () => {
     expect(t).toHaveLength(303);
   });
 
-  it('leaves a long ordinary docs heading and a long ADR title alone', () => {
+  it('lists a long ordinary docs heading whole when its summary holds it (was: left cut at 80, mid-word)', () => {
     const heading = 'A very long section heading that runs well past the eighty characters the graph keeps of a title';
     const row = { title: heading.slice(0, 80), platform: 'docs', summary: `${heading}\n\nBody text.`, source_url: `${U}#long` };
-    expect(selectForFile([row], 30).decisions[0]!.title).toBe(heading.slice(0, 80));
+    expect(selectForFile([row], 30).decisions[0]!.title).toBe(heading);
   });
 
   it('keeps the stored rule title in `selected`, so the committed-file check still finds it', () => {
