@@ -45,8 +45,8 @@ const ISSUE_REF = '(?:#\\d+|gh-\\d+|[\\w.-]+\\/[\\w.-]+#\\d+|https?:\\/\\/\\S+)'
 const FIXES_ONLY = new RegExp(`^\\s*(?:fix(?:e[sd])?|close[sd]?|resolve[sd]?|refs?|see|related to|part of)\\b:?\\s*${ISSUE_REF}(?:[\\s,;&]+(?:and\\s+)?${ISSUE_REF})*\\s*[.]?\\s*$`, 'i');
 
 // Sections that start a dump of someone else's changes.
-const DUMP_HEADING = /^\s{0,3}(?:#{1,6}\s*)?(?:\*\*)?(?:what'?s changed|release notes?|changelog|full changelog|commits|sourced from|bug fixes|features)\b|^\s{0,3}#{1,6}\s*\[?v?\d+\.\d+/im;
-const BUMP_BODY = /^\s*(?:bumps?|updates?|upgrades?)\s+(?:\[?`?[\w@/.-]+`?\]?(?:\([^)]*\))?\s+)?(?:from|to)\b|this pr contains the following updates|^\s*dependabot will resolve/im;
+export const DUMP_HEADING = /^\s{0,3}(?:#{1,6}\s*)?(?:\*\*)?(?:what'?s changed|release notes?|changelog|full changelog|commits|sourced from|bug fixes|features)\b|^\s{0,3}#{1,6}\s*\[?v?\d+\.\d+/im;
+export const BUMP_BODY = /^\s*(?:bumps?|updates?|upgrades?)\s+(?:\[?`?[\w@/.-]+`?\]?(?:\([^)]*\))?\s+)?(?:from|to)\b|this pr contains the following updates|^\s*dependabot will resolve/im;
 
 const STRONG = [
   /\bbecause\b/i, /\bso that\b/i, /\bin order to\b/i, /\bto avoid\b/i, /\bto prevent\b/i,
@@ -153,7 +153,7 @@ function words(s: string): string[] {
   return s.toLowerCase().match(/[a-z0-9]+/g) ?? [];
 }
 
-function isMostlyEnglish(s: string): boolean {
+export function isMostlyEnglish(s: string): boolean {
   const letters = s.match(/\p{L}/gu)?.length ?? 0;
   const ascii = s.match(/[A-Za-z]/g)?.length ?? 0;
   return letters > 0 && ascii / letters >= 0.8;
@@ -178,7 +178,7 @@ function score(sentence: string, labelled: boolean): number {
   return n;
 }
 
-function cap(sentence: string): string {
+export function cap(sentence: string): string {
   if (sentence.length <= REASON_MAX_CHARS) return sentence;
   const head = sentence.slice(0, REASON_MAX_CHARS);
   const cut = sentence[REASON_MAX_CHARS] === ' ' ? head : head.replace(/\s*\S*$/, '');
