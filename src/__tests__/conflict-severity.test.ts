@@ -118,7 +118,7 @@ describe('conflictSeverity', () => {
     expect(conflictSeverity(0.9, { decisionText: 'Never go under -250.', changeText: `@@ -1 +1 @@\n+${line}` })).toBe('critical');
   });
   // A dash after a number, after a closing bracket or after another dash is not a sign, and 20 is then a piece of something.
-  it.each(['span = 10 -20', 'span = (10)-20', 'flag --20'])('does not read a sign in %j', (line) => {
+  it.each(['span = 10 -20', 'span = (10)-20', 'span = {} -20', 'flag --20'])('does not read a sign in %j', (line) => {
     expect(conflictSeverity(0.9, { decisionText: 'Keep 20 workers.', changeText: `@@ -1 +1 @@\n+${line}` })).toBe('warning');
   });
 });

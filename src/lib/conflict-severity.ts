@@ -60,7 +60,7 @@ const STOP = new Set(('that this with from have will would should could there th
 // 10:30): their pieces are everywhere. Either nothing is joined to its left, or a minus SIGN is: a "-" that opens the
 // line, or follows an opener, or follows a space with no digit or closing bracket before it. So the 100 in "= -100"
 // counts, and the 20 in "10 -20", "(10)-20" and "--20" does not.
-const NUMBER = /(?:(?<![\d.:/-])|(?<=(?:^\s*|[=(,[{:<>"'`]|[^\d)\]\s]\s+)-))\d{2,}(?![\d.\-:/])/gm;
+const NUMBER = /(?:(?<![\d.:/-])|(?<=(?:^\s*|[=(,[{:<>"'`]|[^\d)\]}\s]\s+)-))\d{2,}(?![\d.\-:/])/gm;
 
 function literals(changed: string): { strong: string[]; plain: string[] } {
   const strong = new Set<string>();
