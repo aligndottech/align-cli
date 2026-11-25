@@ -49,23 +49,14 @@ export const RERANK_POOL_FACTOR = 4;
 export const LEXICAL_MIN_DENSE = 0.15;
 export const RERANK_POOL_MIN = 30;
 /**
- * Candidate floor for ADJUDICATION - the path that then pays an LLM per candidate.
- *
- * Deliberately higher than the retrieval floor below, because this surface is expensive in
- * three ways the hook is not: up to 5 sequential calls to the user's own provider, ~11s of
- * latency, and an exit code. A keyless CI runner that gets `no-context` today exits 0; the
- * moment retrieval finds anything it gets `unknown` and exits 2. And the classifier cannot
- * reject a candidate - its vocabulary is ten positive relations with no "unrelated" - so a
- * loose candidate that reaches it is reported rather than filtered.
- *
- * Deliberately NOT recalibrated with the retrieval floor. Measured on the corpus, 0.30 would
- * recover four more related pairs here too, and that trade is a separate decision with a
- * separate blast radius (see relatedness-calibration.test.ts).
+ * The floor for the LINK PASS on ingest (RELATED_FLOOR) and for `align ask`'s weak-match wording (WEAK_MATCH_BELOW). It is
+ * no longer the candidate floor of `align check`: that is RETRIEVAL_RELATES_THRESHOLD below, the same one the edit hook uses.
+ * Kept at 0.45 here because recalibrating how decisions link to each other is a separate decision with a separate blast radius.
  */
 export const RELATES_THRESHOLD = 0.45;
 
 /**
- * Candidate floor for RETRIEVAL ONLY (`depth: 'related'`, the agent editor hook).
+ * Candidate floor for `align check` and the agent editor hook alike: what each retrieves before any model call.
  *
  * Measured, not chosen. Against fixtures/relatedness-corpus.json: 0.45 recovered 3 of 8 related
  * pairs, 0.30 recovers 7 of 8, and neither admits a single unrelated pair. 0.25 scores the same
@@ -76,10 +67,12 @@ export const RELATES_THRESHOLD = 0.45;
  * unmentioned and unmeasured. So this is a revert with evidence attached rather than a new
  * guess, and the evidence is a test that fails if the corpus stops supporting it.
  *
- * Safe to be looser here precisely because this path is cheap and honest: it returns above
- * Stage 2, so it makes no provider call, and what the hook prints declines to assert anything
- * ("related by content search and have NOT been adjudicated"). That is the same posture as
- * `align search`, which has run at 0.25 all along - as has MCP `align_get_related_decisions`.
+ * `align check` ran at 0.45 while the hook ran at 0.30, so a decision the hook named never reached the check and
+ * `check --ci` exited 0 on a change the hook had flagged (reported 23 Nov). They now share this floor. The check still
+ * adjudicates what it retrieves (up to five candidates, a provider call each), so a keyless CI runner exits 2 for a
+ * candidate in the 0.30-0.45 band where it used to exit 0: it could not judge a decision that is related.
+ * The hook returns above adjudication, so it makes no provider call and asserts nothing
+ * ("related by content search and have NOT been adjudicated").
  */
 export const RETRIEVAL_RELATES_THRESHOLD = 0.3;
 // The ABSOLUTE floor above is unreachable for cross-register pairs on

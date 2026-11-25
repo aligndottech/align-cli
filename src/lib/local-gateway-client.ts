@@ -896,11 +896,11 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     ): Promise<AlignmentResult> {
       // Stage 1: embeddings find candidate related decisions (free, local).
       //
-      // The floor depends on what the caller will DO with the candidates. Retrieval-only stops
-      // above Stage 2, so a looser match costs one extra title in prose that asserts nothing;
-      // adjudication pays a provider call per candidate and can move an exit code, so it keeps
-      // the stricter bar. One constant could not serve both.
-      const threshold = opts.depth === 'related' ? RETRIEVAL_RELATES_THRESHOLD : RELATES_THRESHOLD;
+      // One floor for every caller, the measured retrieval floor (local-thresholds.ts). It was split: the edit hook used 0.30
+      // and `align check` 0.45, so a decision the hook named at 0.30-0.45 never reached `check --ci`, which exited 0 on the
+      // same change. The corpus (relatedness-calibration.test.ts) puts 0.45 at 3 of 8 related pairs and 0.30 at 7 of 8, both
+      // with no false positive. Adjudication still pays a provider call per candidate, and the cap of five bounds it.
+      const threshold = RETRIEVAL_RELATES_THRESHOLD;
       const startedAt = Date.now();
       const embedding = await getEmbedding(diff);
       const judge = await activeJudge();

@@ -231,25 +231,37 @@ describe('local-gateway-client', () => {
     expect(subjectArg.summary).toBe(bigDiff);
   });
 
-  // The split floor, driven by a score BETWEEN the two constants. A fixture above both, or
-  // below both, cannot tell a split from a single threshold - it is the same shape as sending
-  // the same value down two paths and calling it a precedence test.
-  it('retrieves a candidate scoring between the two floors, but does not adjudicate it', async () => {
+  // One candidate floor for the hook and for `align check`, driven by a score BETWEEN the two constants. The hook showed a
+  // decision at 0.30-0.45 that `check --ci` never retrieved, so a change the hook named exited 0 in CI (reported 23 Nov).
+  // A fixture above both, or below both, cannot tell one floor from two.
+  it('retrieves a candidate scoring between the two constants for the hook AND adjudicates it for the check', async () => {
     const between = (RETRIEVAL_RELATES_THRESHOLD + RELATES_THRESHOLD) / 2;
     expect(between).toBeGreaterThan(RETRIEVAL_RELATES_THRESHOLD);
     expect(between).toBeLessThan(RELATES_THRESHOLD);
     vi.mocked(cosineSimilarity).mockReturnValue(between);
     await client.captureDecision('Use Postgres for persistence', 'cli');
+    vi.mocked(classifyRelationship).mockClear();
 
     const retrieved = await client.checkAlignment('migrate the database', undefined, { depth: 'related' });
-    const adjudicated = await client.checkAlignment('migrate the database', undefined, { depth: 'full' });
-
-    // The hook sees it...
     expect(retrieved.status).toBe('retrieved');
     expect(retrieved.relevant_decisions.length).toBeGreaterThan(0);
-    // ...and the adjudicating path does not, so it stays free of the LLM call it would have paid.
-    expect(adjudicated.status).toBe('no-context');
-    expect(adjudicated.relevant_decisions).toEqual([]);
+    expect(classifyRelationship).not.toHaveBeenCalled();
+
+    const adjudicated = await client.checkAlignment('migrate the database', undefined, { depth: 'full' });
+    expect(adjudicated.relevant_decisions.length).toBe(retrieved.relevant_decisions.length);
+    expect(adjudicated.status).not.toBe('no-context');
+    expect(classifyRelationship).toHaveBeenCalled();
+  });
+
+  // The other side: below the floor neither path retrieves, so the pair is not one floor that is simply low.
+  it('retrieves nothing, for the hook or the check, below the floor', async () => {
+    vi.mocked(cosineSimilarity).mockReturnValue(RETRIEVAL_RELATES_THRESHOLD - 0.05);
+    await client.captureDecision('Use Postgres for persistence', 'cli');
+    vi.mocked(classifyRelationship).mockClear();
+
+    expect((await client.checkAlignment('migrate the database', undefined, { depth: 'related' })).status).toBe('no-context');
+    expect((await client.checkAlignment('migrate the database')).status).toBe('no-context');
+    expect(classifyRelationship).not.toHaveBeenCalled();
   });
 
   // The other side of the boundary: an explicit 'full' adjudicates, same as no option at all.

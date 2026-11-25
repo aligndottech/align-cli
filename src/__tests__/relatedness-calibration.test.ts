@@ -93,12 +93,13 @@ describe('RETRIEVAL_RELATES_THRESHOLD is the value the corpus supports', () => {
   });
 });
 
-describe('the adjudicating floor stays where it was, deliberately', () => {
-  // Not lowered, and not by oversight. Stage 2 pays per candidate: up to 5 sequential calls to
-  // the user's own LLM, ~11s, and a keyless CI runner that currently exits 0 on `no-context`
-  // would start exiting 2 on `unknown` the moment retrieval finds anything. The classifier also
-  // cannot reject a candidate - its vocabulary has ten positive members and no "unrelated" - so
-  // a loose candidate reaching it is reported, not filtered.
+describe('the 0.45 floor that is left is the link pass and ask wording, not the check', () => {
+  // `align check` used to retrieve at 0.45 while the hook retrieved at 0.30, so a decision the hook named never reached
+  // `check --ci` (reported 23 Nov); the check now shares RETRIEVAL_RELATES_THRESHOLD (local-gateway-client.test.ts pins
+  // it). The cost of that is on the record: a keyless CI runner exits 2 for a candidate between 0.30 and 0.45 where it
+  // exited 0, and the classifier has no "unrelated" label, so a loose candidate it reaches is reported, not filtered.
+  // RELATES_THRESHOLD stays at 0.45 for how decisions link to each other on ingest (RELATED_FLOOR) and for `align ask`'s
+  // weak-match wording. Recalibrating those is a separate decision.
   it('is higher than the retrieval floor', () => {
     expect(RELATES_THRESHOLD).toBeGreaterThan(RETRIEVAL_RELATES_THRESHOLD);
   });
