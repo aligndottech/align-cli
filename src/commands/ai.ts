@@ -6,6 +6,7 @@ import { listConfiguredCredentials, probeOllama, unusedExportedKeys } from '../l
 import { LLM_PROVIDER_IDS, type LlmProviderId, parseProviderId, PROVIDER_LABEL } from '../lib/llm-providers.js';
 import { type DetectedProvider, detectProviders, promptForProviderKey } from '../lib/ask-key-offer.js';
 import { guardedPrompt } from '../lib/prompt-guard.js';
+import { configuredOllamaHost, ollamaBaseUrl } from '../lib/ollama-host.js';
 
 /** `--provider auto`: forget the choice and use the default order again. */
 const AUTO = 'auto';
@@ -54,7 +55,7 @@ export function registerAiCommand(program: Command): void {
           ? Boolean(await probeOllama())
           : listConfiguredCredentials().some((c) => c.id === id);
         if (!available) {
-          if (id === 'ollama') console.log('  Ollama is not running here yet - until it is, align ask uses the next available provider.');
+          if (id === 'ollama') console.log(`  Ollama is not running here yet (tried ${ollamaBaseUrl()}${configuredOllamaHost() ? `, from OLLAMA_HOST=${configuredOllamaHost()}` : ''}) - until it is, align ask uses the next available provider.`);
           else if (id === 'custom') console.log(`  ALIGN_LLM_BASE_URL is not set yet - export it to point align ask at your endpoint.`);
           else console.log(`  No ${PROVIDER_LABEL[id]} key found yet - add one with: ${chalk.bold('align ai')}`);
         }

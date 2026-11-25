@@ -1,6 +1,7 @@
 import { appendChatTrace, traceFilePath } from './llm-trace.js';
 import { charsForTokens, estimateTokens } from './token-estimate.js';
 import { type EvidenceDecision, renderEvidence } from './ask-evidence.js';
+import { configuredOllamaHost, ollamaBaseUrl } from './ollama-host.js';
 import {
   LLM_PROVIDER_IDS,
   type LlmProviderId,
@@ -800,7 +801,7 @@ export async function resolveOllamaWindow(host: string, model: string): Promise<
 function ollamaHost(): string {
   // `||`, not `??`: OLLAMA_HOST='' (a stock .env template, an unset compose variable)
   // would otherwise make every probe a relative URL that fetch cannot parse.
-  return process.env['OLLAMA_HOST'] || 'http://localhost:11434';
+  return ollamaBaseUrl();
 }
 
 /**
@@ -1376,10 +1377,16 @@ export async function synthesiseLocally(
  * form named only cloud keys while this one said "or run a local Ollama" - so which
  * advice a user got depended on which command they ran.
  */
+/** " Ollama was tried at <url> (OLLAMA_HOST=<raw>)" when OLLAMA_HOST is set, else nothing. */
+function ollamaTriedNote(): string {
+  const raw = configuredOllamaHost();
+  return raw ? ` Ollama was tried at ${ollamaBaseUrl()} (from OLLAMA_HOST=${raw}) and did not answer.` : '';
+}
+
 export function noProviderHintInline(purpose: string): string {
   return (
     ` Set a cloud key (e.g. ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY), or point ALIGN_LLM_BASE_URL at a local server` +
-    ` (llama.cpp, LM Studio, vLLM), or run Ollama, so ${purpose}.`
+    ` (llama.cpp, LM Studio, vLLM), or run Ollama, so ${purpose}.${ollamaTriedNote()}`
   );
 }
 
@@ -1388,6 +1395,8 @@ export function noProviderHintLines(): string[] {
     'No answer written: no LLM configured. Any one of these works:',
     '  cloud    set a cloud key (e.g. ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY)',
     '  local    ALIGN_LLM_BASE_URL=http://localhost:8080/v1 (llama.cpp, LM Studio, vLLM)',
-    '  ollama   no config needed, detected on localhost:11434 when running',
+    configuredOllamaHost()
+      ? `  ollama   tried ${ollamaBaseUrl()} (from OLLAMA_HOST=${configuredOllamaHost()}), no answer`
+      : '  ollama   no config needed, detected on localhost:11434 when running',
   ];
 }
