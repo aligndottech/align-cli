@@ -6,11 +6,15 @@ import { noProviderHintInline, noProviderHintLines, probeOllama } from '../lib/l
  * A user's shell had OLLAMA_HOST=127.0.0.1:11434, which Ollama's own client reads as
  * http://127.0.0.1:11434. align built `127.0.0.1:11434/api/tags`, fetch threw, and the
  * result was "Ollama is not running" while it was. The rules below are Ollama's
- * (envconfig.Host in ollama/ollama): no "://" means http, a missing port means 11434 when
+ * (envconfig.Host in ollama/ollama): no scheme means http, a missing port means 11434 when
  * there is no scheme (80 for http://, 443 for https://), an empty host means 127.0.0.1,
  * and a path keeps its text minus the trailing slash.
  */
 describe('ollamaBaseUrl', () => {
+  // ollamaBaseUrl(undefined) reads OLLAMA_HOST, so one exported in the shell must not reach these cases.
+  beforeEach(() => vi.stubEnv('OLLAMA_HOST', undefined));
+  afterEach(() => vi.unstubAllEnvs());
+
   const cases: Array<[string | undefined, string]> = [
     [undefined, 'http://localhost:11434'],
     ['', 'http://localhost:11434'],
@@ -35,9 +39,31 @@ describe('ollamaBaseUrl', () => {
     ['http://u:p@box:11434', 'http://box:11434'],
     ['http://box:7?token=x', 'http://box:7'],
     ['box:11434#frag', 'http://box:11434'],
+    // "://" past the start is not a scheme: it sits in a query or a fragment and goes with it
+    ['box:11434?token=sekret&next=https://example.com', 'http://box:11434'],
+    ['box:7#next=https://example.com', 'http://box:7'],
   ];
   it.each(cases)('%j -> %s', (raw, want) => {
     expect(ollamaBaseUrl(raw)).toBe(want);
+  });
+
+  // Each value hides a user name, a password, a query or a fragment in a different place. None may come
+  // out, and the host must: an empty answer would satisfy the first half on its own.
+  const SECRETS = ['USERX', 'PASSX', 'QRYX', 'FRGX'];
+  const hiding: Array<[string, string]> = [
+    ['USERX:PASSX@box:1?k=QRYX#FRGX', 'box:1'],
+    ['http://USERX:PASSX@box:1/p?k=QRYX#FRGX', 'box:1'],
+    ['box:1?k=QRYX&next=https://e.com', 'box:1'],
+    ['box:1#FRGX=https://e.com', 'box:1'],
+    ['://USERX:PASSX@box:1?k=QRYX', 'box:1'],
+    ['USERX:PASSX@box/p://q?k=QRYX', 'box'],
+    ['USERX:PASSX@box://y', 'box'],
+    ['USERX:PASSX@[::1]:5?k=QRYX', '[::1]:5'],
+  ];
+  it.each(hiding)('%j keeps its host and prints no secret', (raw, host) => {
+    const url = ollamaBaseUrl(raw);
+    expect(url).toContain(host);
+    for (const secret of SECRETS) expect(url).not.toContain(secret);
   });
 });
 
@@ -76,6 +102,14 @@ describe('the error names the host that was tried', () => {
   });
 
   afterEach(() => vi.unstubAllEnvs());
+
+  // No scheme in front, and a "://" inside the query: the query must still be dropped whole.
+  it('never prints a query that carries "://" when the host has no scheme', () => {
+    vi.stubEnv('OLLAMA_HOST', 'box:7777?token=sekret&next=https://example.com');
+    const all = [noProviderHintInline('x'), noProviderHintLines().join('\n')].join('\n');
+    expect(all).toContain('http://box:7777');
+    for (const leaked of ['sekret', 'example.com']) expect(all).not.toContain(leaked);
+  });
 
   it('inline and block hints carry the OLLAMA_HOST value when it is set', () => {
     vi.stubEnv('OLLAMA_HOST', 'box:7777');

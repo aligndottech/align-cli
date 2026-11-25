@@ -2,11 +2,16 @@
  * The one place OLLAMA_HOST is read and turned into a base URL.
  *
  * The rules are Ollama's own (envconfig.Host in github.com/ollama/ollama), so a value that
- * works for `ollama run` works here: no "://" means http; with no scheme a missing port is
+ * works for `ollama run` works here: no scheme means http; with no scheme a missing port is
  * 11434, while http:// and https:// default to 80 and 443; an empty host is 127.0.0.1; a
  * path survives without its trailing slash; a port that is not 0-65535 falls back to the
  * default. Unset, empty and whitespace-only all mean "not configured" and give our existing
  * default (localhost, 11434) - an empty string must never reach fetch as a relative URL.
+ *
+ * One rule differs from Ollama's. Ollama takes the text before the first "://" as the scheme,
+ * wherever that "://" is. Here that text is a scheme only when it holds no "/", "?", "#" or
+ * "@". With one of those in it the "://" sits in a path, a query or a fragment, or follows a
+ * user name, and reading it as a scheme would put a password or a token into the URL we print.
  */
 export const DEFAULT_OLLAMA_URL = 'http://localhost:11434';
 
@@ -27,10 +32,10 @@ export function ollamaBaseUrl(raw: string | undefined = process.env['OLLAMA_HOST
   let scheme = 'http';
   let defaultPort = '11434';
   let rest = s;
-  const sep = s.indexOf('://');
-  if (sep !== -1) {
-    scheme = s.slice(0, sep);
-    rest = s.slice(sep + 3);
+  const lead = /^([^/?#@]*):\/\//.exec(s);
+  if (lead) {
+    scheme = lead[1]!;
+    rest = s.slice(lead[0].length);
     if (scheme === 'http') defaultPort = '80';
     else if (scheme === 'https') defaultPort = '443';
   }
