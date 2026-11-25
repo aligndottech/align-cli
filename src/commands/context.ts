@@ -124,7 +124,7 @@ export function registerContextCommand(program: Command): void {
 
   context
     .command('sync')
-    .description(`Write current decisions to ${ALIGN_CONTEXT_PATH} and import it from CLAUDE.md`)
+    .description(`Write current decisions to ${ALIGN_CONTEXT_PATH} and import it from CLAUDE.md (that edit needs a terminal or --approve)`)
     .option('--env <env>', 'Environment')
     .option('--limit <n>', 'Max decisions in the file (default: 30 for a local graph, 200 for a team graph)')
     .option('--out <file>', `Write to this markdown file in the repo (e.g. DECISIONS.md) instead of ${ALIGN_CONTEXT_PATH}; only when every decision comes from this repo`)

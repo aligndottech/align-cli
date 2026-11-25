@@ -49,6 +49,12 @@ afterEach(() => {
 });
 
 describe('align context sync and CLAUDE.md', () => {
+  it('says in its description that the CLAUDE.md import needs a terminal or --approve', () => {
+    const p = new Command(); registerContextCommand(p);
+    const sync = p.commands.find((c) => c.name() === 'context')!.commands.find((c) => c.name() === 'sync')!;
+    expect(sync.description()).toMatch(/terminal.*--approve|--approve.*terminal/);
+  });
+
   it('with no terminal and no --approve leaves CLAUDE.md alone, still writes the file, and says how to allow the edit', async () => {
     setTty(false);
     await run();
