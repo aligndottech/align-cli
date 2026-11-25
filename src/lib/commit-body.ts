@@ -13,7 +13,7 @@ const TRAILER_LINE_RE = /^(co-authored-by|signed-off-by|reviewed-by|acked-by|hel
 const GENERATED_WITH_RE = /^(?:🤖\s*)?generated (with|by)\b/i;
 
 function normalizeForEcho(s: string): string {
-  return s.toLowerCase().replace(/^[*\-•]\s*/, '').replace(/[^a-z0-9]+/g, ' ').trim();
+  return s.toLowerCase().replace(/^[*\-•]\s*/, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 }
 
 /**
@@ -52,6 +52,10 @@ const SEPARATOR_LINE_RE = /^-{3,}$/;
 export const FILE_ACTION_LINE_RE = /^(?:[*-]\s+)?(?:added|modified|deleted|renamed|removed)\s+(?:\d+\s+files?|\S*[/.]\S*)\s*$/i;
 const BULLET_RE = /^[*-]\s+(.*)$/;
 /** A bullet with no stated why only counts as prose from this many words up. */
+/** Words of any script. Han, kana and Hangul run without spaces, so they count one word per two characters. */
+const SPACELESS = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]+/gu;
+export const proseWordCount = (t: string): number =>
+  t.replace(SPACELESS, (run) => ` ${'x '.repeat(Math.ceil(run.length / 2))}`).match(/[\p{L}\p{N}]+/gu)?.length ?? 0;
 const MIN_BULLET_WORDS = 8;
 
 /** A plain line is evidence of a reason. A squash bullet is evidence only when it says why
@@ -63,6 +67,6 @@ function isReasonBearingLine(line: string): boolean {
   const text = bullet[1];
   if (STATED_WHY.test(text)) return true;
   if (CONVENTIONAL_PREFIX.test(text)) return false;
-  return text.split(/\s+/).length >= MIN_BULLET_WORDS;
+  return proseWordCount(text) >= MIN_BULLET_WORDS;
 }
 

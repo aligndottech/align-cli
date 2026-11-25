@@ -120,6 +120,8 @@ function isDecisionRow(r: ListedDecision): boolean {
   // A feat: prefix is dropped first, so "feat: fix retry policy" is judged as the fix it is.
   const title = r.title.replace(FEAT_PREFIX, '');
   if (isRenovateBump(title)) return false;
+  // A merge is never one, even when its branch name holds a decision word ("Merge branch 'policy'").
+  if (/^merge\b/i.test(withoutIssuePrefix(title))) return false;
   if (bySubject(r)) return true;
   // Any other subject (a fix, docs, a scoped or plain "what changed" line) is a decision when its BODY states why. An
   // issue prefix ("#12:", "bug(#12):") is looked past, so a bump or a fix behind one is still a bump or a fix. A bump, a

@@ -186,3 +186,44 @@ describe('the file prints the stated reason under the decision', () => {
     expect(reason.endsWith('...')).toBe(true);
   });
 });
+
+describe('review round: what counts as an echo, a word, a block, a merge', () => {
+  it('keeps a Chinese explanation under a Chinese subject (the echo test must not erase non-ASCII)', () => {
+    const subject = '修复刷新';
+    expect(titles([commit(subject, '因为客户端会重复发送请求，所以我们改为在服务端去重，避免会话被锁定。')])).toEqual([subject]);
+  });
+
+  it('counts a Chinese bullet by character, so it is prose', () => {
+    const subject = 'fix: 修复会话刷新';
+    expect(titles([commit(subject, '- 因为客户端会重复发送请求，所以我们改为在服务端去重，避免会话被锁定。')])).toEqual([subject]);
+  });
+
+  it('keeps an explanation that contains the subject words', () => {
+    const subject = 'Cache sessions';
+    expect(titles([commit(subject, 'We decided to cache sessions because the database cannot handle repeated requests.')])).toEqual([subject]);
+  });
+
+  it('keeps a body whose first line states the choice and starts with the title', () => {
+    const row = { title: 'Add cache', platform: 'git', summary: 'Add cache rather than querying the database on each request of the dashboard.', source_url: 'https://github.com/o/r/commit/99' };
+    expect(titles([row])).toEqual(['Add cache']);
+  });
+
+  it('still drops a body that only repeats the subject', () => {
+    expect(titles([commit('Add cache for the session store', 'Add cache for the session store')])).toEqual([]);
+  });
+
+  it('does not take a fenced block or an HTML comment for prose', () => {
+    const fenced = '```\nWe must always prefer the cache for the current session.\n```';
+    const hidden = '<!-- We must always prefer the cache for the current session. -->';
+    expect(titles([commit('feat: tune the session store', fenced), commit('feat: tune the session store again', hidden)])).toEqual([]);
+  });
+
+  it('keeps prose that sits outside a fenced block', () => {
+    const subject = 'Tune the session store';
+    expect(titles([commit(subject, '```\ncode here\n```\n\nWe decided to keep sessions in memory because the dashboard polls every second.')])).toEqual([subject]);
+  });
+
+  it('drops a merge commit even when its subject holds a decision word', () => {
+    expect(titles([commit("Merge branch 'policy' into main")])).toEqual([]);
+  });
+});
