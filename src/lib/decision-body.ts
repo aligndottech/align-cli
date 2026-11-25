@@ -5,7 +5,7 @@ import { BUMP_BODY, cap, DUMP_HEADING, extractReason, hasImporterMetadata, strip
 export const DECISION_SHAPED = /\b(?:adopt|switch(?:ed)? to|move to|migrate|replace[sd]?\b.*\bwith|instead of|deprecate|drop support|requires?|must|always|never|no longer|policy|convention|prefer|standardi[sz]e|forbid|disallow)\b|^use\b/i;
 
 /** A commit that is housekeeping or a reversal. Its body never makes it a decision. */
-export const MECHANICAL_PREFIX = /^(?:tests?|ci|style|chore|build|revert|bump|deps?)\b/i;
+export const MECHANICAL_PREFIX = /^(?:tests?|ci|style|chore|build|revert|bump|deps?|merge)\b/i;
 
 /** Fewer prose words than this in a body is a label or a note, not a statement. Counts words of any script. */
 const MIN_BODY_WORDS = 8;
@@ -28,6 +28,10 @@ function looksEnglish(text: string): boolean {
 const MERGE_LINE = /^merge (?:pull request|pr|branch|remote-tracking)\b/i;
 // A pointer ("Relates: #894", "See #12") or a byline with an address is provenance, not a reason.
 const POINTER_OR_BYLINE = /^(?:relates?(?: to)?|related|see|refs?|part of)\b[^.]{0,40}(?:#\d+|https?:)|\b[\w.+-]+@[\w-]+\.[\w.-]+/i;
+/** Words of any script. Han, kana and Hangul run without spaces, so they count one word per two characters. */
+const SPACELESS = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]+/gu;
+const wordCount = (t: string): number =>
+  (t.replace(SPACELESS, (run) => ` ${'x '.repeat(Math.ceil(run.length / 2))}`).match(/[\p{L}\p{N}]+/gu)?.length ?? 0);
 const flat = (t: string): string => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 
 /** A merge or squash line that carries the subject again ("Merge PR #12: <subject>") says nothing the subject did not. */
@@ -66,7 +70,7 @@ export function statedBodyReason(title: string, summary: string | null | undefin
     .filter((lines) => lines.length > 0)
     .map((lines) => lines.join(' ').replace(/\s+/g, ' ').trim());
   const all = prose.join(' ');
-  if ((all.match(/[\p{L}\p{N}]+/gu)?.length ?? 0) < MIN_BODY_WORDS) return null;
+  if (wordCount(all) < MIN_BODY_WORDS) return null;
   if (!looksEnglish(all)) return cap(prose[0]!);
   // English: print the sentence that carries the reason or the choice, not the paragraph it sits in.
   const stated = extractReason(title, summary);

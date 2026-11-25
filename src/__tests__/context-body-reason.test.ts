@@ -68,6 +68,21 @@ describe('a body that adds nothing keeps nothing', () => {
   });
 });
 
+describe('merge commits, English reverts and Chinese', () => {
+  it.each([
+    ['Merge pull request #1 from a/b', 'We must always prefer the cache because the database is slow under load for us.'],
+    ['Merge branch main into feature', 'We must always prefer the cache because the database is slow under load for us.'],
+    ['revert: use the cache', 'We must always prefer the cache because the database is slow under load for us.'],
+  ])('drops %s', (subject, body) => {
+    expect(titles([commit(subject, body)])).toEqual([]);
+  });
+
+  it('keeps a Chinese body: no spaces between words, so characters are counted', () => {
+    const subject = 'fix: 修复会话刷新';
+    expect(titles([commit(subject, '因为客户端会重复发送请求，所以我们改为在服务端去重，避免会话被锁定。')])).toEqual([subject]);
+  });
+});
+
 describe('the existing filters hold when a body is present', () => {
   const body = 'Se cambia porque el equipo decidió dejar de usar la versión anterior ya que nadie la mantiene desde hace años.';
   it.each([
