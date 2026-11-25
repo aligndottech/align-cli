@@ -25,6 +25,7 @@ import { redactSecrets } from './share/secret-scan.js';
 import { noteRedacted } from './redaction-notice.js';
 import { LOCAL_CONFLICTS_NOTE } from './local-conflicts-note.js';
 import { maxScorePerDecision } from './edit-intent-line.js';
+import { changedLinesOf } from './diff-changed-lines.js';
 import { EmbeddingMatrix, MATRIX_MAX_ROWS, type Ranker } from './similarity/embedding-matrix.js';
 import { syncImportedCoChangeRule } from './co-change-store.js';
 import { captureFieldsForUrl, type IngestOptions, type IngestResult, type IngestSession, ingestStep, type LocalBatchItem, type LocalBatchOptions } from './local-ingest.js';
@@ -913,8 +914,25 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       // The edit hook's five are chosen from every row over its floor by the dense rank fused with the stored
       // keyword rank. An adjudicated check keeps the dense five: each of its candidates costs a provider call
       // and can move an exit code, and that order was not measured.
-      const topK = opts.depth === 'related' ? Number.MAX_SAFE_INTEGER : 5 + hidden.size;
+      // An adjudicated check also asks about the changed lines alone (see below), and fuses the two rankings
+      // before it cuts to five, so its first question is read in full rather than cut to five first.
+      const changed = opts.depth === 'related' ? '' : changedLinesOf(diff);
+      const asksChanged = changed !== '' && changed !== diff.trim();
+      const topK = opts.depth === 'related' || asksChanged ? Number.MAX_SAFE_INTEGER : 5 + hidden.size;
       let found = await findSimilar(embedding, topK, threshold, undefined, dbFilter);
+      if (asksChanged) {
+        // The whole diff is mostly the file's name and the lines around the change, so it sits next to every
+        // commit that touched the file: on a real repo a decision stating the rule the edit reverses ranked 40th
+        // of 66 by the diff and 1st by the changed lines, and the five went to same-file commits. Ranked by
+        // reciprocal rank fusion, each question's best rows get a place, and a question that finds nothing over
+        // the floor leaves the dense order exactly as it was. The cut stays five: the provider calls do not grow.
+        const second = await findSimilar(await getEmbedding(changed), topK, threshold, undefined, dbFilter);
+        if (second.length) {
+          const best = new Map(maxScorePerDecision(found, second).map(r => [r.decisionId, r.score]));
+          found = reciprocalRankFusion([{ ids: found.map(r => r.decisionId), weight: 1 }, { ids: second.map(r => r.decisionId), weight: 1 }])
+            .map(id => ({ decisionId: id, score: best.get(id)! }));
+        }
+      }
       if (opts.depth === 'related' && opts.intent) {
         // The second question is a bonus. If it throws or is slow, the first question's rows still go out: the
         // hook's whole answer is abandoned at its 2.5s retrieval cap, so this budget sits inside that.
