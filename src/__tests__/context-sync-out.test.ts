@@ -49,7 +49,7 @@ afterEach(() => { process.exitCode = undefined; process.chdir(prevCwd); fs.rmSyn
 
 describe('align context sync --out', () => {
   it('writes DECISIONS.md at the root as a real file and imports it from CLAUDE.md', async () => {
-    await run('--out', 'DECISIONS.md');
+    await run('--out', 'DECISIONS.md', '--approve'); // no terminal in a test run: editing CLAUDE.md needs the explicit yes
     const file = path.join(repo, 'DECISIONS.md');
     expect(fs.lstatSync(file).isSymbolicLink()).toBe(false);
     expect(fs.readFileSync(file, 'utf8')).toContain('Retry webhooks with backoff instead of failing the event');

@@ -170,6 +170,8 @@ export interface WriteResult {
   contextPath: string;
   /** True only when this run added the import line, so a caller can say so once. */
   importAdded: boolean;
+  /** True when CLAUDE.md lacks the import line and this run was told not to edit it (`claudeMd: 'skip'`). */
+  importPending?: boolean;
 }
 
 /**
@@ -223,7 +225,7 @@ function tryWriteExternalAndLink(repoRoot: string, inRepoTarget: string, rendere
 export async function writeDecisionsContext(
   repoRoot: string,
   decisions: ContextDecision[],
-  opts: { external?: boolean; leftOut?: number; relPath?: string } = {},
+  opts: { external?: boolean; leftOut?: number; relPath?: string; claudeMd?: 'edit' | 'skip' } = {},
 ): Promise<WriteResult> {
   // relPath: a file the team named (DECISIONS.md), written only for a graph whose every row is the repo's own.
   const relPath = opts.relPath ?? ALIGN_CONTEXT_PATH;
@@ -248,14 +250,19 @@ export async function writeDecisionsContext(
 
   const claudePath = path.join(repoRoot, 'CLAUDE.md');
   let importAdded = false;
+  let importPending = false;
   try {
     const existing = await readFile(claudePath, 'utf8');
     const updated = appendImportLine(existing, importLine);
     // Only touch their file when there is something to change. Rewriting identical bytes
     // still updates mtime and shows up in tooling that watches the file.
     if (updated !== existing) {
-      await writeFile(claudePath, updated, 'utf8');
-      importAdded = true;
+      // 'skip': nobody was asked (no terminal, no --approve), so their file is left as it is and the caller says what is pending.
+      if (opts.claudeMd === 'skip') importPending = true;
+      else {
+        await writeFile(claudePath, updated, 'utf8');
+        importAdded = true;
+      }
     }
   } catch (err) {
     // ENOENT is the "repo has no CLAUDE.md" case above and is not a failure. Anything else
@@ -263,5 +270,5 @@ export async function writeDecisionsContext(
     if ((err as { code?: string }).code !== 'ENOENT') throw err;
   }
 
-  return { contextPath: relPath, importAdded };
+  return { contextPath: relPath, importAdded, importPending };
 }
