@@ -30,7 +30,7 @@ align connect scan-runs       List historical scan runs
 align connect git             Import local git commit history (no auth required)
                               flags: --limit --since --from --to --branch --approve --env
 align connect docs            Import ADRs and RFCs, decision logs, CLAUDE.md/AGENTS.md, tenets and architecture docs, and the rules in README, CONTRIBUTING and the changelog (no auth required)
-                              flags: --limit --approve --env
+                              flags: --limit --approve --docs-path --env
 align connect github          Import your GitHub PRs and issues
                               flags: --token --personal --limit --since --repo --all --approve --env
 align connect gitlab          Import your GitLab merge requests
@@ -228,7 +228,7 @@ align context inject          Print the decisions file as SessionStart hook outp
 # Bring this repo's decisions up to date and write .align/decisions.md
 
 align up                      Bring this repo's decisions up to date and write .align/decisions.md (commits, docs, connected sources); local unless --env or ALIGN_ENV names another
-                              flags: --env --limit --out --approve
+                              flags: --env --limit --docs-path --out --approve
 
 # Draft ADRs in the repo for decisions that have none
 

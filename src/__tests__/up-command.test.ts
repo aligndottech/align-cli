@@ -54,12 +54,34 @@ describe('align up', () => {
     ]);
   });
 
+  it('passes each --docs-path to the docs step, and only to it', async () => {
+    const r = recorder();
+    await runUp({ docsPath: ['spec/gotchas', 'spec/rules'] }, r.deps);
+    expect(r.ran.map((a) => a.join(' '))).toEqual([
+      'connect git --approve --env local',
+      'connect docs --approve --env local --docs-path spec/gotchas --docs-path spec/rules',
+      'sync',
+      'context sync --env local',
+    ]);
+  });
+
   it('passes --approve to the step that writes the file, and only to it', async () => {
     const r = recorder();
     await runUp({ approve: true }, r.deps);
     expect(r.ran.map((a) => a.join(' '))).toEqual([
       'connect git --approve --env local',
       'connect docs --approve --env local',
+      'sync',
+      'context sync --env local --approve',
+    ]);
+  });
+
+  it('passes both together to their own steps', async () => {
+    const r = recorder();
+    await runUp({ approve: true, docsPath: ['spec/gotchas'] }, r.deps);
+    expect(r.ran.map((a) => a.join(' '))).toEqual([
+      'connect git --approve --env local',
+      'connect docs --approve --env local --docs-path spec/gotchas',
       'sync',
       'context sync --env local --approve',
     ]);
