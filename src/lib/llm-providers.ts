@@ -202,11 +202,14 @@ export const PROVIDER_ENV_VARS: readonly string[] = [
 
 /**
  * Every env variable the LLM provider resolution (local-llm.ts) reads, a superset of
- * PROVIDER_ENV_VARS: also the Ollama endpoint and context size,, the call timeout and the token budgets. The test
- * setup clears all of them so a developer's exported keys cannot reach a test.
+ * PROVIDER_ENV_VARS: also the Ollama endpoint and context size, the call timeout and the
+ * token budgets. The test setup clears all of them so a developer's exported keys cannot
+ * reach a test.
  */
 export const PROVIDER_RESOLUTION_ENV_VARS: readonly string[] = [
-  ...PROVIDER_ENV_VARS, 'OLLAMA_HOST', 'OLLAMA_CONTEXT_LENGTH', 'ALIGN_LLM_TIMEOUT_MS', 'ALIGN_SYNTHESIS_MAX_TOKENS', 'ALIGN_CLASSIFIER_MAX_TOKENS',
+  ...PROVIDER_ENV_VARS,
+  'OLLAMA_HOST', 'OLLAMA_CONTEXT_LENGTH',
+  'ALIGN_LLM_TIMEOUT_MS', 'ALIGN_SYNTHESIS_MAX_TOKENS', 'ALIGN_CLASSIFIER_MAX_TOKENS',
 ];
 
 const ALIASES: Record<string, LlmProviderId> = { xai: 'grok' };
