@@ -13,6 +13,7 @@ import { mkdirSync, mkdtempSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll } from 'vitest';
+import { PROVIDER_RESOLUTION_ENV_VARS } from '../../lib/llm-providers.js';
 import { assertIsolatedHome, REAL_HOME_ENV, TEST_HOME_ENV } from './isolated-home.js';
 import { rmDir } from './rm-dir.js';
 
@@ -44,6 +45,14 @@ if (process.platform === 'win32') {
 }
 
 assertIsolatedHome();
+
+// No test may see a provider key, endpoint or model from the developer's shell. With ANTHROPIC_API_KEY
+// exported, local-conflict-detection made real paid calls and 9 tests failed that CI (no keys) never saw.
+// Plain delete, not vi.stubEnv(name, undefined): stubEnv records the original, so a suite's
+// vi.unstubAllEnvs() in afterEach (116 files have one) would restore the real key mid-file. A test that
+// needs a variable sets it itself. The list is derived from the resolver's own tables, so a new provider
+// is covered without editing this file.
+for (const name of PROVIDER_RESOLUTION_ENV_VARS) delete process.env[name];
 
 // No test may reach the hosted gateway: a test that ran the real install beacon with no sink sent
 // a fresh install id to production on every CI run (see tests-never-reach-hosted-gateway.test.ts).
