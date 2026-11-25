@@ -19,6 +19,7 @@ import { fetchDocsItems } from '../../lib/fetchers/docs.js';
 
 describe('fetchDocsItems - user-named docs folders', () => {
   let repo: string;
+  let topLevel: string | null = null;
   const write = (rel: string, content: string): void => {
     mkdirSync(dirname(join(repo, rel)), { recursive: true });
     writeFileSync(join(repo, rel), content);
@@ -28,6 +29,7 @@ describe('fetchDocsItems - user-named docs folders', () => {
     vi.mocked(execa).mockImplementation(async (_cmd, args) => {
       const a = args as string[];
       if (a[0] === 'remote') return { stdout: 'https://github.com/acme/api' } as Awaited<ReturnType<typeof execa>>;
+      if (a[0] === 'rev-parse' && a[1] === '--show-toplevel') { if (topLevel) return { stdout: topLevel } as Awaited<ReturnType<typeof execa>>; throw new Error('not a repo'); }
       if (a[0] === 'rev-parse') return { stdout: 'main' } as Awaited<ReturnType<typeof execa>>;
       throw new Error(`unexpected git invocation: ${a.join(' ')}`);
     });
@@ -37,6 +39,7 @@ describe('fetchDocsItems - user-named docs folders', () => {
   };
   afterEach(() => {
     vi.clearAllMocks();
+    topLevel = null;
     if (repo) rmSync(repo, { recursive: true, force: true });
   });
 
@@ -124,6 +127,30 @@ describe('fetchDocsItems - user-named docs folders', () => {
     const { items } = await fetchDocsItems({ limit: 100, cwd: repo, extraDocsPaths: ['spec/gotchas'] });
     expect(items.map((i) => i.title)).not.toContain('Not yours');
     rmSync(outside, { recursive: true, force: true });
+  });
+
+  it('resolves a relative name against where you run it, and accepts a folder elsewhere in the repo (CodeRabbit)', async () => {
+    fresh();
+    topLevel = repo;
+    write('docs/notes/lesson.md', '# A lesson from docs\n\nWritten in the top-level docs folder, not under spec.\n');
+    const { items } = await fetchDocsItems({ limit: 100, cwd: join(repo, 'spec'), extraDocsPaths: ['../docs/notes'] });
+    expect(items.map((i) => i.title)).toEqual(['A lesson from docs']);
+    // The url names the file from the repo root, not from where the command ran.
+    expect(items[0]!.source_url).toBe('https://github.com/acme/api/blob/main/docs/notes/lesson.md');
+  });
+
+  it('still refuses a path above the repo top-level when run from a subfolder', async () => {
+    fresh();
+    topLevel = repo;
+    await expect(fetchDocsItems({ limit: 100, cwd: join(repo, 'spec'), extraDocsPaths: ['../../elsewhere'] })).rejects.toThrow(/inside this repo/);
+    await expect(fetchDocsItems({ limit: 100, cwd: join(repo, 'spec'), extraDocsPaths: [tmpdir()] })).rejects.toThrow(/inside this repo/);
+  });
+
+  it('keeps an empty parent in the unused report when only its child contributed (CodeRabbit)', async () => {
+    fresh();
+    const { report } = await fetchDocsItems({ limit: 100, cwd: repo, extraDocsPaths: ['spec', 'spec/gotchas'] });
+    expect(report.scopeNote).toMatch(/folders you named: spec\/gotchas/);
+    expect(report.scopeNote).toMatch(/no markdown files kept[^;]*\bspec\b(?!\/)/);
   });
 
   it('refuses a path that is a file', async () => {

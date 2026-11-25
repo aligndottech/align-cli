@@ -341,7 +341,7 @@ align up --docs-path spec/gotchas --docs-path spec/rules --out DECISIONS.md
 Each `.md`, `.mdx` or `.adoc` file directly in the folder becomes one item, titled by its first
 heading. Subfolders are not read: name them too. Folders you name are read first, so a `--limit`
 cuts ADRs before them. Paths are relative to where you run the command, and the folder must be
-inside the repo. A name that is not a folder, cannot be read, or leads outside the repo (a path
+inside the repo (its git top-level, so `../docs` works from a subfolder). A name that is not a folder, cannot be read, or leads outside the repo (a path
 with `..`, an absolute path, or a symlink out) stops the import with an error rather than being
 skipped. Align keeps no setting for this, so pass the flag each time you run `align up` or `align connect docs`.
 

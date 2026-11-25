@@ -1,7 +1,7 @@
 import { stripLeadingHtmlComments } from './strip-leading-comments.js';
 import { readdir, readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { buildBlobUrl, getCurrentBranch, getRemoteUrl } from '../git.js';
+import { buildBlobUrl, getCurrentBranch, getRemoteUrl, getRepoRoot } from '../git.js';
 import { adrDecisionDate, GIT_CONCURRENCY, isShallowRepo, mapLimit } from './adr-date.js';
 import { ALIGN_NUDGE_END, ALIGN_NUDGE_START } from '../agent-rules.js';
 import { ALIGN_IMPORT_LINE, isGeneratedDecisionsFile } from '../decisions-context.js';
@@ -99,7 +99,7 @@ function slugify(heading: string): string {
     .replace(/\s+/g, '-');
 }
 
-type AdrFile = { relPath: string; content: string; discoveredDir?: string; /** Read from a folder the user named. */ named?: true };
+type AdrFile = { relPath: string; content: string; discoveredDir?: string; /** The folder the user named that this file was read from. */ named?: string };
 
 async function readAdrDirs(
   repoRoot: string,
@@ -150,15 +150,16 @@ interface AdrRead {
 }
 
 /**
- * The folders the user named, as repo-relative paths. A name the user typed is checked and refused, never skipped: a typo
+ * The folders the user named, as paths relative to the repo's top-level folder. A name the user typed is checked and refused, never skipped: a typo
  * that quietly imports nothing reads as "no lessons in that folder". Each must be a folder that resolves (symlinks
  * included) to somewhere inside the repo, so a path cannot pull in files from elsewhere on the machine.
  */
-async function resolveExtraDocsDirs(repoRoot: string, names: readonly string[]): Promise<string[]> {
+async function resolveExtraDocsDirs(cwd: string, repoRoot: string, names: readonly string[]): Promise<string[]> {
   const realRoot = await realpath(repoRoot);
   const out: string[] = [];
   for (const name of names) {
-    const rel = path.relative(repoRoot, path.resolve(repoRoot, name));
+    // A relative name is relative to where the command runs; the result is relative to the repo's top, which is what a blob url needs.
+    const rel = path.relative(repoRoot, path.resolve(cwd, name));
     if (rel === '' || rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) {
       throw new Error(`--docs-path ${name}: it must be a folder inside this repo.`);
     }
@@ -184,6 +185,15 @@ async function resolveExtraDocsDirs(repoRoot: string, names: readonly string[]):
   return out;
 }
 
+/** The git top-level of `cwd`, or `cwd` itself when it is not in a repo (or git names a folder that is not there). */
+async function topLevelOf(cwd: string): Promise<string> {
+  const top = await getRepoRoot({ cwd });
+  try {
+    if (top && path.isAbsolute(top) && (await stat(top)).isDirectory()) return top;
+  } catch { /* fall through */ }
+  return cwd;
+}
+
 async function readAdrFiles(repoRoot: string, extraDocsPaths: readonly string[] = []): Promise<AdrRead> {
   const candidates: AdrFile[] = [];
   const found: AdrFile[] = [];
@@ -191,10 +201,15 @@ async function readAdrFiles(repoRoot: string, extraDocsPaths: readonly string[] 
   const seen = new Set<string>(); // real paths already scanned: a symlinked dir must not import twice
   // The folders the user named are read first and kept ahead of everything else under the limit. Each file in one is a
   // record on its own, numbered or not, like an ADR.
-  const named = await resolveExtraDocsDirs(repoRoot, extraDocsPaths);
+  const top = extraDocsPaths.length > 0 ? await topLevelOf(repoRoot) : repoRoot;
+  const named = await resolveExtraDocsDirs(repoRoot, top, extraDocsPaths);
   const namedFiles: AdrFile[] = [];
-  await readAdrDirs(repoRoot, named, seen, namedFiles, unreadable);
-  for (const f of namedFiles) f.named = true;
+  for (const dir of named) {
+    // One folder at a time, so each file carries the folder that contributed it (a parent and its child can both be named).
+    const fromDir: AdrFile[] = [];
+    await readAdrDirs(top, [dir], seen, fromDir, unreadable);
+    for (const f of fromDir) { f.named = dir; namedFiles.push(f); }
+  }
   namedFiles.sort((a, b) => (a.relPath < b.relPath ? -1 : a.relPath > b.relPath ? 1 : 0));
   await readAdrDirs(repoRoot, ADR_DIR_CANDIDATES, seen, candidates, unreadable);
   // Then any ADR-named directory elsewhere in the tree. `seen` keeps a dir from being read twice.
@@ -224,7 +239,7 @@ function adrScopeNote(read: AdrRead, kept: readonly AdrFile[]): string | undefin
   const cut = read.discoveredDirs.filter((d) => !contributed.has(d));
   const parts: string[] = [];
   if (read.namedDirs.length > 0) {
-    const used = read.namedDirs.filter((d) => kept.some((f) => f.named && f.relPath.startsWith(`${d}/`)));
+    const used = read.namedDirs.filter((d) => kept.some((f) => f.named === d));
     const unused = read.namedDirs.filter((d) => !used.includes(d));
     if (used.length > 0) parts.push(`folders you named: ${used.join(', ')}`);
     if (unused.length > 0) parts.push(`folders you named with no markdown files kept (empty, or cut by the limit): ${unused.join(', ')}`);
