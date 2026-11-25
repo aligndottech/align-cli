@@ -19,7 +19,7 @@ export const UP_STEPS: Array<{ argv: string[]; what: string; env: boolean; optio
   { argv: ['context', 'sync'], what: 'writing .align/decisions.md', env: true },
 ];
 
-export async function runUp(o: { env?: string; limit?: string; out?: string }, d: { run(argv: string[]): Promise<number>; out(line: string): void }): Promise<number> {
+export async function runUp(o: { env?: string; limit?: string; out?: string; approve?: boolean }, d: { run(argv: string[]): Promise<number>; out(line: string): void }): Promise<number> {
   // Pinned to the local graph unless an environment is named. `--approve` skips the prompt that says where the text goes,
   // so a cloud default must never be reached by leaving --env off: a person who names a cloud env has chosen to send there.
   const env = o.env?.trim() ? o.env : 'local';
@@ -33,6 +33,7 @@ export async function runUp(o: { env?: string; limit?: string; out?: string }, d
     if (step.argv[0] === 'context') {
       if (o.limit) argv.push('--limit', o.limit);
       if (o.out) argv.push('--out', o.out);
+      if (o.approve) argv.push('--approve');
     }
     const code = await d.run(argv);
     if (code !== 0 && step.optional) {
@@ -68,7 +69,8 @@ export function registerUpCommand(program: Command): void {
     .option('--env <env>', 'Environment')
     .option('--limit <n>', 'Max decisions in the file (default 30)')
     .option('--out <file>', 'Write to this markdown file in the repo, e.g. DECISIONS.md (only when every decision comes from this repo)')
-    .action(async (opts: { env?: string; limit?: string; out?: string }) => {
+    .option('--approve', 'Allow adding the import line to CLAUDE.md when there is no terminal to ask in')
+    .action(async (opts: { env?: string; limit?: string; out?: string; approve?: boolean }) => {
       // ALIGN_ENV is the person's own choice of destination, so it counts as naming one.
       const code = await runUp({ ...opts, env: opts.env ?? process.env['ALIGN_ENV'] }, {
         run: async (argv) => {
