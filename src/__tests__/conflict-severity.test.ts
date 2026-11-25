@@ -78,6 +78,49 @@ describe('conflictSeverity', () => {
     const change = '@@ -1 +1 @@\n+sendInvoices(customers, schedule)';
     expect(conflictSeverity(0.9, { decisionText: 'Invoices go to customers by email.', changeText: change })).toBe('critical');
   });
+
+  // Three ways the grounding read more, or less, than the change says. Each has the case that must still hold.
+  it('does not take a quote that drops the underscore from a name as a quote of the change', () => {
+    const change = '@@ -1 +1,2 @@\n import x from "y";\n+const url = process.env.REDIS_URL;';
+    const evidence = { new_quote: 'REDISURL', existing_quote: 'Keep PostgreSQL for persistence' };
+    expect(conflictSeverity(0.9, { decisionText: 'Keep PostgreSQL for persistence.', changeText: change, evidence })).toBe('warning');
+  });
+  it('still reads a quote through the markdown emphasis in a decision', () => {
+    const change = '@@ -1 +1,2 @@\n import x from "y";\n+const c = connect(process.env.CACHE_HOST);';
+    const evidence = { new_quote: 'connect(process.env.CACHE_HOST)', existing_quote: 'only reads REDIS_URL, and never writes it' };
+    expect(conflictSeverity(0.9, { decisionText: 'Staging **only** reads `REDIS_URL`, and _never_ writes it.', changeText: change, evidence })).toBe('critical');
+  });
+
+  const twoFiles = (secondName: string, secondOld: string, secondNew: string): string =>
+    ['--- a/one.ts', '+++ b/one.ts', '@@ -1 +1 @@', '-const a = 1;', '+const a = 2;',
+      `--- a/${secondName}`, `+++ b/${secondName}`, '@@ -1 +1 @@', `-${secondOld}`, `+${secondNew}`].join('\n');
+  const KEEP_365 = 'MAX_REVIEW_DAYS stays at 365.';
+  it('does not ground on the name of a second file in a patch that has no "diff --git" lines', () => {
+    expect(conflictSeverity(0.9, { decisionText: KEEP_365, changeText: twoFiles('MAX_REVIEW_DAYS.md', 'hello there', 'goodbye now') })).toBe('warning');
+  });
+  it('still reads the changed lines of that second file', () => {
+    expect(conflictSeverity(0.9, { decisionText: KEEP_365, changeText: twoFiles('notes.md', 'MAX_REVIEW_DAYS = 365', 'MAX_REVIEW_DAYS = 3650') })).toBe('critical');
+  });
+  // A removed "-- x" line shows as "--- x" and an added "++ y" line as "+++ y". They are file names only before a hunk header.
+  it.each([
+    ['no "+++ " line follows it', '@@ -1,2 +1 @@\n--- keep MAX_REVIEW_DAYS at 365\n select 1;'],
+    ['a "+++ " line follows it, and no hunk header', '@@ -1 +1 @@\n--- keep MAX_REVIEW_DAYS at 365\n+++ other'],
+  ])('still reads a removed line that starts with "-- " when %s', (_name, change) => {
+    expect(conflictSeverity(0.9, { decisionText: KEEP_365, changeText: change })).toBe('critical');
+  });
+
+  it('counts a negative number as a shared literal', () => {
+    const change = '@@ -1 +1 @@\n-const limit = -100;\n+const limit = -200;';
+    expect(conflictSeverity(0.9, { decisionText: 'Reject balances below -100.', changeText: change })).toBe('critical');
+  });
+  // One shape per place a minus sign can stand: after a space, at the start of a line, right after an opener.
+  it.each(['const limit = -250;', '  -250,', 'clamp(-250)'])('reads the sign in %j', (line) => {
+    expect(conflictSeverity(0.9, { decisionText: 'Never go under -250.', changeText: `@@ -1 +1 @@\n+${line}` })).toBe('critical');
+  });
+  // A dash after a number, after a closing bracket or after another dash is not a sign, and 20 is then a piece of something.
+  it.each(['span = 10 -20', 'span = (10)-20', 'flag --20'])('does not read a sign in %j', (line) => {
+    expect(conflictSeverity(0.9, { decisionText: 'Keep 20 workers.', changeText: `@@ -1 +1 @@\n+${line}` })).toBe('warning');
+  });
 });
 
 describe('judgeAgainstDecisionsFile uses the same rule', () => {

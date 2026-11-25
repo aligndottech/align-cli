@@ -6,8 +6,9 @@
  * saying "likely relates to the audit findings ... potentially undermining" at 0.9 was CRITICAL, and in
  * --block-on-critical it could deny an edit. CRITICAL now also needs GROUNDING, text a program can check:
  *
- *  (a) v1 only: both evidence quotes the model gave are present, whitespace and case aside, one in the decision
- *      and one in the change. The v1 prompt asks for them; v0's byte-pinned prompt has no such field.
+ *  (a) v1 only: both evidence quotes the model gave are present, whitespace, case and markdown emphasis marks
+ *      aside, one in the decision and one in the change. The v1 prompt asks for them; v0's byte-pinned prompt
+ *      has no such field.
  *  (b) any detector: a distinctive literal from the changed lines also appears in the decision's text - a number of
  *      two or more digits, an identifier-like token (MAX_REVIEW_DAYS, sendInvoices, REDIS_URL), or two different
  *      plain words that are not stop words. Added lines count as well as removed ones, so a change that only adds
@@ -28,15 +29,21 @@ export interface Grounding {
 
 const CRITICAL_CONFIDENCE = 0.8;
 
-const squash = (s: string): string => s.toLowerCase().replace(/[*_`]/g, '').replace(/\s+/g, ' ').trim();
+// Markdown marks go, so a quote reads through **bold**, `code` and _emphasis_. An underscore inside a name stays:
+// without it REDISURL would count as a quote of REDIS_URL.
+const squash = (s: string): string => s.toLowerCase().replace(/[*`]|(?<![a-z0-9])_|_(?![a-z0-9])/g, '').replace(/\s+/g, ' ').trim();
 
 /** The removed lines then the added ones, without markers, headers or context. */
 function changedLines(diff: string): string {
   const out: string[] = [];
+  const lines = diff.split(/\r?\n/);
   let header = true;
-  for (const line of diff.split(/\r?\n/)) {
+  for (const [i, line] of lines.entries()) {
     if (line.startsWith('diff --git ')) { header = true; continue; }
     if (line.startsWith('@@')) { header = false; continue; }
+    // A patch with no "diff --git" lines starts its next file with "--- old", "+++ new", then a hunk header. Those
+    // two are file names, not changes. Without the hunk header they are a removed "-- x" and an added "++ y" line.
+    if (line.startsWith('--- ') && lines[i + 1]?.startsWith('+++ ') && lines[i + 2]?.startsWith('@@')) header = true;
     if (header) continue;
     if (line.startsWith('-') || line.startsWith('+')) out.push(line.slice(1));
   }
@@ -49,11 +56,16 @@ const STOP = new Set(('that this with from have will would should could there th
   + 'default value values true false null none undefined return import export const class function type string number list item items data file files '
   + 'json http https html yaml yml toml name names text line lines code test tests main code self else elif case break continue public private static void async await').split(' '));
 
+// A number of two or more digits that is not a part of a date, a time, a version or a path (2026-11-25, 1.2.3,
+// 10:30): their pieces are everywhere. Either nothing is joined to its left, or a minus SIGN is: a "-" that opens the
+// line, or follows an opener, or follows a space with no digit or closing bracket before it. So the 100 in "= -100"
+// counts, and the 20 in "10 -20", "(10)-20" and "--20" does not.
+const NUMBER = /(?:(?<![\d.:/-])|(?<=(?:^\s*|[=(,[{:<>"'`]|[^\d)\]\s]\s+)-))\d{2,}(?![\d.\-:/])/gm;
+
 function literals(changed: string): { strong: string[]; plain: string[] } {
   const strong = new Set<string>();
   const plain = new Set<string>();
-  // Not a part of a date, a time, a version or a path (2026-11-25, 1.2.3, 10:30): their pieces are everywhere.
-  for (const n of changed.match(/(?<![\d.\-:/])\d{2,}(?![\d.\-:/])/g) ?? []) strong.add(n);
+  for (const n of changed.match(NUMBER) ?? []) strong.add(n);
   for (const id of changed.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? []) {
     // An underscore or a digit marks a name; JSON, HTTP and GitHub do not, and fall to the plain-word rule.
     const identifierLike = id.length >= 4 && (/_/.test(id) || /\d/.test(id));
