@@ -20,6 +20,7 @@ import { createLocalGatewayClient } from './local-gateway-client.js';
 import { stripLeadingHtmlComments } from './fetchers/strip-leading-comments.js';
 import { isDependencyBumpSubject, isRenovateBump, TITLE_CUT_AT } from './commit-shape.js';
 import { decidedTime, tidyDecisions } from './decisions-tidy.js';
+import { DECISION_SHAPED, MECHANICAL_PREFIX, statedBodyReason } from './decision-body.js';
 import { extractReason } from './reason-extract.js';
 import { resolveEnv } from './resolve-env.js';
 
@@ -93,9 +94,6 @@ export const LOCAL_FILE_CAP = 30;
 
 const CODE_PLATFORMS: ReadonlySet<string> = new Set(['git', 'github', 'gitlab']);
 const FEAT_PREFIX = /^feat(?:\([^)]*\))?:\s*(?:#\d+\s*)?/i;
-/** Words a choice is written in. Measured on objectionary/eo: these find the replacements and rules, not the fixes. */
-const DECISION_SHAPED = /\b(?:adopt|switch(?:ed)? to|move to|migrate|replace[sd]?\b.*\bwith|instead of|deprecate|drop support|requires?|must|always|never|no longer|policy|convention|prefer|standardi[sz]e|forbid|disallow)\b|^use\b/i;
-
 /**
  * What a LOCAL graph's decisions file holds: the repo's written rules (docs) first, then commits and pull requests that
  * read as decisions, each with the reason it states, capped at `limit`. A local graph is every commit that states a reason,
@@ -109,7 +107,11 @@ export function decisionShapedRows(rows: ListedDecision[]): ListedDecision[] {
     if (!CODE_PLATFORMS.has(r.platform ?? '')) return true;
     // A feat: prefix is dropped first, so "feat: fix retry policy" is judged as the fix it is.
     const title = r.title.replace(FEAT_PREFIX, '');
-    return !FIX_SHAPED.test(title) && !isRenovateBump(title) && DECISION_SHAPED.test(title);
+    if (isRenovateBump(title)) return false;
+    if (!FIX_SHAPED.test(title) && DECISION_SHAPED.test(title)) return true;
+    // Any other subject (a fix, docs, a scoped or plain "what changed" line) is a decision when its BODY states why. A
+    // bump, a revert and a test/ci/chore commit are never one, whatever the body says.
+    return !MECHANICAL_PREFIX.test(title) && !isDependencyBumpSubject(title) && statedBodyReason(r.title, r.summary) !== null;
   });
 }
 
@@ -236,7 +238,7 @@ export function selectForFile(rows: ListedDecision[], limit: number): { decision
   // (not the first N in graph order) and every number describes what the file shows.
   const sourceOf = new Map<ContextDecision, ListedDecision>();
   const choices = decisionShapedRows(rows).filter((r) => !isFileBump(r)).map((r) => {
-    const reason = extractReason(r.title, r.summary ?? '');
+    const reason = extractReason(r.title, r.summary ?? '') ?? statedBodyReason(r.title, r.summary);
     // The cut test reads the title as stored, prefix included: the graph cut those 80 characters, not the stripped ones.
     const d: ContextDecision = { ...contextDecisionOf({ ...r, title: wholeTitle(r.title, r.summary).replace(FEAT_PREFIX, '') }), kind: 'decision', ...(reason ? { reason } : {}) };
     sourceOf.set(d, r);
