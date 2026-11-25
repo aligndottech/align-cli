@@ -108,8 +108,9 @@ describe('align context sync', () => {
     const HAND_WRITTEN = '# My project\n\nHand-tuned guidance.\n';
     fs.writeFileSync(path.join(repo, 'CLAUDE.md'), HAND_WRITTEN);
 
-    await run();
-    await run();
+    // A test run has no terminal, so editing CLAUDE.md needs the explicit yes (context-sync-no-terminal.test.ts pins the refusal).
+    await run('--approve');
+    await run('--approve');
 
     const claude = read('CLAUDE.md');
     // Their bytes survive, and the import appears once, not once per run.
@@ -119,9 +120,9 @@ describe('align context sync', () => {
 
   it('re-run with an unchanged graph is byte-identical on both files', async () => {
     fs.writeFileSync(path.join(repo, 'CLAUDE.md'), '# My project\n');
-    await run();
+    await run('--approve');
     const first = { ctx: read('.align/decisions.md'), claude: read('CLAUDE.md') };
-    await run();
+    await run('--approve');
     expect(read('.align/decisions.md')).toBe(first.ctx);
     expect(read('CLAUDE.md')).toBe(first.claude);
   });

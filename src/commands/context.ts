@@ -128,7 +128,8 @@ export function registerContextCommand(program: Command): void {
     .option('--env <env>', 'Environment')
     .option('--limit <n>', 'Max decisions in the file (default: 30 for a local graph, 200 for a team graph)')
     .option('--out <file>', `Write to this markdown file in the repo (e.g. DECISIONS.md) instead of ${ALIGN_CONTEXT_PATH}; only when every decision comes from this repo`)
-    .action(async (opts: { env: EnvName; limit?: string; out?: string }) => {
+    .option('--approve', 'Allow adding the import line to CLAUDE.md when there is no terminal to ask in')
+    .action(async (opts: { env: EnvName; limit?: string; out?: string; approve?: boolean }) => {
       // A named file in the repo is one \`git add\` from public, so it is checked before anything is fetched or written.
       const outRel = opts.out === undefined ? undefined : repoRelativeMarkdown(process.cwd(), opts.out);
       if (outRel === null) {
@@ -211,13 +212,21 @@ export function registerContextCommand(program: Command): void {
         process.exitCode = 1;
         return;
       }
-      const result = await writeDecisionsContext(repoRoot, decisions, { external: local && !committable, leftOut, ...(outRel ? { relPath: outRel } : {}) });
+      // Editing their CLAUDE.md needs a yes: a person at a terminal is running it themselves, a script says so with --approve.
+      // With neither, nobody agreed (an agent's shell, CI), so the file is written and CLAUDE.md is left alone.
+      const claudeMd = (opts.approve || (process.stdin.isTTY && process.stdout.isTTY)) ? 'edit' as const : 'skip' as const;
+      const result = await writeDecisionsContext(repoRoot, decisions, { external: local && !committable, leftOut, ...(outRel ? { relPath: outRel } : {}), claudeMd });
       const importLine = `@${result.contextPath}`;
 
       console.log(`${chalk.green('Wrote')} ${result.contextPath} (${decisions.length} decision${decisions.length === 1 ? '' : 's'})`);
 
       if (result.importAdded) {
         console.log(`${chalk.green('Added')} ${importLine} import to CLAUDE.md`);
+      } else if (result.importPending) {
+        console.log(
+          `CLAUDE.md not changed: there is no terminal to ask in. It would gain the line:\n  ${chalk.bold(importLine)}\n` +
+          `To allow that edit, run this again with --approve (align up --approve, or align context sync --approve), or add the line yourself.`,
+        );
       } else if (fs.existsSync(path.join(repoRoot, 'CLAUDE.md'))) {
         console.log(chalk.dim('CLAUDE.md already imports it.'));
       } else {

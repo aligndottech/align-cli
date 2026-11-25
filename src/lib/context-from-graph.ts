@@ -20,6 +20,7 @@ import { createLocalGatewayClient } from './local-gateway-client.js';
 import { stripLeadingHtmlComments } from './fetchers/strip-leading-comments.js';
 import { isDependencyBumpSubject, isRenovateBump, TITLE_CUT_AT } from './commit-shape.js';
 import { decidedTime, tidyDecisions } from './decisions-tidy.js';
+import { DECISION_SHAPED, MECHANICAL_PREFIX, statedBodyReason, withoutIssuePrefix } from './decision-body.js';
 import { extractReason } from './reason-extract.js';
 import { resolveEnv } from './resolve-env.js';
 
@@ -93,9 +94,6 @@ export const LOCAL_FILE_CAP = 30;
 
 const CODE_PLATFORMS: ReadonlySet<string> = new Set(['git', 'github', 'gitlab']);
 const FEAT_PREFIX = /^feat(?:\([^)]*\))?:\s*(?:#\d+\s*)?/i;
-/** Words a choice is written in. Measured on objectionary/eo: these find the replacements and rules, not the fixes. */
-const DECISION_SHAPED = /\b(?:adopt|switch(?:ed)? to|move to|migrate|replace[sd]?\b.*\bwith|instead of|deprecate|drop support|requires?|must|always|never|no longer|policy|convention|prefer|standardi[sz]e|forbid|disallow)\b|^use\b/i;
-
 /**
  * What a LOCAL graph's decisions file holds: the repo's written rules (docs) first, then commits and pull requests that
  * read as decisions, each with the reason it states, capped at `limit`. A local graph is every commit that states a reason,
@@ -104,13 +102,33 @@ const DECISION_SHAPED = /\b(?:adopt|switch(?:ed)? to|move to|migrate|replace[sd]
  */
 /** The non-docs rows that read as decisions: what the decisions file lists and what `align adr` proposes. */
 export function decisionShapedRows(rows: ListedDecision[]): ListedDecision[] {
-  return rows.filter((r) => r.platform !== 'docs').filter((r) => {
-    // Chat and ticket importers already choose decision-shaped items; only commits and PRs are every reasoned change.
-    if (!CODE_PLATFORMS.has(r.platform ?? '')) return true;
-    // A feat: prefix is dropped first, so "feat: fix retry policy" is judged as the fix it is.
-    const title = r.title.replace(FEAT_PREFIX, '');
-    return !FIX_SHAPED.test(title) && !isRenovateBump(title) && DECISION_SHAPED.test(title);
-  });
+  return rows.filter((r) => r.platform !== 'docs').filter((r) => isDecisionRow(r));
+}
+
+/** The old route: the subject itself holds a decision word and is not shaped like a fix. */
+function bySubject(r: ListedDecision): boolean {
+  const title = r.title.replace(FEAT_PREFIX, '');
+  return !isRenovateBump(title) && !FIX_SHAPED.test(title) && DECISION_SHAPED.test(title);
+}
+
+/** Only a feat: subject may be kept for a cause alone; any other English "what changed" line needs a stated choice. */
+const needsChoice = (title: string): boolean => !FEAT_PREFIX.test(title);
+
+function isDecisionRow(r: ListedDecision): boolean {
+  // Chat and ticket importers already choose decision-shaped items; only commits and PRs are every reasoned change.
+  if (!CODE_PLATFORMS.has(r.platform ?? '')) return true;
+  // A feat: prefix is dropped first, so "feat: fix retry policy" is judged as the fix it is.
+  const title = r.title.replace(FEAT_PREFIX, '');
+  if (isRenovateBump(title)) return false;
+  // A merge is never one, even when its branch name holds a decision word ("Merge branch 'policy'").
+  if (/^merge\b/i.test(withoutIssuePrefix(title))) return false;
+  if (bySubject(r)) return true;
+  // Any other subject (a fix, docs, a scoped or plain "what changed" line) is a decision when its BODY states why. An
+  // issue prefix ("#12:", "bug(#12):") is looked past, so a bump or a fix behind one is still a bump or a fix. A bump, a
+  // revert and a test/ci/chore commit are never one, whatever the body says, and a fix needs a stated CHOICE.
+  const bare = withoutIssuePrefix(title);
+  if (isRenovateBump(bare) || MECHANICAL_PREFIX.test(bare) || isDependencyBumpSubject(bare)) return false;
+  return statedBodyReason(r.title, r.summary, needsChoice(r.title)) !== null;
 }
 
 /** The graph keeps only the first 80 characters of a title, so a long commit subject arrives cut mid-word. Its summary starts with the whole subject. */
@@ -236,7 +254,7 @@ export function selectForFile(rows: ListedDecision[], limit: number): { decision
   // (not the first N in graph order) and every number describes what the file shows.
   const sourceOf = new Map<ContextDecision, ListedDecision>();
   const choices = decisionShapedRows(rows).filter((r) => !isFileBump(r)).map((r) => {
-    const reason = extractReason(r.title, r.summary ?? '');
+    const reason = extractReason(r.title, r.summary ?? '') ?? statedBodyReason(r.title, r.summary, needsChoice(r.title));
     // The cut test reads the title as stored, prefix included: the graph cut those 80 characters, not the stripped ones.
     const d: ContextDecision = { ...contextDecisionOf({ ...r, title: wholeTitle(r.title, r.summary).replace(FEAT_PREFIX, '') }), kind: 'decision', ...(reason ? { reason } : {}) };
     sourceOf.set(d, r);
@@ -245,9 +263,11 @@ export function selectForFile(rows: ListedDecision[], limit: number): { decision
   // Newest first for the cap, and where dates tie or are missing, the graph's own order: the cap among undated rows
   // keeps what it always kept, instead of whichever sorts first by citation.
   const rank = (d: ContextDecision): number => decidedTime(d.decidedAt) ?? Number.NEGATIVE_INFINITY;
+  const tier = (at: number): number => { const r = sourceOf.get(choices[at]!)!; return !CODE_PLATFORMS.has(r.platform ?? '') || bySubject(r) ? 0 : 1; };
   const tidied = tidyDecisions(choices)
     .map((t) => ({ t, at: choices.indexOf(t.orig!) }))
-    .sort((a, b) => rank(b.t) - rank(a.t) || a.at - b.at)
+    // Strength first: a decision the subject states outranks one only the body states, whatever their dates.
+    .sort((a, b) => tier(a.at) - tier(b.at) || rank(b.t) - rank(a.t) || a.at - b.at)
     .map((x) => x.t);
   // Rules take up to two thirds of the file, and any slot the commits, PRs and ADRs do not use as well.
   const keptRules = rules.slice(0, Math.max(Math.floor(limit * RULE_SHARE_OF_CAP), limit - tidied.length));

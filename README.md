@@ -60,7 +60,8 @@ align up --out DECISIONS.md --limit 30
 ```
 
 This reads the repo's commits, pull requests and docs, writes `DECISIONS.md`, and adds
-`@DECISIONS.md` to your `CLAUDE.md`. With no `CLAUDE.md`, it prints that line for you to add.
+`@DECISIONS.md` to your `CLAUDE.md`. With no `CLAUDE.md`, it prints that line for you to add. With no terminal to ask in (a script, an agent's
+shell, CI), it leaves your `CLAUDE.md` alone and prints the line it would add; pass `--approve` to allow the edit.
 Commit both. Run it again whenever you want a new version.
 The file lists the rules written in your docs first, then the commits that state a decision, with
 the reason where one was given. Fixes and chores are left out.

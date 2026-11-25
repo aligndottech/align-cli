@@ -221,14 +221,14 @@ align doctor                  Check this install end to end: Node, align on PATH
 
 align context                 Manage the decisions file agents read (.align/decisions.md)
 align context sync            Write current decisions to .align/decisions.md and import it from CLAUDE.md
-                              flags: --env --limit --out
+                              flags: --env --limit --out --approve
 align context inject          Print the decisions file as SessionStart hook output (written by `align`, not meant to be run by hand)
                               flags: --format
 
 # Bring this repo's decisions up to date and write .align/decisions.md
 
 align up                      Bring this repo's decisions up to date and write .align/decisions.md (commits, docs, connected sources); local unless --env or ALIGN_ENV names another
-                              flags: --env --limit --docs-path --out
+                              flags: --env --limit --docs-path --out --approve
 
 # Draft ADRs in the repo for decisions that have none
 

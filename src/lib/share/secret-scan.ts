@@ -45,7 +45,7 @@ export function secretsIn(text: string): string[] {
     // A build fingerprint or digest is not a credential (see isBuildIdentifier), so judge every match, not the first.
     const all = new RegExp(c.re.source, 'gi');
     for (let m = all.exec(text); m; m = all.exec(text)) {
-      if (!DIGEST.test(m[0]) && !isBuildIdentifier(m[0]) && !isPublicFingerprint(text, m.index)) { found.push(c.placeholder); break; }
+      if (!isNotACredential(m[0], text, m.index)) { found.push(c.placeholder); break; }
     }
   }
   // The bare AWS secret shape is only a secret near the word "aws", exactly as the server decides.
@@ -146,6 +146,39 @@ const isBuildIdentifier = (match: string): boolean => {
 const SSH_FINGERPRINT = /^sha256:[A-Za-z0-9+/]{43}(?![A-Za-z0-9+/=_-])(?!\.[A-Za-z0-9])/i;
 const isPublicFingerprint = (text: string, offset: number): boolean => SSH_FINGERPRINT.test(text.slice(offset));
 
+/**
+ * A Tailwind variant written `dark:bg-gray-900` or `sm:grid-cols-2` has the `label:value` shape too. Kept as written when
+ * the label is a known variant AND the value is a lowercase, hyphenated utility (`bg-gray-900`, `bg-[#1da1f2]`), allowing
+ * the quote or bracket that closes the attribute to ride on the end of the match. The same label over a value that is
+ * not a utility (`dark:3f9c2a1e7b4d`, `sm:Xk9dL2mQ7pRs`) is still a credential.
+ */
+const UI_VARIANT = /^(?:(?:group|peer)-)?(?:dark|light|sm|md|lg|xl|hover|focus|focus-visible|focus-within|active|disabled|visited|checked|first|last|odd|even|invalid|placeholder|selection|motion-safe|motion-reduce|rtl|ltr)$/i;
+/** The first word of a Tailwind utility. A hyphenated lowercase value that does not start with one (`a1b2c3d4-e5f6-...`, a UUID) is not a class. */
+const UTILITY_PREFIX = new Set((
+  'bg text border grid flex inline block hidden w h p px py pt pb pl pr m mx my mt mb ml mr ring shadow opacity font rounded gap space translate ' +
+  'scale rotate top left right bottom inset z underline items justify self cols col row overflow transition duration animate cursor outline divide ' +
+  'fill stroke leading tracking max min order object aspect line truncate sr pointer select resize list decoration placeholder caret accent from via ' +
+  'to float clear columns break whitespace content basis grow shrink table filter blur brightness contrast backdrop drop invert sepia saturate hue grayscale ' +
+  'size not hover focus group peer'
+).split(' '));
+const UTILITY_VALUE = /^!?-?([a-z][a-z0-9]*)(?:-[a-z0-9[\]#.%_]+)+$/;
+const isUiClass = (match: string): boolean => {
+  const i = match.indexOf(':');
+  if (i <= 0) return false;
+  const value = match.slice(i + 1).replace(/["'`>)},;]+$/, '');
+  const utility = UTILITY_VALUE.exec(value);
+  // A credential word anywhere in the value (`my-secret-pass-1234`: `my-` is a margin utility) keeps it a credential.
+  return UI_VARIANT.test(match.slice(0, i)) && utility !== null && UTILITY_PREFIX.has(utility[1]!) && !CREDENTIAL_WORD.test(value);
+};
+
+/** `mailto:jane.doe1@example.com`: the match stops at the `@`, so it is judged on the text that follows it. Only an address is exempt. */
+const isMailtoAddress = (text: string, offset: number, match: string): boolean =>
+  /^mailto:/i.test(match) && text[offset + match.length] === '@';
+
+/** A `label:value` span that is not a credential: a content digest, a build id, a public key fingerprint, a UI class or a mailto address. */
+const isNotACredential = (match: string, text: string, offset: number): boolean =>
+  DIGEST.test(match) || isBuildIdentifier(match) || isPublicFingerprint(text, offset) || isUiClass(match) || isMailtoAddress(text, offset, match);
+
 export interface SecretMatch { placeholder: string; match: string }
 
 /**
@@ -159,7 +192,7 @@ export function secretMatches(text: string): SecretMatch[] {
     re.lastIndex = 0;
     for (let m = re.exec(text); m; m = re.exec(text)) {
       if (m[0] === '') { re.lastIndex += 1; continue; }
-      if (w.replacement === '<CREDENTIALS>' && (DIGEST.test(m[0]) || isBuildIdentifier(m[0]) || isPublicFingerprint(text, m.index))) continue;
+      if (w.replacement === '<CREDENTIALS>' && isNotACredential(m[0], text, m.index)) continue;
       out.push({ placeholder: placeholderOf(w.replacement), match: m[0] });
     }
   }
@@ -177,7 +210,7 @@ export function redactSecrets(text: string): Redaction {
       if (w.replacement === '<CREDENTIALS>') {
         const offset = args.find((a, i) => i > 0 && typeof a === 'number') as number;
         const whole = args[args.length - 1] as string;
-        if (DIGEST.test(args[0] as string) || isBuildIdentifier(args[0] as string) || isPublicFingerprint(whole, offset)) return args[0] as string;
+        if (isNotACredential(args[0] as string, whole, offset)) return args[0] as string;
       }
       count += 1;
       // replace() passes the match, then each capture group, then the offset (the first number).
