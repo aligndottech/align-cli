@@ -43,6 +43,7 @@ export interface SetVerdict {
   relation: string | null;
   confidence: number;
   reason?: string;
+  evidence?: { new_quote: string; existing_quote: string };
 }
 
 export type SetOutcome =
@@ -109,7 +110,7 @@ export async function classifyCandidateSet(subject: SetSubject, candidates: read
     const c = candidates[ref - 1]!;
     const resolved = resolveSimilarItem(item, newSide, { id: c.id, decidedAt: c.decidedAt, author: null, status: c.status ?? null });
     if (resolved === null) continue;
-    verdicts[ref - 1] = { relation: resolved.type, confidence: resolved.confidence, ...(resolved.reason ? { reason: resolved.reason } : {}) };
+    verdicts[ref - 1] = { relation: resolved.type, confidence: resolved.confidence, ...(resolved.reason ? { reason: resolved.reason } : {}), ...(item.evidence ? { evidence: item.evidence } : {}) };
   }
   return { ok: true, verdicts, ...(cuts ? { cuts } : {}) };
 }

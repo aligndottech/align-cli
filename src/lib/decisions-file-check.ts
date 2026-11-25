@@ -14,6 +14,7 @@
  * found still wins over a candidate that could not be judged, and anything that could not be judged and
  * found no conflict is `unknown`, never `aligned`.
  */
+import { conflictSeverity } from './conflict-severity.js';
 import type { AlignmentResult } from './gateway-client.js';
 import type { FileDecision } from './decisions-file.js';
 import { callChatDetailed, noProviderHintInline } from './local-llm.js';
@@ -97,7 +98,7 @@ export async function judgeAgainstDecisionsFile(
       reason: rel!.type === 'supersedes'
         ? `Reverses a recorded decision: ${rel!.reason ?? 'this change replaces it'}`
         : rel!.reason ?? `Conflicts with a decision in ${opts.file}`,
-      severity: (rel!.confidence >= 0.8 ? 'critical' : 'warning') as 'critical' | 'warning',
+      severity: conflictSeverity(rel!.confidence, { decisionText: c.summary, changeText: diff, evidence: rel!.evidence }),
     }));
   const confidence = Math.max(0, ...typed.map(({ rel }) => rel?.confidence ?? 0));
 

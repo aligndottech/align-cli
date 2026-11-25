@@ -6,6 +6,7 @@ import { currentRepoIdentity, repoFromSourceUrl } from './repo-identity.js';
 import { createConfigStore } from './config.js';
 import { restrictFrom, type ScopeRestrict, scopeUnitOf, unitVisible } from './scope-unit.js';
 import { cosineSimilarity, EMBEDDING_MODEL_ID, getEmbedding } from './local-embeddings.js';
+import { conflictSeverity } from './conflict-severity.js';
 import { classifyCandidates } from './local-candidate-classify.js';
 import { promptCutNote } from './prompt-cut-note.js';
 import { noProviderHintInline, RECOMMENDED_OLLAMA_PULL } from './local-llm.js';
@@ -1050,6 +1051,8 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
           // getter happened to hold by the time the loop finished.
           failure: outcome.ok ? undefined : outcome.failure,
           reason: rel?.reason,
+          evidence: rel?.evidence,
+          decisionText: `${c.title}\n${c.summary}`,
           similarity: c.score,
         });
       }
@@ -1077,7 +1080,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
           reason: reverses(t)
             ? `Reverses a recorded decision: ${t.reason ?? 'this change replaces it'}`
             : t.reason ?? 'Conflicts with an existing decision in your local graph',
-          severity: (t.confidence >= 0.8 ? 'critical' : 'warning') as 'critical' | 'warning',
+          severity: conflictSeverity(t.confidence, { decisionText: t.decisionText, changeText: diff, evidence: t.evidence }),
         }));
       // LM: this person's false-alarm marks hide a hit for exactly this set of files, or annotate it.
       const files = filesFromDiff(diff);
