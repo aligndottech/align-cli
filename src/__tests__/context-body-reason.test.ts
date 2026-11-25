@@ -68,6 +68,61 @@ describe('a body that adds nothing keeps nothing', () => {
   });
 });
 
+describe('an issue-number prefix does not hide a bump or a fix', () => {
+  const body = 'We moved the lints package forward because the new release is the only one that the build can resolve today.';
+  it.each([
+    '#10073: bump lints from 0.5.0 to 0.6.0 (eo#10074)',
+    'chore(#10073): bump lints from 0.5.0 to 0.6.0',
+    'bug(#10058): bump the parser from 1.2 to 1.3',
+  ])('drops %s', (subject) => {
+    expect(titles([commit(subject, body)])).toEqual([]);
+  });
+
+  it.each([
+    ['#10066: name every scope filler x', 'We name the filler because the old name collided with the closed-object test and broke the dealpha pass.'],
+    ['bug(#10058): name the argument of T message', 'The message printed the wrong argument because the lookup used the position and not the name of the parameter.'],
+    ['fix(#9858): preserve long tuple diagnostic', 'The diagnostic was cut so that users saw only the first element of the tuple and never the rest of it.'],
+  ])('leaves out the cause-only fix %s', (subject, b) => {
+    expect(titles([commit(subject, b)])).toEqual([]);
+  });
+
+  it.each([
+    ['#10066: stop rewriting closed objects', 'We rewrite them lazily rather than eagerly because the eager pass doubled the compile time on large programs.'],
+    ['fix(#9858): keep the tuple diagnostic whole', 'We decided to print every element, since a partial list hides the failing one from the reader of the log.'],
+  ])('keeps the fix %s whose body states a choice', (subject, b) => {
+    expect(titles([commit(subject, b)])).toEqual([subject]);
+  });
+});
+
+describe('a fix is not a choice because its code says "instead of"', () => {
+  it('leaves out a squashed fix whose sub-commit prose swaps one call for another', () => {
+    const subject = '#10064: name the voids of every tuple callback (#10065)';
+    const body = '* #10064: name eq of every data object\n\ntuple.eq takes b like the eq of bytes and number, printf asks the bytes datum for as-bool instead of arg, so dealpha names them.';
+    expect(titles([commit(subject, body)])).toEqual([]);
+  });
+
+  it('prints the sentence that holds the choice, not a neighbour', () => {
+    const subject = 'fix(#9858): keep the tuple diagnostic whole';
+    const body = 'The old text was cut at the first element. We decided to print every element, since a partial list hides the failing one.';
+    expect(selectForFile([commit(subject, body)], 30).decisions[0]!.reason).toMatch(/^We decided to print every element/);
+  });
+
+  it('never prints a session trailer as the reason', () => {
+    const body = 'Claude-Session: https://claude.ai/code/session_01KxxhHGabeLVtGno9KWZJ4D\n\nSe cambia la tubería porque el equipo decidió dejar de usar la versión anterior que nadie mantiene.';
+    const reason = selectForFile([commit('Use pipes instead of sockets', body)], 30).decisions[0]!.reason;
+    expect(reason).toMatch(/^Se cambia la tubería/);
+  });
+});
+
+describe('the file ranks stated choices after rules and subject-word decisions, before recency', () => {
+  it('lists an older subject-word decision before a newer body-stated choice', () => {
+    const old = { ...commit('Use https instead of http for the maven repository'), decided_at: '2020-01-01T00:00:00Z' };
+    const fresh = { ...commit('feat: add session cache', 'We keep the session in memory for five minutes because the dashboard polls every second.'), decided_at: '2026-11-01T00:00:00Z' };
+    const { decisions } = selectForFile([fresh, old] as never[], 30);
+    expect(decisions.map((d) => d.title)).toEqual(['Use https instead of http for the maven repository', 'add session cache']);
+  });
+});
+
 describe('merge commits, English reverts and Chinese', () => {
   it.each([
     ['Merge pull request #1 from a/b', 'We must always prefer the cache because the database is slow under load for us.'],

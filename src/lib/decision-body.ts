@@ -27,7 +27,7 @@ function looksEnglish(text: string): boolean {
 
 const MERGE_LINE = /^merge (?:pull request|pr|branch|remote-tracking)\b/i;
 // A pointer ("Relates: #894", "See #12") or a byline with an address is provenance, not a reason.
-const POINTER_OR_BYLINE = /^(?:relates?(?: to)?|related|see|refs?|part of)\b[^.]{0,40}(?:#\d+|https?:)|\b[\w.+-]+@[\w-]+\.[\w.-]+/i;
+const POINTER_OR_BYLINE = /^[A-Za-z][\w-]*:\s*https?:\/\/\S+$|^(?:relates?(?: to)?|related|see|refs?|part of)\b[^.]{0,40}(?:#\d+|https?:)|\b[\w.+-]+@[\w-]+\.[\w.-]+/i;
 /** Words of any script. Han, kana and Hangul run without spaces, so they count one word per two characters. */
 const SPACELESS = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]+/gu;
 const wordCount = (t: string): number =>
@@ -50,7 +50,24 @@ const echoesSubject = (line: string, subject: string): boolean => !!flat(subject
  * objectionary/eo's 1,817 reasoned commits were fixes): it must carry a causal clause (reason-extract.ts) or decision
  * wording. Prose with too few English function words (Spanish, German, Chinese ...) is trusted on structure, since those English word lists cannot read it.
  */
-export function statedBodyReason(title: string, summary: string | null | undefined): string | null {
+/** A leading issue reference ("#10073:", "bug(#10058):", "fix(#9858):"), which hides the word that follows it. */
+const ISSUE_PREFIX = /^(?:(?:[a-z]+\(#?\d+\)|#\d+):\s*)+/i;
+export const withoutIssuePrefix = (title: string): string => title.replace(ISSUE_PREFIX, '');
+
+/**
+ * A choice, not just a cause: a contrast or an alternative ("instead of", "rather than") or a decision verb. A fix's
+ * body says why it broke; only these say what was picked over what.
+ */
+const CHOICE_VERB = /\b(?:decided?|chose|chosen|opted|settled on|rather than|we prefer|preferred over|on purpose|deliberately|trade-?off)\b/i;
+// "Instead of" counts only with its reason in the same sentence ("400 instead of 500 because clients retry").
+const INSTEAD_BECAUSE = /\binstead of\b[^.!?]*\b(?:because|since|so that|to avoid|to prevent|in order to)\b|\b(?:because|since|so that|to avoid|to prevent)\b[^.!?]*\binstead of\b/i;
+const isChoice = (sentence: string): boolean => CHOICE_VERB.test(sentence) || INSTEAD_BECAUSE.test(sentence);
+
+/**
+ * `needsChoice`: the subject is shaped like a fix, so an English body must state a choice, not merely a cause.
+ * Non-English prose is still trusted on structure.
+ */
+export function statedBodyReason(title: string, summary: string | null | undefined, needsChoice = false): string | null {
   if (!summary) return null;
   const bare = stripImporterMetadata(summary);
   let text = hasImporterMetadata(summary) ? stripTrailers(bare, title) : bare;
@@ -73,6 +90,10 @@ export function statedBodyReason(title: string, summary: string | null | undefin
   if (wordCount(all) < MIN_BODY_WORDS) return null;
   if (!looksEnglish(all)) return cap(prose[0]!);
   // English: print the sentence that carries the reason or the choice, not the paragraph it sits in.
+  if (needsChoice) {
+    const picked = all.split(/(?<=[.!?])\s+/).find((sentence) => isChoice(sentence));
+    return picked ? cap(picked) : null;
+  }
   const stated = extractReason(title, summary);
   if (stated) return stated;
   const choice = all.split(/(?<=[.!?])\s+/).find((sentence) => DECISION_SHAPED.test(sentence));
