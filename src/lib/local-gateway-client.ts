@@ -26,6 +26,9 @@ import { noteRedacted } from './redaction-notice.js';
 import { LOCAL_CONFLICTS_NOTE } from './local-conflicts-note.js';
 import { maxScorePerDecision } from './edit-intent-line.js';
 import { changedLinesOf } from './diff-changed-lines.js';
+
+/** How many of the five places an adjudicated check gives to the best rows for the changed lines alone. */
+const CHANGED_LINES_PLACES = 2;
 import { EmbeddingMatrix, MATRIX_MAX_ROWS, type Ranker } from './similarity/embedding-matrix.js';
 import { syncImportedCoChangeRule } from './co-change-store.js';
 import { captureFieldsForUrl, type IngestOptions, type IngestResult, type IngestSession, ingestStep, type LocalBatchItem, type LocalBatchOptions } from './local-ingest.js';
@@ -914,23 +917,31 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       // The edit hook's five are chosen from every row over its floor by the dense rank fused with the stored
       // keyword rank. An adjudicated check keeps the dense five: each of its candidates costs a provider call
       // and can move an exit code, and that order was not measured.
-      // An adjudicated check also asks about the changed lines alone (see below), and fuses the two rankings
-      // before it cuts to five, so its first question is read in full rather than cut to five first.
+      // An adjudicated check also asks about the changed lines alone (below), so its first question is read in full
+      // rather than cut to five first.
       const changed = opts.depth === 'related' ? '' : changedLinesOf(diff);
       const asksChanged = changed !== '' && changed !== diff.trim();
-      const topK = opts.depth === 'related' || asksChanged ? Number.MAX_SAFE_INTEGER : 5 + hidden.size;
+      const window = 5 + hidden.size;
+      const topK = opts.depth === 'related' || asksChanged ? Number.MAX_SAFE_INTEGER : window;
       let found = await findSimilar(embedding, topK, threshold, undefined, dbFilter);
       if (asksChanged) {
-        // The whole diff is mostly the file's name and the lines around the change, so it sits next to every
-        // commit that touched the file: on a real repo a decision stating the rule the edit reverses ranked 40th
-        // of 66 by the diff and 1st by the changed lines, and the five went to same-file commits. Ranked by
-        // reciprocal rank fusion, each question's best rows get a place, and a question that finds nothing over
-        // the floor leaves the dense order exactly as it was. The cut stays five: the provider calls do not grow.
+        // The whole diff is mostly the file's name and the lines around the change, so it sits next to every commit that
+        // touched the file: on a real repo a decision stating the rule the edit reverses ranked 40th of 66 by the diff and
+        // 1st by the changed lines, and the five went to same-file commits. So the changed lines' best two rows (a
+        // looser question than the diff, so no more than two) take the last places of the five, and the rest keep the
+        // dense order and scores they had. A question that adds nothing new leaves the five exactly as they were, and
+        // the cut stays five, so the provider calls do not grow.
         const second = await findSimilar(await getEmbedding(changed), topK, threshold, undefined, dbFilter);
-        if (second.length) {
-          const best = new Map(maxScorePerDecision(found, second).map(r => [r.decisionId, r.score]));
-          found = reciprocalRankFusion([{ ids: found.map(r => r.decisionId), weight: 1 }, { ids: second.map(r => r.decisionId), weight: 1 }])
-            .map(id => ({ decisionId: id, score: best.get(id)! }));
+        const seen = new Set(found.filter(r => !hidden.has(r.decisionId)).slice(0, 5).map(r => r.decisionId));
+        const extras = second.filter(r => !hidden.has(r.decisionId)).slice(0, CHANGED_LINES_PLACES).filter(r => !seen.has(r.decisionId));
+        if (extras.length) {
+          // The dense rows that keep their place, in dense order with any hidden row ranked among them (so a dropped mark
+          // is counted exactly as before), then the extras. Visible rows are the kept five minus the places given away.
+          let visible = 0;
+          const keep = found.findIndex(r => !hidden.has(r.decisionId) && ++visible === 5 - extras.length);
+          found = [...(keep === -1 ? found : found.slice(0, keep + 1)), ...extras]; // fewer than five dense rows: all of them stay
+        } else {
+          found = found.slice(0, window);
         }
       }
       if (opts.depth === 'related' && opts.intent) {

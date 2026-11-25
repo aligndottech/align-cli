@@ -18,11 +18,13 @@ import path from 'node:path';
  * model run over the Andon graph is a measurement, reported in the PR, not a test.
  *
  *  1. Given six commits near the diff and a ledger entry near the changed lines only, then check retrieves the entry.
- *  2. Given a second such entry, then it is retrieved too, and an unrelated decision is not.
- *  3. Given the same graph, then the check still names five candidates at most.
- *  4. Given a change the changed lines do not add anything to (nothing near them), then the five are the dense five, in order.
- *  5. Given an entry under the floor for the changed lines, then it is not retrieved.
- *  6. Given an entry exactly at the floor for the changed lines, then it is retrieved.
+ *  2. Given a second such entry, then both are retrieved, and an unrelated decision is not.
+ *  3. Given three such entries, then only the changed lines' best two take places, and the dense top three stay first, in order.
+ *  4. Given a change the changed lines add nothing to (nothing near them), then the five are the dense five, in order.
+ *  5. Given the changed lines' best rows already in the dense five, then the five are unchanged.
+ *  6. Given an entry under the floor for the changed lines, then it is not retrieved.
+ *  7. Given an entry exactly at the floor for the changed lines, then it is retrieved.
+ *  8. changedLinesOf keeps a removed SQL comment and an added `++i;`, and skips the file header (see diff-changed-lines.test.ts).
  */
 
 const DIM = 384;
@@ -88,7 +90,6 @@ describe('align check also asks retrieval about the changed lines alone', () => 
     for (let i = 0; i < 6; i++) seed(`commit-${i}`, unit({ 0: 0.65 - i * 0.01, [10 + i]: 0.76 }));
     // The ledger entry: 0.45 to the diff (over the floor, rank 7), 0.89 to the changed lines.
     seed('ledger-default-to-warn', unit({ 0: 0.45, 1: 0.89 }));
-    seed('ledger-second-rule', unit({ 0: 0.44, 1: 0.9 }));
     seed('unrelated', unit({ 2: 1 }));
     client = createLocalGatewayClient(dbPath);
   });
@@ -102,20 +103,48 @@ describe('align check also asks retrieval about the changed lines alone', () => 
     expect(await check()).toContain(ids['ledger-default-to-warn']);
   });
 
-  it('retrieves a second such decision, and not the unrelated one', async () => {
+  it('retrieves a second such decision too, and not the unrelated one', async () => {
+    seed('ledger-second-rule', unit({ 0: 0.44, 1: 0.9 }));
     const got = await check();
+    expect(got).toContain(ids['ledger-default-to-warn']);
     expect(got).toContain(ids['ledger-second-rule']);
     expect(got).not.toContain(ids['unrelated']);
   });
 
-  it('still names five candidates at most', async () => {
-    expect((await check()).length).toBeLessThanOrEqual(5);
+  it('gives the changed lines two places at most, and keeps the dense top three first, in order', async () => {
+    seed('ledger-second-rule', unit({ 0: 0.44, 1: 0.9 }));
+    seed('ledger-third-rule', unit({ 0: 0.43, 1: 0.91 }));
+    const got = await check();
+    expect(got).toHaveLength(5);
+    expect(got.slice(0, 3)).toEqual([0, 1, 2].map((i) => ids[`commit-${i}`]));
+    expect(got.slice(3)).toEqual([ids['ledger-third-rule'], ids['ledger-second-rule']]);
+    expect(got).not.toContain(ids['ledger-default-to-warn']);
   });
 
   it('keeps the dense five in order when the changed lines add nothing', async () => {
     vectors.set(CHANGED, unit({ 3: 1 })); // near no row
     const got = await check();
     expect(got.slice(0, 5)).toEqual([0, 1, 2, 3, 4].map((i) => ids[`commit-${i}`]));
+  });
+
+  it('changes nothing when the changed lines best rows are already in the dense five', async () => {
+    vectors.set(CHANGED, unit({ 10: 1, 11: 0.5 })); // near commit-0 and commit-1 only
+    const got = await check();
+    expect(got.slice(0, 5)).toEqual([0, 1, 2, 3, 4].map((i) => ids[`commit-${i}`]));
+  });
+
+  it('keeps every dense row when fewer than five exist and the changed lines add two', async () => {
+    client.close();
+    fs.unlinkSync(dbPath);
+    dbPath = path.join(os.tmpdir(), `align-changed-few-${process.pid}-${Date.now()}.db`);
+    for (const i of [0, 1]) seed(`commit-${i}`, unit({ 0: 0.65 - i * 0.01, [10 + i]: 0.76 }));
+    // Under the floor for the diff (0.2 < 0.30), so only the changed lines retrieve them: the dense rows are the two commits.
+    seed('ledger-second-rule', unit({ 0: 0.2, 1: 0.98 }));
+    seed('ledger-third-rule', unit({ 0: 0.2, 1: 0.99 }));
+    client = createLocalGatewayClient(dbPath);
+    const got = await check();
+    expect(got).toHaveLength(4);
+    expect(got.slice(0, 2)).toEqual([ids['commit-0'], ids['commit-1']]);
   });
 
   it('does not retrieve an entry just under the floor for the changed lines', async () => {
