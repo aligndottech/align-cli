@@ -325,7 +325,25 @@ align connect docs
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--limit` | `500` | Max items to import |
+| `--docs-path <dir>` | - | Also read every markdown file in this folder, numbered or not. Repeat it for more folders |
 | `--approve` | - | Skip confirmation prompt |
+
+### Your own docs folder
+
+Align finds ADR folders by their usual names. A folder with another name, or files that are not
+numbered or dated, is not read on its own. Name it:
+
+```bash
+align connect docs --docs-path spec/gotchas
+align up --docs-path spec/gotchas --docs-path spec/rules --out DECISIONS.md
+```
+
+Each `.md`, `.mdx` or `.adoc` file directly in the folder becomes one item, titled by its first
+heading. Subfolders are not read: name them too. Folders you name are read first, so a `--limit`
+cuts ADRs before them. Paths are relative to where you run the command, and the folder must be
+inside the repo. A name that is not a folder, cannot be read, or leads outside the repo (a path
+with `..`, an absolute path, or a symlink out) stops the import with an error rather than being
+skipped. Align keeps no setting for this, so pass the flag each time you run `align up` or `align connect docs`.
 
 ## GitHub and GitLab
 

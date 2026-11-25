@@ -19,7 +19,7 @@ export const UP_STEPS: Array<{ argv: string[]; what: string; env: boolean; optio
   { argv: ['context', 'sync'], what: 'writing .align/decisions.md', env: true },
 ];
 
-export async function runUp(o: { env?: string; limit?: string; out?: string }, d: { run(argv: string[]): Promise<number>; out(line: string): void }): Promise<number> {
+export async function runUp(o: { env?: string; limit?: string; out?: string; docsPath?: string[] }, d: { run(argv: string[]): Promise<number>; out(line: string): void }): Promise<number> {
   // Pinned to the local graph unless an environment is named. `--approve` skips the prompt that says where the text goes,
   // so a cloud default must never be reached by leaving --env off: a person who names a cloud env has chosen to send there.
   const env = o.env?.trim() ? o.env : 'local';
@@ -29,6 +29,8 @@ export async function runUp(o: { env?: string; limit?: string; out?: string }, d
       continue;
     }
     const argv = step.env ? [...step.argv, '--env', env] : [...step.argv];
+    // Only the step that reads the docs takes the folders the user named.
+    if (step.argv[0] === 'connect' && step.argv[1] === 'docs') for (const d of o.docsPath ?? []) argv.push('--docs-path', d);
     // Only the step that writes the file takes the file's options.
     if (step.argv[0] === 'context') {
       if (o.limit) argv.push('--limit', o.limit);
@@ -67,8 +69,9 @@ export function registerUpCommand(program: Command): void {
     .description("Bring this repo's decisions up to date and write .align/decisions.md (commits, docs, connected sources); local unless --env or ALIGN_ENV names another")
     .option('--env <env>', 'Environment')
     .option('--limit <n>', 'Max decisions in the file (default 30)')
+    .option('--docs-path <dir>', 'Also read every markdown file in this folder of the repo, numbered or not (repeat for more folders)', (v: string, prev: string[]) => [...prev, v], [] as string[])
     .option('--out <file>', 'Write to this markdown file in the repo, e.g. DECISIONS.md (only when every decision comes from this repo)')
-    .action(async (opts: { env?: string; limit?: string; out?: string }) => {
+    .action(async (opts: { env?: string; limit?: string; out?: string; docsPath?: string[] }) => {
       // ALIGN_ENV is the person's own choice of destination, so it counts as naming one.
       const code = await runUp({ ...opts, env: opts.env ?? process.env['ALIGN_ENV'] }, {
         run: async (argv) => {

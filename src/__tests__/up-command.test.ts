@@ -54,6 +54,17 @@ describe('align up', () => {
     ]);
   });
 
+  it('passes each --docs-path to the docs step, and only to it', async () => {
+    const r = recorder();
+    await runUp({ docsPath: ['spec/gotchas', 'spec/rules'] }, r.deps);
+    expect(r.ran.map((a) => a.join(' '))).toEqual([
+      'connect git --approve --env local',
+      'connect docs --approve --env local --docs-path spec/gotchas --docs-path spec/rules',
+      'sync',
+      'context sync --env local',
+    ]);
+  });
+
   it('passes --limit and --out to the step that writes the file, and only to it', async () => {
     const r = recorder();
     await runUp({ limit: '40', out: 'DECISIONS.md' }, r.deps);

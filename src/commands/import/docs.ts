@@ -16,7 +16,10 @@ interface DocsImportOpts {
   limit: string;
   approve?: boolean;
   env?: EnvName;
+  docsPath?: string[];
 }
+
+const collect = (value: string, previous: string[]): string[] => [...previous, value];
 
 export function registerImportDocsCommand(importCmd: Command): void {
   importCmd
@@ -24,6 +27,7 @@ export function registerImportDocsCommand(importCmd: Command): void {
     .description('Import ADRs and RFCs, decision logs, CLAUDE.md/AGENTS.md, tenets and architecture docs, and the rules in README, CONTRIBUTING and the changelog (no auth required)')
     .option('--limit <n>', 'Max items to import', String(SYNC_CEILINGS.docs))
     .option('--approve', 'Skip confirmation prompt')
+    .option('--docs-path <dir>', 'Also read every markdown file in this folder of the repo, numbered or not (repeat for more folders)', collect, [] as string[])
     .option('--env <env>', 'Environment')
     .action(async (_opts: DocsImportOpts, cmd: Command) => {
       const opts = subcommandOpts<DocsImportOpts>(cmd);
@@ -37,7 +41,16 @@ export function registerImportDocsCommand(importCmd: Command): void {
 
       const spinner = p.spinner();
       spinner.start('Reading ADRs, CLAUDE.md/AGENTS.md, README and CONTRIBUTING rules...');
-      const fetched = await fetchDocsItems({ limit: parseInt(opts.limit, 10) });
+      let fetched: Awaited<ReturnType<typeof fetchDocsItems>>;
+      try {
+        fetched = await fetchDocsItems({ limit: parseInt(opts.limit, 10), extraDocsPaths: opts.docsPath ?? [] });
+      } catch (err) {
+        // A folder the user named that cannot be read is an error to fix, not an empty import.
+        spinner.stop('Could not read the docs');
+        p.log.error((err as Error).message);
+        process.exitCode = 1;
+        return;
+      }
       const { items } = fetched;
       spinner.stop(`Found ${items.length} item(s) worth importing`);
 

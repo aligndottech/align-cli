@@ -71,6 +71,9 @@ own commits, pull requests and committed docs, on your local graph. If any decis
 chat, a ticket, another repo or a doc you have not committed, `--out` refuses. Plain `align up`
 then writes a private `.align/decisions.md` that stays out of git.
 
+Your lessons in a folder Align does not look for by name (say `spec/gotchas`)? Add `--docs-path spec/gotchas`
+to `align up`; repeat it for more folders. [More](docs/importing.md#your-own-docs-folder).
+
 ### 2. A check inside your agent
 
 `align` wires two things into your agent. An edit hook checks each edit against the graph. An MCP
