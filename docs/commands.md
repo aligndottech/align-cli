@@ -220,7 +220,7 @@ align doctor                  Check this install end to end: Node, align on PATH
 # Write decisions to .align/decisions.md
 
 align context                 Manage the decisions file agents read (.align/decisions.md)
-align context sync            Write current decisions to .align/decisions.md and import it from CLAUDE.md
+align context sync            Write current decisions to .align/decisions.md and import it from CLAUDE.md (that edit needs a terminal or --approve)
                               flags: --env --limit --out --approve
 align context inject          Print the decisions file as SessionStart hook output (written by `align`, not meant to be run by hand)
                               flags: --format
