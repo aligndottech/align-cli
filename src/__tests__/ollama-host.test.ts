@@ -31,6 +31,10 @@ describe('ollamaBaseUrl', () => {
     ['[::1]:9', 'http://[::1]:9'],
     ['box:99999', 'http://box:11434'],
     ['  box:5  ', 'http://box:5'],
+    // user:pass@ and ?query are dropped, as Ollama's client drops what it does not use
+    ['http://u:p@box:11434', 'http://box:11434'],
+    ['http://box:7?token=x', 'http://box:7'],
+    ['box:11434#frag', 'http://box:11434'],
   ];
   it.each(cases)('%j -> %s', (raw, want) => {
     expect(ollamaBaseUrl(raw)).toBe(want);
@@ -64,6 +68,13 @@ describe('every reader of OLLAMA_HOST goes through it', () => {
 });
 
 describe('the error names the host that was tried', () => {
+  it('never prints a user name, a password or a query from OLLAMA_HOST', () => {
+    vi.stubEnv('OLLAMA_HOST', 'http://bob:hunter2@box:7777/?token=sekret');
+    const all = [noProviderHintInline('x'), noProviderHintLines().join('\n')].join('\n');
+    expect(all).toContain('http://box:7777');
+    for (const secret of ['bob', 'hunter2', 'sekret']) expect(all).not.toContain(secret);
+  });
+
   afterEach(() => vi.unstubAllEnvs());
 
   it('inline and block hints carry the OLLAMA_HOST value when it is set', () => {

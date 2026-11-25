@@ -35,8 +35,12 @@ export function ollamaBaseUrl(raw: string | undefined = process.env['OLLAMA_HOST
     else if (scheme === 'https') defaultPort = '443';
   }
 
+  // Past the first ? or # is a query or fragment, which Ollama's client drops with the rest of what it does
+  // not use; so is a user:pass@ in front of the host. Neither may reach a URL we print or send.
+  rest = rest.replace(/[?#].*$/s, '');
   const slash = rest.indexOf('/');
-  const hostport = slash === -1 ? rest : rest.slice(0, slash);
+  const authority = slash === -1 ? rest : rest.slice(0, slash);
+  const hostport = authority.slice(authority.lastIndexOf('@') + 1);
   const path = slash === -1 ? '' : rest.slice(slash).replace(/\/+$/, '');
 
   const parts = splitHostPort(hostport);
@@ -55,8 +59,13 @@ export function ollamaBaseUrl(raw: string | undefined = process.env['OLLAMA_HOST
   return `${scheme}://${host.includes(':') ? `[${host}]` : host}:${port}${path}`;
 }
 
-/** The raw OLLAMA_HOST when one is set (non-blank), for naming it in an error. */
+/**
+ * OLLAMA_HOST as it may be shown in a message, or undefined when it is not set. A value carrying a user name,
+ * a password, a query or a fragment may hold a secret (mcp-child-env.ts treats it the same way), so it is
+ * shown as the normalised URL only, which has none of those by construction.
+ */
 export function configuredOllamaHost(): string | undefined {
   const v = (process.env['OLLAMA_HOST'] ?? '').trim();
-  return v || undefined;
+  if (!v) return undefined;
+  return /[@?#]/.test(v) ? ollamaBaseUrl(v) : v;
 }

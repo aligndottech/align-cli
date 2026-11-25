@@ -135,7 +135,6 @@ describe('align ai --provider <id> (any terminal)', () => {
     const text = await ai('--provider', 'ollama');
     expect(text).toContain('http://127.0.0.1:1');
     expect(text).toContain('OLLAMA_HOST=127.0.0.1:1');
-    vi.unstubAllEnvs();
   });
 
   it('--model without --provider is refused rather than guessed', async () => {
