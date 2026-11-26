@@ -129,6 +129,14 @@ describe('align ai --provider <id> (any terminal)', () => {
     expect(text).toMatch(/Ollama is not running here/);
   });
 
+  it('L4: names the OLLAMA_HOST value that was tried', async () => {
+    setTTY(false);
+    vi.stubEnv('OLLAMA_HOST', '127.0.0.1:1');
+    const text = await ai('--provider', 'ollama');
+    expect(text).toContain('http://127.0.0.1:1');
+    expect(text).toContain('OLLAMA_HOST=127.0.0.1:1');
+  });
+
   it('--model without --provider is refused rather than guessed', async () => {
     await expect(ai('--model', 'gpt-4.1')).rejects.toThrow('exit 1');
     expect(store.llm).toEqual({});
