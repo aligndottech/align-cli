@@ -101,8 +101,9 @@ export function statedBodyReason(title: string, summary: string | null | undefin
   return choice ? cap(choice) : null;
 }
 
-/** A reason written in the subject itself ("Use X instead of Y because Z is faster"): the clause from the cause word on. */
-const SUBJECT_CAUSE = /\b(?:because|so that|to avoid|to prevent|in order to)\b.+$/i;
+/** A reason written in the subject itself ("Use X instead of Y because Z is faster"): the clause from the cause word on.
+ *  The cause word is followed by a space and a word, so `because.js` is a file name, not a reason. */
+const SUBJECT_CAUSE = /\b(?:because|so that|to avoid|to prevent|in order to)\s+\S.*$/i;
 export function subjectReason(title: string): string | null {
   const m = SUBJECT_CAUSE.exec(title);
   return m ? cap(m[0].trim()) : null;

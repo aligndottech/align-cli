@@ -254,7 +254,7 @@ export function selectForFile(rows: ListedDecision[], limit: number): { decision
   // (not the first N in graph order) and every number describes what the file shows.
   const sourceOf = new Map<ContextDecision, ListedDecision>();
   const choices = decisionShapedRows(rows).filter((r) => !isFileBump(r)).map((r) => {
-    const reason = extractReason(r.title, r.summary ?? '') ?? statedBodyReason(r.title, r.summary, needsChoice(r.title)) ?? subjectReason(r.title);
+    const reason = extractReason(r.title, r.summary ?? '') ?? statedBodyReason(r.title, r.summary, needsChoice(r.title)) ?? subjectReason(wholeTitle(r.title, r.summary));
     // The cut test reads the title as stored, prefix included: the graph cut those 80 characters, not the stripped ones.
     const d: ContextDecision = { ...contextDecisionOf({ ...r, title: wholeTitle(r.title, r.summary).replace(FEAT_PREFIX, '') }), kind: reason || !CODE_PLATFORMS.has(r.platform ?? '') ? 'decision' : 'change', ...(reason ? { reason } : {}) };
     sourceOf.set(d, r);

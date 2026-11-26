@@ -81,6 +81,21 @@ describe('a reason stated in the subject', () => {
   it('a subject with no reason word stays a change', () => {
     expect(render([bare('Use pipes instead of sockets')])).toContain(NO_REASON);
   });
+
+  // The graph stores the first 80 characters of a subject. A cause that starts past them is still in the summary.
+  it('reads a cause past the stored 80 characters from the whole subject', () => {
+    const whole = 'Use pipes instead of sockets for the worker queue on every node in the shared cluster because pipes are faster';
+    expect(whole.indexOf('because')).toBeGreaterThan(80);
+    const row = { ...bare(whole), title: whole.slice(0, 80) };
+    const out = render([row]);
+    expect(out).not.toContain(NO_REASON);
+    expect(out).toContain('Why: because pipes are faster');
+  });
+
+  // A cause word is followed by a space and words, not by a file extension.
+  it('does not read a file name as a cause', () => {
+    expect(render([bare('Use because.js instead of when.js')])).toContain(NO_REASON);
+  });
 });
 
 describe('a merged row keeps the reason of its group', () => {
