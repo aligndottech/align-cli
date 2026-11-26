@@ -1376,18 +1376,48 @@ export async function synthesiseLocally(
  * form named only cloud keys while this one said "or run a local Ollama" - so which
  * advice a user got depended on which command they ran.
  */
+/**
+ * Opt-in provider keys exported in the shell (e.g. OPENROUTER_API_KEY, DEEPSEEK_API_KEY, HF_TOKEN)
+ * that align found but will not use until chosen. Naming them here stops a user who exported an
+ * opt-in key from being told only to "set a cloud key" with no mention of ALIGN_LLM_PROVIDER (#719).
+ */
+function unusedExportedKeysInline(): string {
+  const keys = unusedExportedKeys();
+  if (!keys.length) return '';
+  if (keys.length === 1) {
+    const { id, envVar } = keys[0]!;
+    return ` Found ${envVar} in your shell (not used automatically): set ALIGN_LLM_PROVIDER=${id} or run \`align ai\` to use it.`;
+  }
+  const list = keys.map((k) => `${k.envVar} (${k.id})`).join(', ');
+  return ` Found ${list} in your shell (not used automatically): set ALIGN_LLM_PROVIDER=<provider> or run \`align ai\` to use one.`;
+}
+
+function unusedExportedKeysLine(): string | null {
+  const keys = unusedExportedKeys();
+  if (!keys.length) return null;
+  if (keys.length === 1) {
+    const { id, envVar } = keys[0]!;
+    return `  found    ${envVar} (opt-in): set ALIGN_LLM_PROVIDER=${id} or run \`align ai\``;
+  }
+  const list = keys.map((k) => `${k.envVar} (${k.id})`).join(', ');
+  return `  found    ${list} (opt-in): set ALIGN_LLM_PROVIDER=<id> or \`align ai\``;
+}
+
 export function noProviderHintInline(purpose: string): string {
-  return (
+  const base =
     ` Set a cloud key (e.g. ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY), or point ALIGN_LLM_BASE_URL at a local server` +
-    ` (llama.cpp, LM Studio, vLLM), or run Ollama, so ${purpose}.`
-  );
+    ` (llama.cpp, LM Studio, vLLM), or run Ollama, so ${purpose}.`;
+  return `${base}${unusedExportedKeysInline()}`;
 }
 
 export function noProviderHintLines(): string[] {
-  return [
+  const lines = [
     'No answer written: no LLM configured. Any one of these works:',
     '  cloud    set a cloud key (e.g. ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY)',
     '  local    ALIGN_LLM_BASE_URL=http://localhost:8080/v1 (llama.cpp, LM Studio, vLLM)',
     '  ollama   no config needed, detected on localhost:11434 when running',
   ];
+  const found = unusedExportedKeysLine();
+  if (found) lines.push(found);
+  return lines;
 }

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { noProviderHintInline, noProviderHintLines } from '../lib/local-llm.js';
 
 /**
@@ -65,5 +65,58 @@ describe('the two renderings stay in step', () => {
     // not a constant that ignores its argument.
     expect(noProviderHintInline('these can be classified')).toContain('these can be classified');
     expect(noProviderHintInline('an answer can be written')).toContain('an answer can be written');
+  });
+});
+
+describe('exported opt-in provider keys (unusedExportedKeys)', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('names OPENROUTER_API_KEY and ALIGN_LLM_PROVIDER=openrouter in both renderings when exported without a preference', () => {
+    vi.stubEnv('OPENROUTER_API_KEY', 'sk-or-test');
+    vi.stubEnv('ALIGN_LLM_PROVIDER', '');
+    vi.stubEnv('ALIGN_LLM_BASE_URL', '');
+
+    const inline = noProviderHintInline('these can be classified');
+    const lines = noProviderHintLines();
+    const block = lines.join('\n');
+
+    for (const rendered of [inline, block]) {
+      expect(rendered).toContain('OPENROUTER_API_KEY');
+      expect(rendered).toContain('ALIGN_LLM_PROVIDER=openrouter');
+      expect(rendered).toContain('align ai');
+      expect(rendered).toMatch(/ANTHROPIC_API_KEY/);
+      expect(rendered).toContain('ALIGN_LLM_BASE_URL');
+      expect(rendered).toMatch(/ollama/i);
+    }
+    expect(lines.length).toBe(5);
+    for (const l of lines) expect(l.length).toBeLessThanOrEqual(100);
+  });
+
+  it('names multiple opt-in keys with their provider ids when several are exported', () => {
+    vi.stubEnv('OPENROUTER_API_KEY', 'sk-or-test');
+    vi.stubEnv('HF_TOKEN', 'hf_test');
+    vi.stubEnv('ALIGN_LLM_PROVIDER', '');
+    vi.stubEnv('ALIGN_LLM_BASE_URL', '');
+
+    const inline = noProviderHintInline('these can be classified');
+    const block = noProviderHintLines().join('\n');
+
+    for (const rendered of [inline, block]) {
+      expect(rendered).toContain('HF_TOKEN (huggingface)');
+      expect(rendered).toContain('OPENROUTER_API_KEY (openrouter)');
+      expect(rendered).toContain('ALIGN_LLM_PROVIDER=');
+      expect(rendered).toContain('align ai');
+    }
+  });
+
+  it('omits the opt-in note once ALIGN_LLM_PROVIDER selects that provider', () => {
+    vi.stubEnv('OPENROUTER_API_KEY', 'sk-or-test');
+    vi.stubEnv('ALIGN_LLM_PROVIDER', 'openrouter');
+    vi.stubEnv('ALIGN_LLM_BASE_URL', '');
+
+    expect(noProviderHintInline('these can be classified')).not.toContain('OPENROUTER_API_KEY');
+    expect(noProviderHintLines()).toHaveLength(4);
   });
 });
