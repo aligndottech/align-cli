@@ -121,6 +121,64 @@ describe('conflictSeverity', () => {
   it.each(['span = 10 -20', 'span = (10)-20', 'span = {} -20', 'flag --20'])('does not read a sign in %j', (line) => {
     expect(conflictSeverity(0.9, { decisionText: 'Keep 20 workers.', changeText: `@@ -1 +1 @@\n+${line}` })).toBe('warning');
   });
+
+  // A trailing comment that reads the same on the removed line and on the added one was not changed by the edit: the
+  // edit changed the code in front of it. Its plain words ground nothing. Reported on a one-line edit of a default
+  // from "warn" to "off": three commits that only shared words with the comment on that line were CRITICAL.
+  // Pairs: the text that shares words with the comment only (downgrades) / the decision about the code (still blocks).
+  const edit = (file: string, before: string, after: string): string =>
+    [`diff --git a/${file} b/${file}`, `--- a/${file}`, `+++ b/${file}`, '@@ -105,1 +105,1 @@', `-${before}`, `+${after}`, ''].join('\n');
+  const HASH_NOTE = '   # warn | block | off  (start warn; promote to block once tuned)';
+  const HASH_EDIT = edit('hooks/gate.py', `DEFAULT_MODE = "warn"${HASH_NOTE}`, `DEFAULT_MODE = "off"${HASH_NOTE}`);
+  const SLASH_NOTE = ' // the gateway retries once, then fails over to the standby region';
+  const SLASH_EDIT = edit('src/client.ts', `  retryLimit: 3,${SLASH_NOTE}`, `  retryLimit: 5,${SLASH_NOTE}`);
+
+  it('does not ground on the words of a trailing # comment the edit left as it was', () => {
+    // shares start, once and block with the comment, and nothing with DEFAULT_MODE = "warn"
+    expect(conflictSeverity(0.9, { decisionText: 'gate: start the session log once per turn, and block a second writer.', changeText: HASH_EDIT })).toBe('warning');
+  });
+  it('still grounds on the code in front of that # comment', () => {
+    expect(conflictSeverity(0.9, { decisionText: 'Default to warn. Promote the gate to block mode only when it is tuned.', changeText: HASH_EDIT.replaceAll(HASH_NOTE, '') })).toBe('critical');
+    expect(conflictSeverity(0.9, { decisionText: 'Default to warn. Promote the gate to block mode only when it is tuned.', changeText: HASH_EDIT })).toBe('critical');
+  });
+  it('does not ground on the words of a trailing // comment the edit left as it was', () => {
+    expect(conflictSeverity(0.9, { decisionText: 'The standby region takes traffic when the gateway fails.', changeText: SLASH_EDIT })).toBe('warning');
+  });
+  it('still grounds on the code in front of that // comment', () => {
+    expect(conflictSeverity(0.9, { decisionText: 'The retry limit is three.', changeText: SLASH_EDIT })).toBe('critical');
+  });
+  it('still grounds on a comment the edit wrote, changed or removed', () => {
+    const decisionText = 'The billing ledger lands before the gate is switched back.';
+    const changed = edit('hooks/gate.py', 'DEFAULT_MODE = "warn"   # start in warn', 'DEFAULT_MODE = "off"   # switched off until the billing ledger lands');
+    expect(conflictSeverity(0.9, { decisionText, changeText: changed })).toBe('critical');
+    const removed = edit('hooks/gate.py', 'DEFAULT_MODE = "warn"   # switched off until the billing ledger lands', 'DEFAULT_MODE = "off"');
+    expect(conflictSeverity(0.9, { decisionText, changeText: removed })).toBe('critical');
+  });
+  // The same comment on two lines. "Left as it was" is counted per copy: a copy the edit deleted is part of the change
+  // even when another copy of the same words survives on the line below.
+  it('still grounds on a comment the edit deleted from one line while a copy of it stays on another', () => {
+    const note = '  # keep sessions in the redis cache';
+    const change = ['diff --git a/conf.py b/conf.py', '--- a/conf.py', '+++ b/conf.py', '@@ -1,2 +1,2 @@', `-a = 1${note}`, `-b = 2${note}`, '+a = 1', `+b = 3${note}`, ''].join('\n');
+    expect(conflictSeverity(0.9, { decisionText: 'Sessions live in the redis cache.', changeText: change })).toBe('critical');
+  });
+  it('does not ground on a comment that every edited line kept, however many lines carry it', () => {
+    const note = '  # keep sessions in the redis cache';
+    const change = ['diff --git a/conf.py b/conf.py', '--- a/conf.py', '+++ b/conf.py', '@@ -1,2 +1,2 @@', `-a = 1${note}`, `-b = 2${note}`, `+a = 5${note}`, `+b = 3${note}`, ''].join('\n');
+    expect(conflictSeverity(0.9, { decisionText: 'Sessions live in the redis cache.', changeText: change })).toBe('warning');
+  });
+  it('still grounds on a name inside an unchanged comment: only its plain words are set aside', () => {
+    const change = edit('scripts/check.py', 'LIMIT = 3  # see MAX_REVIEW_DAYS', 'LIMIT = 5  # see MAX_REVIEW_DAYS');
+    expect(conflictSeverity(0.9, { decisionText: 'MAX_REVIEW_DAYS bounds every review.', changeText: change })).toBe('critical');
+  });
+  // Two things that look like a comment marker and are not. Both lines keep their tail, so both still ground.
+  it('does not read "C# " in prose as the start of a comment: a marker needs a space in front of it', () => {
+    const change = edit('docs/export.md', 'The old exporter is written in C# for the billing invoices team.', 'The new exporter is written in C# for the billing invoices team.');
+    expect(conflictSeverity(0.9, { decisionText: 'Billing invoices are sent out nightly.', changeText: change })).toBe('critical');
+  });
+  it('does not read "#1234" as the start of a comment: a marker needs a space after it', () => {
+    const change = edit('docs/gaps.md', 'The old gap is tracked in #1234 billing invoices.', 'The new gap is tracked in #1234 billing invoices.');
+    expect(conflictSeverity(0.9, { decisionText: 'Billing invoices are sent out nightly.', changeText: change })).toBe('critical');
+  });
 });
 
 describe('judgeAgainstDecisionsFile uses the same rule', () => {
