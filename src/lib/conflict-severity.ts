@@ -13,8 +13,9 @@
  *      two or more digits, an identifier-like token (MAX_REVIEW_DAYS, sendInvoices, REDIS_URL), or two different
  *      plain words that are not stop words. Added lines count as well as removed ones, so a change that only adds
  *      ("use Redis" against "no Redis") can still ground. The cost is that two shared plain words can ground a guess;
- *      conflict-severity.test.ts shows that case instead of hiding it. Plain words in a trailing comment the edit left
- *      as it was do not count (withoutUnchangedComments, below).
+ *      conflict-severity.test.ts shows that case instead of hiding it. Plain words in a trailing # or // comment
+ *      that sits on as many removed lines as added ones do not count: the edit did not change it
+ *      (withoutUnchangedComments, below).
  *
  * No hedge-word parsing: "likely" and "potentially" are tone, and a confident wrong reason has none. Without
  * grounding the conflict stays a conflict (status and exit codes do not move) and is labelled a warning.
@@ -59,17 +60,20 @@ function changedLines(diff: string): ChangedLine[] | null {
 const TRAILING_COMMENT = /^(.*?\S)\s+(?:#|\/\/)\s+(\S.*)$/;
 
 /**
- * The changed lines without any trailing comment that reads the same on a removed line and on an added one. The edit
- * did not change that comment, it changed the code in front of it, so the comment's plain words say nothing about the
- * change. A one-line edit of `DEFAULT_MODE = "warn"  # warn | block | off (start warn; ...)` made three unrelated
- * commits CRITICAL through that comment's words: start, block, once.
+ * The changed lines without any trailing comment the edit left as it was: one that sits on as many removed lines as
+ * added ones. The edit changed the code in front of it, so the comment's plain words say nothing about the change.
+ * A one-line edit of `DEFAULT_MODE = "warn"  # warn | block | off (start warn; ...)` made three unrelated commits
+ * CRITICAL through that comment's words: start, block, once.
+ *
+ * Counted, not just looked up: a comment the edit deleted from one line is part of the change even when the same
+ * words stay on another line, and then the counts differ.
  */
 function withoutUnchangedComments(lines: ChangedLine[]): string {
   const parts = lines.map((l) => ({ ...l, comment: TRAILING_COMMENT.exec(l.text) }));
-  const notesOn = (added: boolean): Set<string> => new Set(parts.filter((p) => p.added === added && p.comment).map((p) => p.comment![2]!));
-  const removed = notesOn(false);
-  const added = notesOn(true);
-  return parts.map((p) => (p.comment && removed.has(p.comment[2]!) && added.has(p.comment[2]!) ? p.comment[1]! : p.text)).join('\n');
+  // Removed copies of each comment minus added ones. Zero: the edit kept every copy.
+  const balance = new Map<string, number>();
+  for (const p of parts) if (p.comment) balance.set(p.comment[2]!, (balance.get(p.comment[2]!) ?? 0) + (p.added ? -1 : 1));
+  return parts.map((p) => (p.comment && balance.get(p.comment[2]!) === 0 ? p.comment[1]! : p.text)).join('\n');
 }
 
 const STOP = new Set(('that this with from have will would should could there their about which when where what into over under after before '

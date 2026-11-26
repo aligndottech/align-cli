@@ -154,6 +154,18 @@ describe('conflictSeverity', () => {
     const removed = edit('hooks/gate.py', 'DEFAULT_MODE = "warn"   # switched off until the billing ledger lands', 'DEFAULT_MODE = "off"');
     expect(conflictSeverity(0.9, { decisionText, changeText: removed })).toBe('critical');
   });
+  // The same comment on two lines. "Left as it was" is counted per copy: a copy the edit deleted is part of the change
+  // even when another copy of the same words survives on the line below.
+  it('still grounds on a comment the edit deleted from one line while a copy of it stays on another', () => {
+    const note = '  # keep sessions in the redis cache';
+    const change = ['diff --git a/conf.py b/conf.py', '--- a/conf.py', '+++ b/conf.py', '@@ -1,2 +1,2 @@', `-a = 1${note}`, `-b = 2${note}`, '+a = 1', `+b = 3${note}`, ''].join('\n');
+    expect(conflictSeverity(0.9, { decisionText: 'Sessions live in the redis cache.', changeText: change })).toBe('critical');
+  });
+  it('does not ground on a comment that every edited line kept, however many lines carry it', () => {
+    const note = '  # keep sessions in the redis cache';
+    const change = ['diff --git a/conf.py b/conf.py', '--- a/conf.py', '+++ b/conf.py', '@@ -1,2 +1,2 @@', `-a = 1${note}`, `-b = 2${note}`, `+a = 5${note}`, `+b = 3${note}`, ''].join('\n');
+    expect(conflictSeverity(0.9, { decisionText: 'Sessions live in the redis cache.', changeText: change })).toBe('warning');
+  });
   it('still grounds on a name inside an unchanged comment: only its plain words are set aside', () => {
     const change = edit('scripts/check.py', 'LIMIT = 3  # see MAX_REVIEW_DAYS', 'LIMIT = 5  # see MAX_REVIEW_DAYS');
     expect(conflictSeverity(0.9, { decisionText: 'MAX_REVIEW_DAYS bounds every review.', changeText: change })).toBe('critical');
