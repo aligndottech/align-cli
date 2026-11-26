@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { dedupScope, markSurfaced, recentlySurfaced } from '../lib/advisory-dedup.js';
+import { dedupScope, markSurfaced, MAX_MARKER_FILES, recentlySurfaced, SESSION_DEDUP_TTL_MS } from '../lib/advisory-dedup.js';
+import { privateTmpDir } from '../lib/advisory-verdict.js';
 
 // Unique cwd per test so the per-dir marker files never collide.
 const dirs: string[] = [];
@@ -67,6 +68,39 @@ describe('advisory dedup', () => {
     const now = 5_000_000;
     markSurfaced(dedupScope(cwd, undefined), ['d-1'], now);
     expect(recentlySurfaced(cwd, now + 1_000).has('d-1')).toBe(true);
+    expect(recentlySurfaced(cwd, now + 25_000).has('d-1')).toBe(false);
     expect(dedupScope(cwd, '')).toBe(cwd);
+  });
+
+  // Real sessions pause 40-600s between edits while the agent thinks or runs tests. Once a host
+  // names its session, keeping the mark across turns stops repeating the same decision on every
+  // edit in that session, without silencing any other session in the same folder.
+  it('keeps session-scoped marks across multi-minute turns and expires them after the session TTL', () => {
+    const cwd = freshCwd();
+    const scope = dedupScope(cwd, 'session-long');
+    const now = 6_000_000;
+    markSurfaced(scope, ['d-1'], now);
+    expect(recentlySurfaced(scope, now + 120_000).has('d-1')).toBe(true);
+    expect(recentlySurfaced(scope, now + 30 * 60_000).has('d-1')).toBe(true);
+    expect(recentlySurfaced(scope, now + SESSION_DEDUP_TTL_MS + 1_000).has('d-1')).toBe(false);
+    // A second session in the same folder is still unaffected inside the session window.
+    expect(recentlySurfaced(dedupScope(cwd, 'session-other'), now + 120_000).has('d-1')).toBe(false);
+  });
+
+  // Every unique session id hashes to its own marker file in privateTmpDir(); without a sweep,
+  // long-running machines accumulate orphaned advisory-*.json files without bound.
+  it('bounds advisory marker files in privateTmpDir across many sessions', () => {
+    const cwd = freshCwd();
+    const base = 10_000_000;
+    const total = MAX_MARKER_FILES + 44;
+    for (let i = 0; i < total; i++) {
+      markSurfaced(dedupScope(cwd, `sweep-session-${i}`), ['d-1'], base + i * 1_000);
+    }
+    const dir = privateTmpDir();
+    expect(dir).not.toBeNull();
+    const markers = readdirSync(dir!).filter((f) => f.startsWith('advisory-') && f.endsWith('.json'));
+    expect(markers.length).toBeLessThanOrEqual(MAX_MARKER_FILES);
+    // The newest session's marker survived the sweep.
+    expect(recentlySurfaced(dedupScope(cwd, `sweep-session-${total - 1}`), base + total * 1_000).has('d-1')).toBe(true);
   });
 });

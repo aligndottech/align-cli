@@ -120,6 +120,7 @@ const replayOpenCode = async (p: OcCapture, text: string): Promise<void> => {
   });
   expect(sent.args).toEqual(['check', '--advisory', '--format', 'opencode']);
   expectPreEdit(sent.stdin, text);
+  expect(normalizeHookPayload(sent.stdin)?.session_id).toBe(p.input.sessionID);
 };
 
 describe.skipIf(!posix)('OpenCode, headless main agent (opencode run, 1.18.27)', () => {
@@ -174,13 +175,23 @@ describe.skipIf(!posix)('pi, headless main agent (pi -p, 1.2.0)', () => {
   it('the extension sends the edit to align, and it normalises to the proposed text', register(['pi-headless-main-pre'], async () => {
     evidence();
     const sent = await sentByHandler('align.ts', piExtensionBody(), async (mod) => {
+      const handlers = new Map<string, (e: unknown, ctx?: unknown) => Promise<unknown>>();
+      (mod['default'] as (pi: { on: (n: string, h: (e: unknown, ctx?: unknown) => Promise<unknown>) => void }) => void)({ on: (n, h) => handlers.set(n, h) });
+      await handlers.get('tool_call')!(p, { sessionManager: { getSessionId: () => 'pi-sess-42' } });
+    });
+    expect(sent.args).toEqual(['check', '--advisory', '--format', 'pi']);
+    expectPreEdit(sent.stdin, 'export const A = 2;');
+    expect(normalizeHookPayload(sent.stdin)?.session_id).toBe('pi-sess-42');
+  }));
+
+  it('the extension falls back to a per-instance session id when ctx omits sessionManager', async () => {
+    const sent = await sentByHandler('align.ts', piExtensionBody(), async (mod) => {
       const handlers = new Map<string, (e: unknown) => Promise<unknown>>();
       (mod['default'] as (pi: { on: (n: string, h: (e: unknown) => Promise<unknown>) => void }) => void)({ on: (n, h) => handlers.set(n, h) });
       await handlers.get('tool_call')!(p);
     });
-    expect(sent.args).toEqual(['check', '--advisory', '--format', 'pi']);
-    expectPreEdit(sent.stdin, 'export const A = 2;');
-  }));
+    expect(normalizeHookPayload(sent.stdin)?.session_id).toMatch(/^[0-9a-f-]{8,}$/i);
+  });
 });
 
 describe('docs/hook-coverage.md only claims what a capture proves', () => {
