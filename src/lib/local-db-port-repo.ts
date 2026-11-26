@@ -25,6 +25,8 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { bumpRowSetEpoch } from './local-db-epoch.js';
 import { foldTwins, type TwinRow } from './local-db-v7.js';
+import { refIdentityFor } from './decision-refs.js';
+import { linkByReference } from './local-ref-links.js';
 import { repoFromSourceUrl } from './repo-identity.js';
 import { connectorItemKey } from './source-key.js';
 
@@ -85,12 +87,22 @@ function findCandidates(db: DatabaseSync): CandidateRow[] {
   ).all() as unknown as CandidateRow[];
 }
 
+// A URL alone cannot prove a leak (github.com/1234/widgets/blob/blob/x reads as port/owner/repo), so only rows whose stored repo carries the port segment are repaired.
+function isLeaked(row: CandidateRow): boolean {
+  return stripPortFromRepo(row.repo) !== null;
+}
+
 function hasAffectedCoChange(db: DatabaseSync): boolean {
   const exists = db.prepare(`SELECT 1 AS hit FROM sqlite_master WHERE type = 'table' AND name = 'co_change_rules'`).get();
   if (!exists) return false;
   const rows = db.prepare(`SELECT DISTINCT repo FROM co_change_rules WHERE repo LIKE 'github.com/%/%/%' OR repo LIKE 'gitlab.com/%/%/%'`)
     .all() as Array<{ repo: string | null }>;
   return rows.some((r) => stripPortFromRepo(r.repo) !== null);
+}
+
+// decision_identities were derived from the port-bearing URL before this repair, so re-derive them (and link any citer) from the clean one.
+function refreshIdentities(db: DatabaseSync, id: string, platform: string, url: string | null): void {
+  linkByReference(db, id, refIdentityFor(platform, url));
 }
 
 function replaceSummaryUrl(summary: string, oldUrl: string, nextUrl: string): string {
@@ -103,7 +115,7 @@ function replaceSummaryUrl(summary: string, oldUrl: string, nextUrl: string): st
  * Fast path: returns without taking a write lock when no affected rows exist.
  */
 export function repairPortPrefixedRepos(db: DatabaseSync): void {
-  const preview = findCandidates(db).filter((r) => stripPortFromUrl(r.source_url) !== null || stripPortFromRepo(r.repo) !== null);
+  const preview = findCandidates(db).filter(isLeaked);
   const coChangeDirty = hasAffectedCoChange(db);
   if (preview.length === 0 && !coChangeDirty) return;
 
@@ -113,6 +125,7 @@ export function repairPortPrefixedRepos(db: DatabaseSync): void {
     const rows = findCandidates(db);
     let touched = false;
     for (const row of rows) {
+      if (!isLeaked(row)) continue;
       const nextUrl = stripPortFromUrl(row.source_url) ?? row.source_url;
       const nextRepo = (nextUrl ? repoFromSourceUrl(nextUrl) : null) ?? stripPortFromRepo(row.repo) ?? row.repo;
       const nextKey = row.source_key !== null && nextUrl
@@ -137,10 +150,16 @@ export function repairPortPrefixedRepos(db: DatabaseSync): void {
           : row.summary;
         db.prepare('UPDATE decisions SET source_url = ?, repo = ?, source_key = ?, summary = ? WHERE id = ?')
           .run(nextUrl, nextRepo, nextKey, nextSummary, row.id);
+        refreshIdentities(db, row.id, row.platform, nextUrl);
         continue;
       }
 
       const preferred = [...holderIds][0]!;
+      // A legacy row with no key must not wipe the key its clean twin holds. Read that key before the fold,
+      // which may delete the twin; the survivor update below writes it back.
+      const twinKey = db.prepare(`SELECT source_key FROM decisions WHERE id IN (${[...holderIds].map(() => '?').join(', ')}) AND source_key IS NOT NULL ORDER BY rowid`)
+        .get(...holderIds) as { source_key: string } | undefined;
+      const survivorKey = nextKey ?? twinKey?.source_key ?? null;
       const ids = [row.id, ...holderIds];
       const placeholders = ids.map(() => '?').join(', ');
       const twins = db.prepare(`SELECT ${TWIN_COLUMNS} FROM decisions WHERE id IN (${placeholders}) ORDER BY rowid`)
@@ -151,7 +170,8 @@ export function repairPortPrefixedRepos(db: DatabaseSync): void {
       const survivor = db.prepare(`SELECT id FROM decisions WHERE id IN (${placeholders})`).get(...ids) as { id: string } | undefined;
       if (survivor) {
         db.prepare('UPDATE decisions SET source_url = ?, repo = ?, source_key = ? WHERE id = ?')
-          .run(nextUrl, nextRepo, nextKey, survivor.id);
+          .run(nextUrl, nextRepo, survivorKey, survivor.id);
+        refreshIdentities(db, survivor.id, row.platform, nextUrl);
       }
     }
 

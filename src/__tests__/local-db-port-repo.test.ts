@@ -12,7 +12,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createLocalDb, SCHEMA_VERSION } from '../lib/local-db.js';
-import { stripPortFromRepo, stripPortFromUrl } from '../lib/local-db-port-repo.js';
+import { refIdentityFor } from '../lib/decision-refs.js';
+import { repairPortPrefixedRepos, stripPortFromRepo, stripPortFromUrl } from '../lib/local-db-port-repo.js';
 
 const dirs: string[] = [];
 function tempDb(): string {
@@ -180,5 +181,149 @@ describe('port-prefixed repo migration on createLocalDb', () => {
     const backedUp = (verify.prepare(`SELECT COUNT(*) AS n FROM decisions_merged_backup`).get() as { n: number }).n;
     expect(backedUp).toBe(2);
     verify.close();
+  });
+
+  it('leaves a row alone when its stored repo is clean, even if the URL reads as port/owner/repo', () => {
+    const dbPath = tempDb();
+    createLocalDb(dbPath).close();
+    const raw = new DatabaseSync(dbPath);
+    // Numeric owner 1234, repo widgets, branch "blob": the URL parses as host/port/owner/repo, the repo column does not.
+    const ambiguousUrl = 'https://github.com/1234/widgets/blob/blob/docs/adr.md';
+    raw.prepare(
+      `INSERT INTO decisions (id, title, summary, source_url, platform, repo, source_key)
+       VALUES ('amb-clean', 'ADR numeric owner', 'Context', ?, 'docs', 'github.com/1234/widgets', NULL)`,
+    ).run(ambiguousUrl);
+    // No stored repo (git rows are not backfilled): nothing proves a port leaked, so the row is left alone too.
+    raw.prepare(
+      `INSERT INTO decisions (id, title, summary, source_url, platform, repo, source_key)
+       VALUES ('amb-null', 'Commit no repo', 'Context', ?, 'git', NULL, NULL)`,
+    ).run('https://github.com/443/acme/widgets/commit/e0e0e0');
+    // Twin: a genuinely leaked row with the same odd branch name is still repaired.
+    raw.prepare(
+      `INSERT INTO decisions (id, title, summary, source_url, platform, repo, source_key)
+       VALUES ('amb-leaked', 'ADR leaked', 'Context', ?, 'docs', 'github.com/443/acme/widgets', NULL)`,
+    ).run('https://github.com/443/acme/widgets/blob/blob/docs/adr.md');
+    raw.close();
+
+    const db = createLocalDb(dbPath);
+    expect(db.getDecisionById('amb-clean')?.sourceUrl).toBe(ambiguousUrl);
+    expect(db.getDecisionById('amb-clean')?.repo).toBe('github.com/1234/widgets');
+    expect(db.getDecisionById('amb-null')?.sourceUrl).toBe('https://github.com/443/acme/widgets/commit/e0e0e0');
+    expect(db.getDecisionById('amb-null')?.repo).toBeNull();
+    expect(db.getDecisionById('amb-leaked')?.sourceUrl).toBe('https://github.com/acme/widgets/blob/blob/docs/adr.md');
+    expect(db.getDecisionById('amb-leaked')?.repo).toBe('github.com/acme/widgets');
+    db.close();
+  });
+
+  it('on a fold, a legacy row with no source_key keeps its clean twin key, and one with a key keeps its own cleaned key', () => {
+    const dbPath = tempDb();
+    createLocalDb(dbPath).close();
+    const raw = new DatabaseSync(dbPath);
+    const insert = raw.prepare(
+      `INSERT INTO decisions (id, title, summary, source_url, platform, repo, source_key, ratified_by, ratified_at)
+       VALUES (?, ?, 'S', ?, 'git', ?, ?, ?, ?)`,
+    );
+    // Unattested legacy NULL-key row: the keyed clean twin survives.
+    insert.run('nk-old', 'Key kept', 'https://github.com/443/acme/widgets/commit/k1', 'github.com/443/acme/widgets', null, null, null);
+    insert.run('nk-new', 'Key kept', 'https://github.com/acme/widgets/commit/k1', 'github.com/acme/widgets', 'git|twin-key-1', null, null);
+    // Attested legacy NULL-key row: it survives and must take over the twin's key.
+    insert.run('nk-old2', 'Key taken over', 'https://github.com/443/acme/widgets/commit/k2', 'github.com/443/acme/widgets', null, 'bob', '2026-11-20T00:00:00Z');
+    insert.run('nk-new2', 'Key taken over', 'https://github.com/acme/widgets/commit/k2', 'github.com/acme/widgets', 'git|twin-key-2', null, null);
+    // A legacy row WITH a key keeps its own cleaned key, as before, even when the twin holds a different one.
+    insert.run('nk-old3', 'Own key wins', 'https://github.com/443/acme/widgets/commit/cafe0003', 'github.com/443/acme/widgets', 'git|https://github.com/443/acme/widgets/commit/cafe0003', null, null);
+    insert.run('nk-new3', 'Own key wins', 'https://github.com/acme/widgets/commit/cafe0003', 'github.com/acme/widgets', 'git|twin-key-3', null, null);
+    raw.close();
+
+    createLocalDb(dbPath).close();
+    const check = new DatabaseSync(dbPath);
+    const keys = check.prepare(`SELECT id, source_key FROM decisions WHERE id LIKE 'nk-%' ORDER BY id`).all() as Array<{ id: string; source_key: string | null }>;
+    expect(keys).toEqual([
+      { id: 'nk-new', source_key: 'git|twin-key-1' },
+      { id: 'nk-new3', source_key: 'git|https://github.com/acme/widgets/commit/cafe0003' },
+      { id: 'nk-old2', source_key: 'git|twin-key-2' },
+    ]);
+    check.close();
+  });
+
+  it('re-derives decision_identities for a repaired row so a clean-URL citer links to it', () => {
+    const dbPath = tempDb();
+    createLocalDb(dbPath).close();
+    const raw = new DatabaseSync(dbPath);
+    const oldUrl = 'https://github.com/443/acme/widgets/blob/main/docs/issues/12/adr.md';
+    const cleanUrl = 'https://github.com/acme/widgets/blob/main/docs/issues/12/adr.md';
+    raw.prepare(
+      `INSERT INTO decisions (id, title, summary, source_url, platform, repo, source_key)
+       VALUES ('id-doc', 'ADR with issues dir', 'S', ?, 'docs', 'github.com/443/acme/widgets', NULL)`,
+    ).run(oldUrl);
+    raw.prepare(
+      `INSERT INTO decisions (id, title, summary, source_url, platform, repo)
+       VALUES ('id-citer', 'Cites the ADR', 'See it', 'https://github.com/acme/widgets/commit/c1', 'git', 'github.com/acme/widgets')`,
+    ).run();
+    // What migrateRefLinks recorded before the repair: the port-bearing identity.
+    raw.prepare(`INSERT INTO decision_identities (decision_id, ref, platform) VALUES ('id-doc', ?, 'github')`).run(oldUrl);
+    raw.prepare(`INSERT INTO decision_refs (decision_id, ref, platform) VALUES ('id-citer', ?, 'github')`).run(cleanUrl);
+    raw.close();
+
+    const db = createLocalDb(dbPath);
+    expect(db.listLinks({ decisionId: 'id-doc' }).some((l) => l.sourceId === 'id-citer' && l.targetId === 'id-doc')).toBe(true);
+    db.close();
+    const check = new DatabaseSync(dbPath);
+    const ids = check.prepare(`SELECT ref FROM decision_identities WHERE decision_id = 'id-doc'`).all() as Array<{ ref: string }>;
+    expect(ids).toEqual([{ ref: cleanUrl }]);
+    check.close();
+  });
+
+  it('after a fold the survivor holds the clean identity only, not the port-bearing one it absorbed', () => {
+    const dbPath = tempDb();
+    createLocalDb(dbPath).close();
+    const raw = new DatabaseSync(dbPath);
+    const oldUrl = 'https://github.com/443/acme/widgets/blob/main/docs/issues/12/adr.md';
+    const cleanUrl = 'https://github.com/acme/widgets/blob/main/docs/issues/12/adr.md';
+    // The identities come from the function that writes them, so the fixture cannot drift from it.
+    const [stale] = refIdentityFor('docs', oldUrl);
+    const [clean] = refIdentityFor('docs', cleanUrl);
+    expect(stale).toEqual({ ref: oldUrl, platform: 'github' });
+    expect(clean).toEqual({ ref: cleanUrl, platform: 'github' });
+    const insert = raw.prepare(
+      `INSERT INTO decisions (id, title, summary, source_url, platform, repo, source_key)
+       VALUES (?, 'ADR with issues dir', 'S', ?, 'docs', ?, NULL)`,
+    );
+    insert.run('fi-old', oldUrl, 'github.com/443/acme/widgets');
+    insert.run('fi-new', cleanUrl, 'github.com/acme/widgets');
+    const identity = raw.prepare('INSERT INTO decision_identities (decision_id, ref, platform) VALUES (?, ?, ?)');
+    identity.run('fi-old', stale!.ref, stale!.platform);
+    identity.run('fi-new', clean!.ref, clean!.platform);
+    const all = `SELECT decision_id, ref FROM decision_identities WHERE decision_id IN ('fi-old', 'fi-new') ORDER BY decision_id`;
+    // Before: one identity each, and the legacy row's is the port-bearing one.
+    expect(raw.prepare(all).all()).toEqual([{ decision_id: 'fi-new', ref: cleanUrl }, { decision_id: 'fi-old', ref: oldUrl }]);
+    raw.close();
+
+    createLocalDb(dbPath).close();
+    const check = new DatabaseSync(dbPath);
+    expect(check.prepare(`SELECT id FROM decisions WHERE id IN ('fi-old', 'fi-new')`).all()).toEqual([{ id: 'fi-new' }]);
+    expect(check.prepare(all).all()).toEqual([{ decision_id: 'fi-new', ref: cleanUrl }]);
+    check.close();
+  });
+
+  it('takes no write lock on open when the only row that reads as port/owner/repo has a clean repo', () => {
+    const dbPath = tempDb();
+    createLocalDb(dbPath).close();
+    // Raw connections have no busy timeout, so a lock that cannot be taken fails at once.
+    const opener = new DatabaseSync(dbPath);
+    const writer = new DatabaseSync(dbPath);
+    const insert = `INSERT INTO decisions (id, title, summary, source_url, platform, repo, source_key) VALUES (?, ?, 'Context', ?, 'docs', ?, NULL)`;
+    opener.prepare(insert).run('fp-clean', 'ADR numeric owner', 'https://github.com/1234/widgets/blob/blob/docs/adr.md', 'github.com/1234/widgets');
+
+    writer.exec('BEGIN IMMEDIATE'); // another process is in the middle of a write
+    expect(() => repairPortPrefixedRepos(opener)).not.toThrow();
+
+    // Positive control: the lock really is held. With a leaked row to repair, the same call needs it and cannot get it.
+    writer.prepare(insert).run('fp-leaked', 'ADR leaked', 'https://github.com/443/acme/widgets/blob/main/docs/adr.md', 'github.com/443/acme/widgets');
+    writer.exec('COMMIT');
+    writer.exec('BEGIN IMMEDIATE');
+    expect(() => repairPortPrefixedRepos(opener)).toThrow(/locked/i);
+    writer.exec('ROLLBACK');
+    writer.close();
+    opener.close();
   });
 });
