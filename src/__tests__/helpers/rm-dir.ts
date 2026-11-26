@@ -10,14 +10,15 @@ const DELAY_MS = 150;
  * handle it held) can keep the folder busy for a moment.
  *
  * The retry is done here, not by fs.rmSync's maxRetries. Node 22 retries a folder only when its
- * first rmdir fails with ENOTEMPTY or EPERM. A first rmdir that fails with EBUSY, which is what
+ * first rmdir fails with ENOTEMPTY, EEXIST or EPERM. A first rmdir that fails with EBUSY, which is what
  * Windows gives for a folder an exiting child still has as its working directory, is thrown at
  * once (lib/internal/fs/rimraf.js, _rmdirSync). So the old maxRetries: 20 never ran for that
  * case, and main failed on it two seconds into a test.
  *
  * The wait grows by DELAY_MS on each try: 19 waits between 20 tries, 28.5 s in all. A real e2e
- * test's cleanup is where reliability matters more than seconds, and none of this costs
- * anything on POSIX, where these errors do not happen. Pinned by rm-dir-helper.test.ts.
+ * test's cleanup is where reliability matters more than seconds. Where the old maxRetries did
+ * apply it waited about as long (31.5 s), so no case waits longer than before. Pinned by
+ * rm-dir-helper.test.ts.
  */
 export function rmDir(dir: string): void {
   for (let attempt = 1; ; attempt++) {

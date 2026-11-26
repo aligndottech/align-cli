@@ -1,7 +1,7 @@
 /**
  * rmDir is what about 30 test files call in afterEach to remove their temp folder.
  *
- * Node 22's fs.rmSync retries a folder only when its FIRST rmdir fails with ENOTEMPTY or EPERM. A first rmdir that fails
+ * Node 22's fs.rmSync retries a folder only when its FIRST rmdir fails with ENOTEMPTY, EEXIST or EPERM. A first rmdir that fails
  * with EBUSY is thrown at once, whatever maxRetries says (lib/internal/fs/rimraf.js, _rmdirSync). On Windows that is the
  * folder an exiting child still has as its working directory: main failed there on 26 Nov 2026
  * (launcher-child-telemetry-e2e, "EBUSY ... rmdir ...\home", two seconds in, with maxRetries 20). So rmDir does the
