@@ -64,7 +64,7 @@ export async function classifyCandidates(
       ...(result.cuts ? { cuts: result.cuts } : {}),
       outcomes: result.verdicts.map((v) => ({
         ok: true,
-        relationship: { type: (v.relation ?? 'relates') as RelationshipType, confidence: v.confidence, ...(v.reason ? { reason: v.reason } : {}) },
+        relationship: { type: (v.relation ?? 'relates') as RelationshipType, confidence: v.confidence, ...(v.reason ? { reason: v.reason } : {}), ...(v.evidence ? { evidence: v.evidence } : {}) },
       })),
     };
   }

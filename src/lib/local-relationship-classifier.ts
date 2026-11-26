@@ -34,6 +34,8 @@ export interface ClassifiedRelationship {
   type: RelationshipType;
   confidence: number;
   reason?: string;
+  /** v1 only: the quotes the model gave for the verdict. v0 has none. */
+  evidence?: { new_quote: string; existing_quote: string };
 }
 
 /**

@@ -424,8 +424,20 @@ describe('local-gateway-client', () => {
     expect(result.status).toBe('conflicting');
     expect(result.conflicts).toHaveLength(1);
     expect(result.conflicts![0].decision_id).toBeTruthy();
-    expect(result.conflicts![0].severity).toBe('critical'); // confidence 0.9 >= 0.8
+    // confidence 0.9 >= 0.8, but nothing in the change ties the verdict to the decision's text (no shared name, number
+    // or two words), so it is a warning, and still a conflict (conflict-severity.ts).
+    expect(result.conflicts![0].severity).toBe('warning');
     expect(result.conflicts![0].reason).toBe('opposes prior choice');
+  });
+
+  it('the same typed conflict is critical when the change names what the decision names', async () => {
+    vi.mocked(cosineSimilarity).mockReturnValue(0.6);
+    vi.mocked(classifyRelationship).mockResolvedValue({ ok: true, relationship: { type: 'conflicts_with', confidence: 0.9, reason: 'opposes prior choice' } });
+    await client.ingestBatch([
+      { source_url: 'https://slack.com/x', platform: 'slack', raw_text: 'We standardised on MySQL_8 for every service', title: 'Standardise on MySQL' },
+    ]);
+    const result = await client.checkAlignment('-DB_ENGINE = MySQL_8\n+DB_ENGINE = postgres');
+    expect(result.conflicts![0].severity).toBe('critical');
   });
 
   // Second example for the aggregation rule: a found conflict is still worth
