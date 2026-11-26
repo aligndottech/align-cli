@@ -135,7 +135,9 @@ describe('align context sync, local graph built only from the repo', () => {
 
   it('judges the decisions that are written, not the ones left out: a private row past the limit does not block a tracked file', async () => {
     const chat = { id: '4', title: 'Freeze deploys on Fridays', summary: '', platform: 'slack', status: 'active', source_url: 'https://acme.slack.com/archives/C1/p1' };
-    mockListDecisions.mockResolvedValue([...REPO_ONLY, chat]);
+    // The two commit rows state a reason, so they outrank the chat row at the cap (a commit with none ranks behind it).
+    const why = (t: string) => `${t}\n\nWe chose this because the JSON features we need ship in it and the older release lacks them entirely.`;
+    mockListDecisions.mockResolvedValue([...REPO_ONLY.map((r) => (r.platform === 'docs' ? r : { ...r, summary: why(r.title) })), chat]);
     fs.mkdirSync(path.join(repo, '.align'));
     fs.writeFileSync(path.join(repo, '.align/decisions.md'), 'old');
     execFileSync('git', ['add', '-f', '.align/decisions.md'], { cwd: repo });

@@ -114,12 +114,12 @@ describe('a fix is not a choice because its code says "instead of"', () => {
   });
 });
 
-describe('the file ranks stated choices after rules and subject-word decisions, before recency', () => {
-  it('lists an older subject-word decision before a newer body-stated choice', () => {
+describe('the file ranks a stated reason first, then subject-word decisions, then recency', () => {
+  it('lists a newer body-stated choice before an older subject-word decision that gives no reason', () => {
     const old = { ...commit('Use https instead of http for the maven repository'), decided_at: '2020-01-01T00:00:00Z' };
     const fresh = { ...commit('feat: add session cache', 'We keep the session in memory for five minutes because the dashboard polls every second.'), decided_at: '2026-11-01T00:00:00Z' };
     const { decisions } = selectForFile([fresh, old] as never[], 30);
-    expect(decisions.map((d) => d.title)).toEqual(['Use https instead of http for the maven repository', 'add session cache']);
+    expect(decisions.map((d) => d.title)).toEqual(['add session cache', 'Use https instead of http for the maven repository']);
   });
 });
 

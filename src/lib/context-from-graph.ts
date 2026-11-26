@@ -256,7 +256,7 @@ export function selectForFile(rows: ListedDecision[], limit: number): { decision
   const choices = decisionShapedRows(rows).filter((r) => !isFileBump(r)).map((r) => {
     const reason = extractReason(r.title, r.summary ?? '') ?? statedBodyReason(r.title, r.summary, needsChoice(r.title));
     // The cut test reads the title as stored, prefix included: the graph cut those 80 characters, not the stripped ones.
-    const d: ContextDecision = { ...contextDecisionOf({ ...r, title: wholeTitle(r.title, r.summary).replace(FEAT_PREFIX, '') }), kind: 'decision', ...(reason ? { reason } : {}) };
+    const d: ContextDecision = { ...contextDecisionOf({ ...r, title: wholeTitle(r.title, r.summary).replace(FEAT_PREFIX, '') }), kind: reason || !CODE_PLATFORMS.has(r.platform ?? '') ? 'decision' : 'change', ...(reason ? { reason } : {}) };
     sourceOf.set(d, r);
     return d;
   });
@@ -266,8 +266,9 @@ export function selectForFile(rows: ListedDecision[], limit: number): { decision
   const tier = (at: number): number => { const r = sourceOf.get(choices[at]!)!; return !CODE_PLATFORMS.has(r.platform ?? '') || bySubject(r) ? 0 : 1; };
   const tidied = tidyDecisions(choices)
     .map((t) => ({ t, at: choices.indexOf(t.orig!) }))
-    // Strength first: a decision the subject states outranks one only the body states, whatever their dates.
-    .sort((a, b) => tier(a.at) - tier(b.at) || rank(b.t) - rank(a.t) || a.at - b.at)
+    // A stated reason first (a commit with none is a fact, listed apart and the first to be cut), then strength: a decision
+    // the subject states outranks one only the body states, whatever their dates.
+    .sort((a, b) => Number(a.t.kind === 'change') - Number(b.t.kind === 'change') || tier(a.at) - tier(b.at) || rank(b.t) - rank(a.t) || a.at - b.at)
     .map((x) => x.t);
   // Rules take up to two thirds of the file, and any slot the commits, PRs and ADRs do not use as well.
   const keptRules = rules.slice(0, Math.max(Math.floor(limit * RULE_SHARE_OF_CAP), limit - tidied.length));
