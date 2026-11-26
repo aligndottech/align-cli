@@ -27,6 +27,7 @@ const MARKER_SUFFIX = '.json';
 
 interface Marker {
   ts: number;
+  ttl?: number;
   ids: string[];
 }
 
@@ -43,27 +44,28 @@ function markerPath(cwd: string): string | null {
   return path.join(dir, `${MARKER_PREFIX}${hash}${MARKER_SUFFIX}`);
 }
 
-function readMarkerTs(file: string): number {
+function readMarkerMeta(file: string): { ts: number; ttl: number } {
   try {
     const m = JSON.parse(readFileSync(file, 'utf8')) as Partial<Marker>;
-    return typeof m.ts === 'number' && Number.isFinite(m.ts) ? m.ts : 0;
+    const ts = typeof m.ts === 'number' && Number.isFinite(m.ts) ? m.ts : 0;
+    const ttl = typeof m.ttl === 'number' && Number.isFinite(m.ttl) && m.ttl > 0 ? m.ttl : SESSION_DEDUP_TTL_MS;
+    return { ts, ttl };
   } catch {
-    return 0;
+    return { ts: 0, ttl: 0 };
   }
 }
 
-// Reap expired markers first, then oldest-first if still over MAX_MARKER_FILES.
+// Reap expired markers first (using each marker's own TTL), then oldest-first if still over MAX_MARKER_FILES.
 // Fast path: one readdirSync and an immediate return whenever the folder is within cap.
 function pruneMarkers(dir: string, now: number, keepName: string): void {
   const names = readdirSync(dir).filter((f) => f.startsWith(MARKER_PREFIX) && f.endsWith(MARKER_SUFFIX));
   if (names.length <= MAX_MARKER_FILES) return;
-  const cutoff = now - SESSION_DEDUP_TTL_MS;
   const live: Array<{ name: string; ts: number }> = [];
   for (const name of names) {
     if (name === keepName) continue;
     const full = path.join(dir, name);
-    const ts = readMarkerTs(full);
-    if (ts < cutoff) {
+    const { ts, ttl } = readMarkerMeta(full);
+    if (now - ts > ttl) {
       try { unlinkSync(full); } catch { /* concurrent reap */ }
     } else {
       live.push({ name, ts });
@@ -108,7 +110,7 @@ export function markSurfaced(cwd: string, ids: string[], now: number = Date.now(
     const merged = new Set([...(readMarker(cwd, now)?.ids ?? []), ...ids]);
     const file = markerPath(cwd);
     if (file === null) return;
-    writePrivateFile(file, JSON.stringify({ ts: now, ids: [...merged] } satisfies Marker));
+    writePrivateFile(file, JSON.stringify({ ts: now, ttl: ttlFor(cwd), ids: [...merged] } satisfies Marker));
     pruneMarkers(path.dirname(file), now, path.basename(file));
   } catch {
     // Best-effort only - dedup is a nicety, never fail the hook on it.
