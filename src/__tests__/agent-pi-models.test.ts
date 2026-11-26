@@ -109,6 +109,12 @@ describe('resolvePiModel', () => {
 
 describe('resolvePiModel: Ollama when the user chose it', () => {
   const qwen = async (): Promise<string | null> => 'qwen2.5:7b';
+  it('ALIGN_AGENT_MODEL=ollama/<model> reads a bare OLLAMA_HOST as http, like every other reader', async () => {
+    vi.stubEnv('ALIGN_AGENT_MODEL', 'ollama/qwen2.5-coder:7b');
+    vi.stubEnv('OLLAMA_HOST', '127.0.0.1:11434');
+    expect(await resolvePiModel({ probeOllama: noOllama })).toMatchObject({ baseUrl: 'http://127.0.0.1:11434/v1' });
+  });
+
   it('ALIGN_AGENT_MODEL=ollama/<model> runs that local model, with no key', async () => {
     vi.stubEnv('ALIGN_AGENT_MODEL', 'ollama/qwen2.5-coder:7b');
     expect(await resolvePiModel({ probeOllama: noOllama })).toMatchObject({ provider: 'ollama', modelId: 'qwen2.5-coder:7b', baseUrl: 'http://localhost:11434/v1' });

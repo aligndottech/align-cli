@@ -112,7 +112,8 @@ describe('--decisions-file: a conflict', () => {
     const out = json(r);
     expect(out['status']).toBe('conflicting');
     expect(out.conflicts).toHaveLength(1);
-    expect(out.conflicts![0]).toMatchObject({ title: 'Use PostgreSQL for all persistent data', severity: 'critical', url: 'https://github.com/acme/app/pull/7' });
+    expect(out.conflicts![0]).toMatchObject({ title: 'Use PostgreSQL for all persistent data', severity: 'warning', url: 'https://github.com/acme/app/pull/7' });
+    // warning: this diff shares no name, number or two words with the decision, so the model's 0.9 is not grounded (conflict-severity.ts)
     expect(String(out.conflicts![0]!['reason'])).toContain('MongoDB');
   });
 

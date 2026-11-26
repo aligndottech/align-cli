@@ -1,5 +1,6 @@
 import { NAMED_PROVIDERS, namedProvider, type NamedProviderId } from '../../llm-providers.js';
 import { preferredProvider, probeOllama as probeLocalOllama, type SavedLlmConfig } from '../../local-llm.js';
+import { ollamaBaseUrl } from '../../ollama-host.js';
 
 /**
  * Which model the Align engine runs, and the key to run it with. No Pi types here: the result is
@@ -72,9 +73,9 @@ function keyFor(alignId: NamedProviderId, saved: SavedLlmConfig, preferred: stri
   return saveKey;
 }
 
-/** A local Ollama model. `||`, not `??`: OLLAMA_HOST='' must not make a relative URL (local-llm's ollamaHost says why). */
+/** A local Ollama model. The host comes from ollamaBaseUrl, the one reader of OLLAMA_HOST (unset, empty and a bare host:port included). */
 function ollamaModel(model: string): ResolvedPiModel {
-  const host = (process.env['OLLAMA_HOST'] || 'http://localhost:11434').replace(/\/+$/, '');
+  const host = ollamaBaseUrl();
   return { provider: 'ollama', modelId: model, apiKey: 'ollama', baseUrl: `${host}/v1`, label: `Ollama ${model}` };
 }
 

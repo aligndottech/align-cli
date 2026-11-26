@@ -6,6 +6,7 @@ import { currentRepoIdentity, repoFromSourceUrl } from './repo-identity.js';
 import { createConfigStore } from './config.js';
 import { restrictFrom, type ScopeRestrict, scopeUnitOf, unitVisible } from './scope-unit.js';
 import { cosineSimilarity, EMBEDDING_MODEL_ID, getEmbedding } from './local-embeddings.js';
+import { conflictSeverity } from './conflict-severity.js';
 import { classifyCandidates } from './local-candidate-classify.js';
 import { promptCutNote } from './prompt-cut-note.js';
 import { noProviderHintInline, RECOMMENDED_OLLAMA_PULL } from './local-llm.js';
@@ -25,6 +26,10 @@ import { redactSecrets } from './share/secret-scan.js';
 import { noteRedacted } from './redaction-notice.js';
 import { LOCAL_CONFLICTS_NOTE } from './local-conflicts-note.js';
 import { maxScorePerDecision } from './edit-intent-line.js';
+import { changedLinesOf } from './diff-changed-lines.js';
+
+/** How many of the five places an adjudicated check gives to the best rows for the changed lines alone. */
+const CHANGED_LINES_PLACES = 2;
 import { EmbeddingMatrix, MATRIX_MAX_ROWS, type Ranker } from './similarity/embedding-matrix.js';
 import { syncImportedCoChangeRule } from './co-change-store.js';
 import { captureFieldsForUrl, type IngestOptions, type IngestResult, type IngestSession, ingestStep, type LocalBatchItem, type LocalBatchOptions } from './local-ingest.js';
@@ -913,8 +918,33 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       // The edit hook's five are chosen from every row over its floor by the dense rank fused with the stored
       // keyword rank. An adjudicated check keeps the dense five: each of its candidates costs a provider call
       // and can move an exit code, and that order was not measured.
-      const topK = opts.depth === 'related' ? Number.MAX_SAFE_INTEGER : 5 + hidden.size;
+      // An adjudicated check also asks about the changed lines alone (below), so its first question is read in full
+      // rather than cut to five first.
+      const changed = opts.depth === 'related' ? '' : changedLinesOf(diff);
+      const asksChanged = changed !== '' && changed !== diff.trim();
+      const window = 5 + hidden.size;
+      const topK = opts.depth === 'related' || asksChanged ? Number.MAX_SAFE_INTEGER : window;
       let found = await findSimilar(embedding, topK, threshold, undefined, dbFilter);
+      if (asksChanged) {
+        // The whole diff is mostly the file's name and the lines around the change, so it sits next to every commit that
+        // touched the file: on a real repo a decision stating the rule the edit reverses ranked 40th of 66 by the diff and
+        // 1st by the changed lines, and the five went to same-file commits. So the changed lines' best two rows (a
+        // looser question than the diff, so no more than two) take the last places of the five, and the rest keep the
+        // dense order and scores they had. A question that adds nothing new leaves the five exactly as they were, and
+        // the cut stays five, so the provider calls do not grow.
+        const second = await findSimilar(await getEmbedding(changed), topK, threshold, undefined, dbFilter);
+        const seen = new Set(found.filter(r => !hidden.has(r.decisionId)).slice(0, 5).map(r => r.decisionId));
+        const extras = second.filter(r => !hidden.has(r.decisionId)).slice(0, CHANGED_LINES_PLACES).filter(r => !seen.has(r.decisionId));
+        if (extras.length) {
+          // The dense rows that keep their place, in dense order with any hidden row ranked among them (so a dropped mark
+          // is counted exactly as before), then the extras. Visible rows are the kept five minus the places given away.
+          let visible = 0;
+          const keep = found.findIndex(r => !hidden.has(r.decisionId) && ++visible === 5 - extras.length);
+          found = [...(keep === -1 ? found : found.slice(0, keep + 1)), ...extras]; // fewer than five dense rows: all of them stay
+        } else {
+          found = found.slice(0, window);
+        }
+      }
       if (opts.depth === 'related' && opts.intent) {
         // The second question is a bonus. If it throws or is slow, the first question's rows still go out: the
         // hook's whole answer is abandoned at its 2.5s retrieval cap, so this budget sits inside that.
@@ -1050,6 +1080,8 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
           // getter happened to hold by the time the loop finished.
           failure: outcome.ok ? undefined : outcome.failure,
           reason: rel?.reason,
+          evidence: rel?.evidence,
+          decisionText: `${c.title}\n${c.summary}`,
           similarity: c.score,
         });
       }
@@ -1077,7 +1109,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
           reason: reverses(t)
             ? `Reverses a recorded decision: ${t.reason ?? 'this change replaces it'}`
             : t.reason ?? 'Conflicts with an existing decision in your local graph',
-          severity: (t.confidence >= 0.8 ? 'critical' : 'warning') as 'critical' | 'warning',
+          severity: conflictSeverity(t.confidence, { decisionText: t.decisionText, changeText: diff, evidence: t.evidence }),
         }));
       // LM: this person's false-alarm marks hide a hit for exactly this set of files, or annotate it.
       const files = filesFromDiff(diff);
