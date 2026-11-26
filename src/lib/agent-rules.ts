@@ -386,12 +386,15 @@ export function piExtensionBody(env?: string): string {
 // conflict back to the model. Non-blocking and fail-open by design: if align is
 // missing, slow or unhappy, the edit proceeds untouched.
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 
 type PiEvent = { toolName?: string; toolCallId?: string; input?: unknown; content?: unknown[] };
+type PiContext = { sessionManager?: { getSessionId?: () => string | undefined } };
 type Verdict = { block?: boolean; reason?: string; context?: string };
 
 const MUTATING_TOOLS = new Set(["edit", "write"]);
 const TIMEOUT_MS = 10000;
+const FALLBACK_SESSION_ID = randomUUID();
 ${PLUGIN_SPAWN_PREAMBLE}
 
 // Findings from the pre-edit check, held until that call's result comes back.
@@ -421,10 +424,11 @@ function askAlign(payload: unknown): Promise<Verdict | null> {
   });
 }
 
-export default function (pi: { on: (e: string, h: (ev: PiEvent) => unknown) => void }) {
-  pi.on("tool_call", async (event: PiEvent) => {
+export default function (pi: { on: (e: string, h: (ev: PiEvent, ctx?: PiContext) => unknown) => void }) {
+  pi.on("tool_call", async (event: PiEvent, ctx?: PiContext) => {
     if (!event.toolName || !MUTATING_TOOLS.has(event.toolName)) return;
-    const verdict = await askAlign({ type: "tool_call", toolName: event.toolName, input: event.input });
+    const sessionId = ctx?.sessionManager?.getSessionId?.() || FALLBACK_SESSION_ID;
+    const verdict = await askAlign({ type: "tool_call", toolName: event.toolName, input: event.input, session_id: sessionId });
     if (!verdict) return;
     if (verdict.block) return { block: true, reason: String(verdict.reason ?? "Conflicts with a prior decision") };
     if (verdict.context && event.toolCallId) pending.set(event.toolCallId, String(verdict.context));
@@ -589,6 +593,7 @@ export const AlignPlugin = async () => ({
       type: "tool.execute.before",
       tool: input.tool,
       args: output.args,
+      ...(typeof input.sessionID === "string" && input.sessionID ? { session_id: input.sessionID } : {}),
     });
     if (!verdict) return;
     // Throwing is the only way to stop the call - the hook runs before item.execute.
