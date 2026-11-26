@@ -59,8 +59,8 @@ export interface ContextDecision {
   /** When it was decided, as the source states it (ISO). Orders the file newest first; unset sorts last. */
   decidedAt?: string;
   /** For a local graph's file: a rule written in the repo's docs, or a choice made in a commit, PR or ticket. Unset for a
-   *  hosted graph, whose file keeps one list. */
-  kind?: 'rule' | 'decision';
+   *  hosted graph, whose file keeps one list. A 'change' is a commit that states no reason: a fact, not a decision. */
+  kind?: 'rule' | 'decision' | 'change';
 }
 
 export const ALIGN_CONTEXT_PATH = '.align/decisions.md';
@@ -126,10 +126,14 @@ export function renderDecisionsFile(decisions: ContextDecision[], opts: { leftOu
 
   // A local graph's file has two kinds: the repo's written rules first, then the choices made in commits, PRs and tickets.
   const kinded = rest.some((d) => d.kind !== undefined);
+  const rules = rest.filter((d) => d.kind === 'rule');
+  const changes = rest.filter((d) => d.kind === 'change');
+  const decided = rest.filter((d) => d.kind !== 'rule' && d.kind !== 'change');
   const body = kinded
     ? [
-        ...(rest.some((d) => d.kind === 'rule') ? ['## Rules written in this repo', '', ...rest.filter((d) => d.kind === 'rule').map(line), ''] : []),
-        ...(rest.some((d) => d.kind !== 'rule') ? ['## Decisions, with the reason given where there is one', '', ...rest.filter((d) => d.kind !== 'rule').map(line)] : []),
+        ...(rules.length ? ['## Rules written in this repo', '', ...rules.map(line), ''] : []),
+        ...(decided.length ? ['## Decisions, with the reason given where there is one', '', ...decided.map(line), ...(changes.length ? [''] : [])] : []),
+        ...(changes.length ? ['## Changes with no stated reason', '', ...changes.map(line)] : []),
       ]
     : rest.map(line);
   const tail = opts.leftOut ? ['', `${opts.leftOut} more items in the graph are not listed here. \`align ask\` still searches them.`] : [];

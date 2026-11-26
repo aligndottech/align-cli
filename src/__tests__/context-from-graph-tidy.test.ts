@@ -157,8 +157,9 @@ describe('what is left out is what is not shown', () => {
       { ...dated(8, 'Use Path instead of File'), decided_at: '2023-01-01T00:00:00Z' },
     ];
     const picked = selectForFile(rows, 30);
-    expect(picked.decisions.map((x) => x.title)).toEqual(['Use Text instead of String', 'Use Path instead of File', 'Throw B instead of A']);
-    expect(picked.decisions[0]).toMatchObject({ commits: 2 });
+    // A reversal tag counts as a stated choice, so that row ranks ahead of the two bare changes.
+    expect(picked.decisions.map((x) => x.title)).toEqual(['Throw B instead of A', 'Use Text instead of String', 'Use Path instead of File']);
+    expect(picked.decisions[1]).toMatchObject({ commits: 2 });
     // Only the fix-shaped row is in the graph and not in the file.
     expect(picked.leftOut).toBe(1);
   });

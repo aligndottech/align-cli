@@ -20,7 +20,7 @@ import { createLocalGatewayClient } from './local-gateway-client.js';
 import { stripLeadingHtmlComments } from './fetchers/strip-leading-comments.js';
 import { isDependencyBumpSubject, isRenovateBump, TITLE_CUT_AT } from './commit-shape.js';
 import { decidedTime, tidyDecisions } from './decisions-tidy.js';
-import { DECISION_SHAPED, MECHANICAL_PREFIX, statedBodyReason, withoutIssuePrefix } from './decision-body.js';
+import { DECISION_SHAPED, MECHANICAL_PREFIX, statedBodyReason, subjectReason, withoutIssuePrefix } from './decision-body.js';
 import { extractReason } from './reason-extract.js';
 import { resolveEnv } from './resolve-env.js';
 
@@ -254,9 +254,9 @@ export function selectForFile(rows: ListedDecision[], limit: number): { decision
   // (not the first N in graph order) and every number describes what the file shows.
   const sourceOf = new Map<ContextDecision, ListedDecision>();
   const choices = decisionShapedRows(rows).filter((r) => !isFileBump(r)).map((r) => {
-    const reason = extractReason(r.title, r.summary ?? '') ?? statedBodyReason(r.title, r.summary, needsChoice(r.title));
+    const reason = extractReason(r.title, r.summary ?? '') ?? statedBodyReason(r.title, r.summary, needsChoice(r.title)) ?? subjectReason(wholeTitle(r.title, r.summary));
     // The cut test reads the title as stored, prefix included: the graph cut those 80 characters, not the stripped ones.
-    const d: ContextDecision = { ...contextDecisionOf({ ...r, title: wholeTitle(r.title, r.summary).replace(FEAT_PREFIX, '') }), kind: 'decision', ...(reason ? { reason } : {}) };
+    const d: ContextDecision = { ...contextDecisionOf({ ...r, title: wholeTitle(r.title, r.summary).replace(FEAT_PREFIX, '') }), kind: reason || !CODE_PLATFORMS.has(r.platform ?? '') ? 'decision' : 'change', ...(reason ? { reason } : {}) };
     sourceOf.set(d, r);
     return d;
   });
@@ -264,10 +264,12 @@ export function selectForFile(rows: ListedDecision[], limit: number): { decision
   // keeps what it always kept, instead of whichever sorts first by citation.
   const rank = (d: ContextDecision): number => decidedTime(d.decidedAt) ?? Number.NEGATIVE_INFINITY;
   const tier = (at: number): number => { const r = sourceOf.get(choices[at]!)!; return !CODE_PLATFORMS.has(r.platform ?? '') || bySubject(r) ? 0 : 1; };
+  const hasReason = (d: ContextDecision & { reverses?: string }): boolean => !!d.reason || !!d.reverses;
   const tidied = tidyDecisions(choices)
     .map((t) => ({ t, at: choices.indexOf(t.orig!) }))
-    // Strength first: a decision the subject states outranks one only the body states, whatever their dates.
-    .sort((a, b) => tier(a.at) - tier(b.at) || rank(b.t) - rank(a.t) || a.at - b.at)
+    // A stated reason first (a commit with none is a fact, listed apart and the first to be cut), then strength: a decision
+    // the subject states outranks one only the body states, whatever their dates.
+    .sort((a, b) => Number(!hasReason(a.t)) - Number(!hasReason(b.t)) || tier(a.at) - tier(b.at) || rank(b.t) - rank(a.t) || a.at - b.at)
     .map((x) => x.t);
   // Rules take up to two thirds of the file, and any slot the commits, PRs and ADRs do not use as well.
   const keptRules = rules.slice(0, Math.max(Math.floor(limit * RULE_SHARE_OF_CAP), limit - tidied.length));

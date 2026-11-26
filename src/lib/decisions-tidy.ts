@@ -70,7 +70,7 @@ function collapseSameTitle(rows: TidyRow[]): TidyRow[] {
     const into = isCommit(r) && t !== undefined
       ? out.find((o) => o.title === r.title && isCommit(o) && repoOf(o) === repoOf(r) && time(o) !== undefined && time(o)! - t <= COLLAPSE_WITHIN_DAYS * DAY)
       : undefined;
-    if (into) into.commits = (into.commits ?? 1) + 1;
+    if (into) { into.commits = (into.commits ?? 1) + 1; if (!into.reason && r.reason) into.reason = r.reason; }
     else out.push(r);
   }
   return out;
@@ -137,5 +137,7 @@ export function tidyDecisions(decisions: ContextDecision[]): TidyRow[] {
     const sorted = newestFirst(rows);
     return dropReversed(collapseSameTitle(sorted), sorted);
   });
+  // A commit with no reason of its own is a decision once its group states one or it reverses another (the tag says what was chosen over what).
+  for (const r of tidied) if (r.kind === 'change' && (r.reason || r.reverses)) r.kind = 'decision';
   return newestFirst(tidied);
 }
