@@ -126,11 +126,14 @@ export function renderDecisionsFile(decisions: ContextDecision[], opts: { leftOu
 
   // A local graph's file has two kinds: the repo's written rules first, then the choices made in commits, PRs and tickets.
   const kinded = rest.some((d) => d.kind !== undefined);
+  const rules = rest.filter((d) => d.kind === 'rule');
+  const changes = rest.filter((d) => d.kind === 'change');
+  const decided = rest.filter((d) => d.kind !== 'rule' && d.kind !== 'change');
   const body = kinded
     ? [
-        ...(rest.some((d) => d.kind === 'rule') ? ['## Rules written in this repo', '', ...rest.filter((d) => d.kind === 'rule').map(line), ''] : []),
-        ...(rest.some((d) => d.kind !== 'rule' && d.kind !== 'change') ? ['## Decisions, with the reason given where there is one', '', ...rest.filter((d) => d.kind !== 'rule' && d.kind !== 'change').map(line), ''] : []),
-        ...(rest.some((d) => d.kind === 'change') ? ['## Changes with no stated reason', '', ...rest.filter((d) => d.kind === 'change').map(line)] : []),
+        ...(rules.length ? ['## Rules written in this repo', '', ...rules.map(line), ''] : []),
+        ...(decided.length ? ['## Decisions, with the reason given where there is one', '', ...decided.map(line), ...(changes.length ? [''] : [])] : []),
+        ...(changes.length ? ['## Changes with no stated reason', '', ...changes.map(line)] : []),
       ]
     : rest.map(line);
   const tail = opts.leftOut ? ['', `${opts.leftOut} more items in the graph are not listed here. \`align ask\` still searches them.`] : [];
