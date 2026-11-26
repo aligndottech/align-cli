@@ -1,18 +1,35 @@
 import fs from 'node:fs';
 
+/** The errors Node's own fs.rmSync retry treats as "try again": on Windows they go away within moments. */
+const RETRY_CODES = new Set(['EBUSY', 'EMFILE', 'ENFILE', 'ENOTEMPTY', 'EPERM']);
+const TRIES = 20;
+const DELAY_MS = 150;
+
 /**
  * Remove a temp directory the way Windows allows: a process that just exited (or a SQLite
- * handle it held) can keep the folder busy for a moment. fs.rmSync's retry is linear backoff
- * (wait grows by retryDelay on each try), so the total wait is retryDelay * N * (N+1) / 2, not
- * retryDelay * N - the previous (10, 100) was already ~5.5s, not the ~1s it reads as. Still not
- * enough under heavy contention while a spawned child (plus whatever process tree an ESM loader
- * adds) is mid-shutdown: a manual Windows CI run hit EBUSY here even with that
- * budget. (20, 150) is ~31.5s - a real e2e test's cleanup is exactly where reliability matters
- * more than shaving seconds, and these options are inert on POSIX (the error codes they retry
- * on are a Windows-only failure mode, so this costs nothing there).
+ * handle it held) can keep the folder busy for a moment.
+ *
+ * The retry is done here, not by fs.rmSync's maxRetries. Node 22 retries a folder only when its
+ * first rmdir fails with ENOTEMPTY, EEXIST or EPERM. A first rmdir that fails with EBUSY, which is what
+ * Windows gives for a folder an exiting child still has as its working directory, is thrown at
+ * once (lib/internal/fs/rimraf.js, _rmdirSync). So the old maxRetries: 20 never ran for that
+ * case, and main failed on it two seconds into a test.
+ *
+ * The wait grows by DELAY_MS on each try: 19 waits between 20 tries, 28.5 s in all. A real e2e
+ * test's cleanup is where reliability matters more than seconds. Where the old maxRetries did
+ * apply it waited about as long (31.5 s), so no case waits longer than before. Pinned by
+ * rm-dir-helper.test.ts.
  */
 export function rmDir(dir: string): void {
-  fs.rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 150 });
+  for (let attempt = 1; ; attempt++) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+      return;
+    } catch (err) {
+      if (attempt === TRIES || !RETRY_CODES.has((err as { code?: string }).code ?? '')) throw err;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, attempt * DELAY_MS);
+    }
+  }
 }
 
 /** Is this process still running? EPERM means it exists and is not ours. */
