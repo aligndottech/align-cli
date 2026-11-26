@@ -162,6 +162,15 @@ function absorbLoser(db: DatabaseSync, loserId: string, survivorId: string, grou
     db.prepare('INSERT OR IGNORE INTO decision_identities (decision_id, ref, platform) SELECT ?, ref, platform FROM decision_identities WHERE decision_id = ?').run(survivorId, loserId);
     db.prepare('DELETE FROM decision_identities WHERE decision_id = ?').run(loserId);
   }
+  if (tableExists(db, 'co_change_rules')) {
+    repoint(db, 'co_change_rules', 'decision_id', loserId, survivorId);
+    db.prepare('DELETE FROM co_change_rules WHERE decision_id = ?').run(loserId);
+  }
+  if (tableExists(db, 'decision_partial_supersessions')) {
+    repoint(db, 'decision_partial_supersessions', 'source_id', loserId, survivorId);
+    repoint(db, 'decision_partial_supersessions', 'target_id', loserId, survivorId);
+    db.prepare('DELETE FROM decision_partial_supersessions WHERE source_id = ? OR target_id = ? OR source_id = target_id').run(loserId, loserId);
+  }
   db.prepare('DELETE FROM decision_embeddings WHERE decision_id = ?').run(loserId);
   db.prepare('DELETE FROM decisions WHERE id = ?').run(loserId);
   db.prepare(`INSERT INTO decision_audit (id, decision_id, action, actor, detail) VALUES (lower(hex(randomblob(16))), ?, 'merged', ?, ?)`)
@@ -193,7 +202,7 @@ const auditInsert = `INSERT INTO decision_audit (id, decision_id, action, actor,
  * survivor. The local graph has no decision flag column or status surface for that, so the
  * audit row is the visible record. Caller owns the transaction.
  */
-export function foldTwins(db: DatabaseSync, twins: TwinRow[], key: string, actor: string, preferred?: string): void {
+export function foldTwins(db: DatabaseSync, twins: TwinRow[], key: string | null, actor: string, preferred?: string): void {
   const newest = twins[twins.length - 1]!;
   const ratifiedAll = earliestBy(twins, 'ratified_at');
   const ratified = ratifiedAll[0];
