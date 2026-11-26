@@ -30,8 +30,6 @@ describe('stripPortFromUrl / stripPortFromRepo', () => {
   it.each([
     ['https://github.com/443/acme/widgets/commit/abc1234', 'https://github.com/acme/widgets/commit/abc1234'],
     ['https://github.com/22/acme/widgets/blob/main/docs/adr/0001.md', 'https://github.com/acme/widgets/blob/main/docs/adr/0001.md'],
-    ['https://gitlab.com/443/group/sub/repo/-/commit/abc1234', 'https://gitlab.com/group/sub/repo/-/commit/abc1234'],
-    ['https://gitlab.com/22/group/repo/-/blob/main/README.md', 'https://gitlab.com/group/repo/-/blob/main/README.md'],
   ])('rewrites port-prefixed URL %s -> %s', (input, expected) => {
     expect(stripPortFromUrl(input)).toBe(expected);
   });
@@ -42,18 +40,18 @@ describe('stripPortFromUrl / stripPortFromRepo', () => {
     'https://github.com/acme/widgets/commit/abc1234',
     'https://github.com/0/acme/widgets/commit/abc1234',
     'https://github.com/99999/acme/widgets/commit/abc1234',
+    'https://gitlab.com/443/group/sub/repo/-/commit/abc1234',
+    'https://gitlab.com/22/group/repo/-/blob/main/README.md',
     'https://gitlab.com/2025/group/repo/-/commit/abc1234',
     'https://gitlab.com/group/repo/-/commit/abc1234',
     'git://commit/abc1234',
-  ])('leaves non-port URL %s untouched', (input) => {
+  ])('leaves non-port or ambiguous-host URL %s untouched', (input) => {
     expect(stripPortFromUrl(input)).toBeNull();
   });
 
   it.each([
     ['github.com/443/acme/widgets', 'github.com/acme/widgets'],
     ['github.com/22/acme/widgets', 'github.com/acme/widgets'],
-    ['gitlab.com/443/group/sub/repo', 'gitlab.com/group/sub/repo'],
-    ['gitlab.com/22/group/repo', 'gitlab.com/group/repo'],
   ])('rewrites port-prefixed repo %s -> %s', (input, expected) => {
     expect(stripPortFromRepo(input)).toBe(expected);
   });
@@ -62,9 +60,11 @@ describe('stripPortFromUrl / stripPortFromRepo', () => {
     'github.com/1234/widgets',
     'github.com/443/widgets',
     'github.com/acme/widgets',
+    'gitlab.com/443/group/sub/repo',
+    'gitlab.com/22/group/repo',
     'gitlab.com/2025/group/repo',
     '/home/user/repo',
-  ])('leaves non-port repo %s untouched', (input) => {
+  ])('leaves non-port or ambiguous-host repo %s untouched', (input) => {
     expect(stripPortFromRepo(input)).toBeNull();
   });
 });
@@ -163,11 +163,12 @@ describe('port-prefixed repo migration on createLocalDb', () => {
     const db = createLocalDb(dbPath);
     const all = db.listDecisions({ repo: 'github.com/acme/widgets' });
     expect(all.map((d) => d.id).sort()).toEqual(['doc-new', 'git-old', 'other']);
-    // Ratified old git row survived AND was rewritten to the clean URL/repo/key.
+    // Ratified old git row survived AND was rewritten to the clean URL/repo/key/summary.
     const survivedGit = db.getDecisionById('git-old');
     expect(survivedGit?.ratifiedBy).toBe('bob');
     expect(survivedGit?.repo).toBe('github.com/acme/widgets');
     expect(survivedGit?.sourceUrl).toBe(cleanGitUrl);
+    expect(survivedGit?.summary).toBe(`Keep hooks fail-open\n\nURL: ${cleanGitUrl}`);
     // Link from doc-old was repointed to doc-new.
     const links = db.listLinks({ decisionId: 'doc-new' });
     expect(links.some((l) => l.targetId === 'other')).toBe(true);
@@ -313,6 +314,8 @@ describe('port-prefixed repo migration on createLocalDb', () => {
     const writer = new DatabaseSync(dbPath);
     const insert = `INSERT INTO decisions (id, title, summary, source_url, platform, repo, source_key) VALUES (?, ?, 'Context', ?, 'docs', ?, NULL)`;
     opener.prepare(insert).run('fp-clean', 'ADR numeric owner', 'https://github.com/1234/widgets/blob/blob/docs/adr.md', 'github.com/1234/widgets');
+    opener.prepare(insert).run('fp-gitlab', 'GitLab numeric group', 'https://gitlab.com/22/team/project/-/blob/main/docs/adr.md', 'gitlab.com/22/team/project');
+    opener.prepare(`INSERT INTO co_change_rules (id, decision_id, repo, when_paths, require_paths) VALUES ('cc-gl', 'fp-gitlab', 'gitlab.com/443/team/project', '["a"]', '["b"]')`).run();
 
     writer.exec('BEGIN IMMEDIATE'); // another process is in the middle of a write
     expect(() => repairPortPrefixedRepos(opener)).not.toThrow();

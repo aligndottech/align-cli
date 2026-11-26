@@ -1,6 +1,6 @@
 /**
- * Additive, idempotent repair for local graphs imported before #700 from a port-bearing remote
- * (e.g. ssh://git@ssh.github.com:443/owner/repo.git or ssh://git@altssh.gitlab.com:443/group/repo.git).
+ * Additive, idempotent repair for local graphs imported before #700 from a port-bearing GitHub
+ * remote (e.g. ssh://git@ssh.github.com:443/owner/repo.git).
  *
  * Before #700 dropped the port in remote-url.ts, buildCommitUrl, buildBlobUrl and repoFromRemoteUrl
  * kept the port as a leading path segment:
@@ -16,8 +16,9 @@
  * - On GitHub a real repository always has exactly two path segments (`owner/repo`), never three,
  *   so `github.com/<port>/<owner>/<repo>` (port 1..65535) never collides with a legitimate
  *   all-digit GitHub owner like `github.com/1234/repo`.
- * - On GitLab subgroups allow 3+ segments, so only the two documented SSH/altssh ports (443, 22)
- *   are rewritten.
+ * - GitLab allows all-digit top-level group paths (`gitlab.com/443`) and nested subgroups, so
+ *   `gitlab.com/443/team/project` cannot be distinguished from a leaked port in stored rows alone;
+ *   offline repair leaves GitLab rows untouched for `connect git` where the real remote is known.
  * - When a clean row already exists (from a post-#700 re-import), both rows are folded through
  *   foldTwins so attestations, links, refs, judgements and backups stay intact without hitting
  *   unique constraints on source_key or (source_url, title).
@@ -31,9 +32,7 @@ import { repoFromSourceUrl } from './repo-identity.js';
 import { connectorItemKey } from './source-key.js';
 
 const GITHUB_PORT_URL = /^https:\/\/github\.com\/([1-9]\d{0,4})\/([^/\s]+\/[^/\s]+)\/(commit|blob)\/(.+)$/i;
-const GITLAB_PORT_URL = /^https:\/\/gitlab\.com\/(443|22)\/([^/\s]+\/.+?)\/-\/(commit|blob)\/(.+)$/i;
 const GITHUB_PORT_REPO = /^github\.com\/([1-9]\d{0,4})\/([^/\s]+\/[^/\s]+)$/i;
-const GITLAB_PORT_REPO = /^gitlab\.com\/(443|22)\/([^/\s]+\/.+)$/i;
 
 const TWIN_COLUMNS = 'id, rowid, created_at, title, summary, ratified_by, ratified_at, confirmed_by, confirmed_at';
 
@@ -47,8 +46,6 @@ export function stripPortFromUrl(url: string | null | undefined): string | null 
   if (!url) return null;
   const gh = GITHUB_PORT_URL.exec(url);
   if (gh && isValidPort(gh[1]!)) return `https://github.com/${gh[2]}/${gh[3]}/${gh[4]}`;
-  const gl = GITLAB_PORT_URL.exec(url);
-  if (gl) return `https://gitlab.com/${gl[2]}/-/${gl[3]}/${gl[4]}`;
   return null;
 }
 
@@ -57,8 +54,6 @@ export function stripPortFromRepo(repo: string | null | undefined): string | nul
   if (!repo) return null;
   const gh = GITHUB_PORT_REPO.exec(repo);
   if (gh && isValidPort(gh[1]!)) return `github.com/${gh[2]!.toLowerCase()}`;
-  const gl = GITLAB_PORT_REPO.exec(repo);
-  if (gl) return `gitlab.com/${gl[2]!.toLowerCase()}`;
   return null;
 }
 
@@ -79,9 +74,7 @@ function findCandidates(db: DatabaseSync): CandidateRow[] {
      WHERE platform IN ('git', 'docs')
        AND (
          repo LIKE 'github.com/%/%/%'
-         OR repo LIKE 'gitlab.com/%/%/%'
          OR source_url LIKE 'https://github.com/%/%/%/%'
-         OR source_url LIKE 'https://gitlab.com/%/%/%/%'
        )
      ORDER BY rowid`,
   ).all() as unknown as CandidateRow[];
@@ -95,7 +88,7 @@ function isLeaked(row: CandidateRow): boolean {
 function hasAffectedCoChange(db: DatabaseSync): boolean {
   const exists = db.prepare(`SELECT 1 AS hit FROM sqlite_master WHERE type = 'table' AND name = 'co_change_rules'`).get();
   if (!exists) return false;
-  const rows = db.prepare(`SELECT DISTINCT repo FROM co_change_rules WHERE repo LIKE 'github.com/%/%/%' OR repo LIKE 'gitlab.com/%/%/%'`)
+  const rows = db.prepare(`SELECT DISTINCT repo FROM co_change_rules WHERE repo LIKE 'github.com/%/%/%'`)
     .all() as Array<{ repo: string | null }>;
   return rows.some((r) => stripPortFromRepo(r.repo) !== null);
 }
@@ -166,17 +159,20 @@ export function repairPortPrefixedRepos(db: DatabaseSync): void {
         .all(...ids) as unknown as TwinRow[];
       foldTwins(db, twins, nextKey, 'migration', preferred);
       // If an attested old row survived, foldTwins intentionally preserves its text/summary,
-      // but its source_url and repo still need the clean values so scoped reads and links work.
-      const survivor = db.prepare(`SELECT id FROM decisions WHERE id IN (${placeholders})`).get(...ids) as { id: string } | undefined;
+      // so rewrite its source_url, repo, source_key and any embedded URL: line to the clean values.
+      const survivor = db.prepare(`SELECT id, summary FROM decisions WHERE id IN (${placeholders})`).get(...ids) as { id: string; summary: string } | undefined;
       if (survivor) {
-        db.prepare('UPDATE decisions SET source_url = ?, repo = ?, source_key = ? WHERE id = ?')
-          .run(nextUrl, nextRepo, survivorKey, survivor.id);
+        const survivorSummary = row.source_url && nextUrl && nextUrl !== row.source_url
+          ? replaceSummaryUrl(survivor.summary, row.source_url, nextUrl)
+          : survivor.summary;
+        db.prepare('UPDATE decisions SET source_url = ?, repo = ?, source_key = ?, summary = ? WHERE id = ?')
+          .run(nextUrl, nextRepo, survivorKey, survivorSummary, survivor.id);
         refreshIdentities(db, survivor.id, row.platform, nextUrl);
       }
     }
 
     if (hasAffectedCoChange(db)) {
-      const repos = db.prepare(`SELECT DISTINCT repo FROM co_change_rules WHERE repo LIKE 'github.com/%/%/%' OR repo LIKE 'gitlab.com/%/%/%'`)
+      const repos = db.prepare(`SELECT DISTINCT repo FROM co_change_rules WHERE repo LIKE 'github.com/%/%/%'`)
         .all() as Array<{ repo: string | null }>;
       for (const { repo } of repos) {
         const clean = stripPortFromRepo(repo);
