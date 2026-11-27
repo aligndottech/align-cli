@@ -15,6 +15,7 @@ import { hasDetectorVersion, migrateV12 } from './local-db-v12.js';
 import { hasCoChangeTable, migrateCoChange } from './local-db-cochange.js';
 import { deleteIdentities, hasIdentityTable, migrateRefLinks } from './local-ref-links.js';
 import { hasPartialSupersessionTable, migratePartialSupersessions, relinkNamersOfFile } from './local-partial-supersession.js';
+import { repairPortPrefixedRepos } from './local-db-port-repo.js';
 
 export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS decisions (
@@ -566,6 +567,8 @@ export function migrate(db: DatabaseSync): void {
       throw err;
     }
   }
+  // Additive, idempotent: strip leaked port segments from pre-#700 git/docs rows (see local-db-port-repo.ts).
+  repairPortPrefixedRepos(db);
   if (version < SCHEMA_VERSION) {
     db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   }
