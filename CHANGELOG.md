@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.94.0](https://github.com/aligndottech/align-cli/compare/cli-v0.93.1...cli-v0.94.0) (2026-11-27)
+
+
+### Features
+
+* **docs:** --docs-path reads a folder you name, numbered or not ([#729](https://github.com/aligndottech/align-cli/issues/729)) ([67f99b1](https://github.com/aligndottech/align-cli/commit/67f99b110c203127be1b248a7cf7c9d96eb99db7))
+* **up:** list commits that state no reason apart from decisions ([#742](https://github.com/aligndottech/align-cli/issues/742)) ([d93a929](https://github.com/aligndottech/align-cli/commit/d93a929f7b67f096be307db41f3eef3d444bcf5b))
+* **up:** list decisions judged from the commit body, with the stated reason ([#726](https://github.com/aligndottech/align-cli/issues/726)) ([361a0da](https://github.com/aligndottech/align-cli/commit/361a0da0e2957616ef85fa328f5b773226adf448))
+
+
+### Bug Fixes
+
+* **check:** a decision about the changed lines is not crowded out by commits about the file ([#734](https://github.com/aligndottech/align-cli/issues/734)) ([8e9b374](https://github.com/aligndottech/align-cli/commit/8e9b374c4eb129b160c559e551078e6b254527c5))
+* **check:** a model-judged conflict is CRITICAL only when it is grounded in the texts ([#735](https://github.com/aligndottech/align-cli/issues/735)) ([b846346](https://github.com/aligndottech/align-cli/commit/b846346f81e84a1480e35389c92ac0b3420e069a))
+* **check:** a trailing comment the edit left as it was grounds nothing ([#741](https://github.com/aligndottech/align-cli/issues/741)) ([c0b3ff4](https://github.com/aligndottech/align-cli/commit/c0b3ff47cce4cf8151c70ab04a67a3bc76efcdd7))
+* **check:** align check retrieves candidates at the same floor as the edit hook ([#730](https://github.com/aligndottech/align-cli/issues/730)) ([f90ca06](https://github.com/aligndottech/align-cli/commit/f90ca065a8e0ddb69017b055ab7180cbc1198051))
+* **check:** keep a session's advisory dedup across turns, and pass session_id from pi and OpenCode ([#737](https://github.com/aligndottech/align-cli/issues/737)) ([8e05f0c](https://github.com/aligndottech/align-cli/commit/8e05f0c215e71ab7ba6eccccec8c8697a1ce167b))
+* **context:** say that the CLAUDE.md import needs a terminal or --approve ([#732](https://github.com/aligndottech/align-cli/issues/732)) ([f5129eb](https://github.com/aligndottech/align-cli/commit/f5129eb2bf4f816d37acb291f378cd53b4a94129))
+* **context:** with no terminal, leave CLAUDE.md alone unless --approve ([#727](https://github.com/aligndottech/align-cli/issues/727)) ([cb09cab](https://github.com/aligndottech/align-cli/commit/cb09cab1dd9a3d5da2d422a3b83943328e1987b9))
+* **llm:** name exported opt-in provider keys when no provider is selected ([#739](https://github.com/aligndottech/align-cli/issues/739)) ([1b72822](https://github.com/aligndottech/align-cli/commit/1b72822d05e6a212f86fc554be749fb700304499))
+* **local:** strip leaked remote ports from rows imported before [#700](https://github.com/aligndottech/align-cli/issues/700) ([#738](https://github.com/aligndottech/align-cli/issues/738)) ([cd54113](https://github.com/aligndottech/align-cli/commit/cd541130af73063a6ced681c85fe5ead891e2e40))
+* **ollama:** read OLLAMA_HOST the way Ollama does, and name it when Ollama cannot be reached ([#733](https://github.com/aligndottech/align-cli/issues/733)) ([d0fe5b7](https://github.com/aligndottech/align-cli/commit/d0fe5b7ce9631b40ecda9366a80c394d307b788a))
+* **redact:** Tailwind variant classes and mailto addresses are not credentials ([#728](https://github.com/aligndottech/align-cli/issues/728)) ([458dc9e](https://github.com/aligndottech/align-cli/commit/458dc9edd3ffad8b5d8721bf0c9aca6660758b11))
+
 ## [0.93.1](https://github.com/aligndottech/align-cli/compare/cli-v0.93.0...cli-v0.93.1) (2026-11-24)
 
 
